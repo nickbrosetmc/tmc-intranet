@@ -63,22 +63,68 @@ DNS for `tmctechhub.com` is hosted in **GoHighLevel**, not Cloudflare (because G
    - Click **Create**.
 6. Copy the **Client ID** and **Client Secret** — paste them into Cloudflare in step 4.
 
-> **Why this is safe:** Google's "Test users" list + our server-side allowlist is a double layer — even if someone fooled the OAuth dance, they'd still need to be in `ALLOWED_EMAILS`. There's no path for an outsider to gain access.
+> **Why this is safe:** Google's "Test users" list + our DB-backed invite list is a double layer. An outsider can't even reach the OAuth callback because they're not on Google's test users list, and even if they did, the DB lookup would reject them.
 
-## 4. Cloudflare — set the auth env vars
+## 4. Cloudflare D1 — create database and apply migrations
+
+The `users` table doubles as the invite list. To "invite" someone, an admin inserts a row with their email + role. They can then sign in with Google.
+
+### One-time D1 setup
+
+```bash
+# In the project root:
+npx wrangler login              # authenticate (opens browser)
+npm run db:create               # creates D1, prints database_id
+```
+
+The output looks like:
+```
+[[d1_databases]]
+binding = "DB"
+database_name = "tmc-intranet-db"
+database_id = "abc-def-1234-..."
+```
+
+**Copy the `database_id`** and paste it into `wrangler.toml` (replace `PASTE_DATABASE_ID_HERE`). Commit this — the ID is not a secret.
+
+### Apply the schema migration
+
+```bash
+npm run db:migrate:remote    # applies migrations/0001_create_users.sql to production D1
+```
+
+You should see `✓ migrations applied`. The `users` table now exists in your D1.
+
+### Bootstrap the first admin
+
+This is the only way the first admin gets created — there's no UI for it yet (Stage 5).
+
+```bash
+npm run db:console -- "INSERT INTO users (email, role) VALUES ('YOUR_EMAIL@marketingtmc.com', 'admin')"
+```
+
+Replace `YOUR_EMAIL@marketingtmc.com` with your real email. Repeat for each team member (use `'user'` instead of `'admin'` for non-admins, or just leave the role default).
+
+To list users:
+```bash
+npm run db:console -- "SELECT id, email, role, last_signed_in FROM users"
+```
+
+To remove someone:
+```bash
+npm run db:console -- "DELETE FROM users WHERE email = 'someone@example.com'"
+```
+
+## 5. Cloudflare — set the auth env vars
 
 In Cloudflare Pages → `tmc-intranet` → **Settings** → **Variables and Secrets** → **Add**:
 
-| Type        | Name                   | Value                                                                     |
-|-------------|------------------------|---------------------------------------------------------------------------|
-| Plaintext   | `GOOGLE_CLIENT_ID`     | _from Google Cloud step 5_                                                |
-| Plaintext   | `ALLOWED_DOMAIN`       | `marketingtmc.com` _(team members on the company domain)_                 |
-| Plaintext   | `ALLOWED_EMAILS`       | `personal1@gmail.com,personal2@gmail.com` _(team members using personal Gmail)_ |
-| Plaintext   | `NODE_VERSION`         | `22` (already set in step 1)                                              |
-| Secret      | `GOOGLE_CLIENT_SECRET` | _from Google Cloud step 5_                                                |
-| Secret      | `SESSION_SECRET`       | random string — generate with command below                              |
-
-A user is allowed if their email matches `ALLOWED_DOMAIN` **or** appears in `ALLOWED_EMAILS`. Either env var can be set independently.
+| Type        | Name                   | Value                                          |
+|-------------|------------------------|------------------------------------------------|
+| Plaintext   | `GOOGLE_CLIENT_ID`     | _from Google Cloud step 5_                     |
+| Plaintext   | `NODE_VERSION`         | `22` (already set in step 1)                   |
+| Secret      | `GOOGLE_CLIENT_SECRET` | _from Google Cloud step 5_                     |
+| Secret      | `SESSION_SECRET`       | random string — generate with command below   |
 
 Generate `SESSION_SECRET`:
 ```bash
@@ -89,25 +135,28 @@ Copy the output and paste it as the `SESSION_SECRET` value. **Don't share or com
 
 After saving, **redeploy** the project (Deployments → ⋯ → Retry deployment). Env vars only apply to new deploys.
 
-## 5. Test the auth flow
+## 6. Test the auth flow
 
 1. Open `https://portal.tmctechhub.com` (or `https://tmc-intranet.pages.dev`) in an incognito window.
 2. You should see the "Sign in with Google" button.
-3. Click it → Google login → pick your `@marketingtmc.com` account → redirects back to home.
+3. Click it → Google login → pick the account you bootstrapped in step 4 → redirects back to home.
 4. You should see "Welcome, [your first name]" with your avatar in the top right.
-5. Click **Sign out** in the header — should return to the sign-in page.
+5. Try signing in with a Google account that **isn't** in the `users` table — you should get "isn't on the TMC Tech Hub invite list" error.
+6. Click **Sign out** in the header — should return to the sign-in page.
 
 If anything fails, check Cloudflare Pages → Deployments → latest → **Functions logs** for errors.
 
-## 6. Stage 3 — D1 database (next PR)
+## 7. Adding new team members later
 
-```bash
-npx wrangler login
-npx wrangler d1 create tmc-intranet-db
-# → outputs database_id, paste into wrangler.toml
-```
+Two-step invite:
 
-Then we run schema migrations and seed the apps.
+1. **Add their email to Google Test users list** (Google Cloud Console → OAuth consent screen → Audience → Test users → Add user)
+2. **Insert them into the D1 `users` table**:
+   ```bash
+   npm run db:console -- "INSERT INTO users (email, role) VALUES ('newperson@example.com', 'user')"
+   ```
+
+They can now sign in with their Google account. After they sign in once, their name and profile picture auto-populate.
 
 ---
 
@@ -127,6 +176,6 @@ For local dev with Pages Functions, create a `.dev.vars` file in the repo root (
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 SESSION_SECRET=...
-ALLOWED_DOMAIN=marketingtmc.com
-ALLOWED_EMAILS=personal1@gmail.com,personal2@gmail.com
 ```
+
+Then run `npm run db:migrate:local` to apply the schema to a local SQLite emulator (Miniflare).

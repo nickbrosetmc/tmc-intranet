@@ -2,10 +2,10 @@ import {
   clearStateCookie,
   createSessionCookie,
   exchangeCodeForUser,
-  isEmailAllowed,
   readStateCookie,
   type Env,
 } from "../lib/auth";
+import { getDb, getUserByEmail, recordSignIn } from "../db";
 
 export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   const url = new URL(request.url);
@@ -25,24 +25,37 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
     return errorPage("Invalid OAuth state. Please try signing in again.");
   }
 
-  let user;
+  let googleUser;
   try {
-    user = await exchangeCodeForUser(code, request, env);
+    googleUser = await exchangeCodeForUser(code, request, env);
   } catch (e) {
     return errorPage(`Failed to verify Google account: ${(e as Error).message}`);
   }
 
-  if (!user.verified_email) {
+  if (!googleUser.verified_email) {
     return errorPage("Your Google account email is not verified.");
   }
-  if (!isEmailAllowed(user.email, env)) {
+
+  const db = getDb(env.DB);
+  const row = await getUserByEmail(db, googleUser.email);
+  if (!row) {
     return errorPage(
-      `${user.email} isn't on the allowlist for the TMC Tech Hub. Ask Nick to add you.`,
+      `${googleUser.email} isn't on the TMC Tech Hub invite list. Ask Nick to add you.`,
     );
   }
 
+  await recordSignIn(db, googleUser.email, {
+    name: googleUser.name,
+    picture: googleUser.picture,
+  });
+
   const sessionCookie = await createSessionCookie(
-    { email: user.email, name: user.name, picture: user.picture },
+    {
+      email: row.email,
+      name: googleUser.name,
+      picture: googleUser.picture,
+      role: row.role,
+    },
     env,
   );
 

@@ -10,10 +10,6 @@ pages_build_output_dir = "./dist"
 # Required vars (Plaintext):
 #   GOOGLE_CLIENT_ID = "<from Google Cloud Console OAuth client>"
 #
-# Optional allowlist vars (set at least one — both can be combined):
-#   ALLOWED_DOMAIN   = "marketingtmc.com"               # comma-separated domains
-#   ALLOWED_EMAILS   = "alice@gmail.com,bob@gmail.com"  # comma-separated explicit emails
-#
 # Required secrets (Secret):
 #   GOOGLE_CLIENT_SECRET = <from Google Cloud Console OAuth client>
 #   SESSION_SECRET       = <random 32+ byte string, used to sign JWT cookies>
@@ -21,14 +17,10 @@ pages_build_output_dir = "./dist"
 # Generate SESSION_SECRET locally with:
 #   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
-# D1 database binding — uncomment after running `wrangler d1 create tmc-intranet-db`
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "tmc-intranet-db"
-# database_id = "TODO_FILL_AFTER_CREATE"
-
-# Local-dev D1 (Miniflare) — same binding, no remote ID needed
-# [[env.preview.d1_databases]]
-# binding = "DB"
-# database_name = "tmc-intranet-db"
-# database_id = "TODO_FILL_AFTER_CREATE"
+# D1 database binding.
+# Run `npx wrangler d1 create tmc-intranet-db` once, then paste the database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "tmc-intranet-db"
+database_id = "PASTE_DATABASE_ID_HERE"
+migrations_dir = "migrations"

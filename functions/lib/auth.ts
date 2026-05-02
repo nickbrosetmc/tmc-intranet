@@ -4,16 +4,16 @@ export interface Env {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   SESSION_SECRET: string;
-  /** Comma-separated email domain(s) to allow. e.g. "marketingtmc.com". Optional. */
-  ALLOWED_DOMAIN?: string;
-  /** Comma-separated explicit emails to allow on top of the domain. Optional. */
-  ALLOWED_EMAILS?: string;
+  DB: D1Database;
 }
+
+export type Role = "user" | "admin";
 
 export interface SessionUser {
   email: string;
   name: string;
   picture?: string;
+  role: Role;
 }
 
 const SESSION_COOKIE = "tmc_session";
@@ -53,7 +53,7 @@ interface GoogleTokenResponse {
   token_type: string;
 }
 
-interface GoogleUserInfo {
+export interface GoogleUserInfo {
   email: string;
   name: string;
   picture?: string;
@@ -91,22 +91,6 @@ export async function exchangeCodeForUser(
   return (await userRes.json()) as GoogleUserInfo;
 }
 
-export function isEmailAllowed(email: string, env: Env): boolean {
-  const lower = email.toLowerCase();
-
-  const domains = (env.ALLOWED_DOMAIN ?? "")
-    .split(",")
-    .map((d) => d.trim().toLowerCase())
-    .filter(Boolean);
-  if (domains.some((d) => lower.endsWith(`@${d}`))) return true;
-
-  const emails = (env.ALLOWED_EMAILS ?? "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  return emails.includes(lower);
-}
-
 export async function createSessionCookie(
   user: SessionUser,
   env: Env,
@@ -115,6 +99,7 @@ export async function createSessionCookie(
     email: user.email,
     name: user.name,
     picture: user.picture,
+    role: user.role,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -140,10 +125,12 @@ export async function getSession(
     if (typeof payload.email !== "string" || typeof payload.name !== "string") {
       return null;
     }
+    const role = payload.role === "admin" ? "admin" : "user";
     return {
       email: payload.email,
       name: payload.name,
       picture: typeof payload.picture === "string" ? payload.picture : undefined,
+      role,
     };
   } catch {
     return null;
