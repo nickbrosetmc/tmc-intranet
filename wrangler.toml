@@ -3,9 +3,20 @@ compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./dist"
 
-# Environment variables (non-secret). Use `wrangler secret put` for secrets.
-# [vars]
-# EXAMPLE_VAR = "value"
+# Pages Functions environment variables. These get set in the Cloudflare dashboard
+# (Workers & Pages → tmc-intranet → Settings → Variables and Secrets).
+# Listing them here for documentation only.
+#
+# Required vars (Plaintext):
+#   GOOGLE_CLIENT_ID   = "<from Google Cloud Console OAuth client>"
+#   ALLOWED_DOMAIN     = "marketingtmc.com"
+#
+# Required secrets (Secret):
+#   GOOGLE_CLIENT_SECRET = <from Google Cloud Console OAuth client>
+#   SESSION_SECRET       = <random 32+ byte string, used to sign JWT cookies>
+#
+# Generate SESSION_SECRET locally with:
+#   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
 # D1 database binding — uncomment after running `wrangler d1 create tmc-intranet-db`
 # [[d1_databases]]
