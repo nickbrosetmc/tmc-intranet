@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { AnnouncementsPanel } from "@/components/AnnouncementsPanel";
 import { AppGrid } from "@/components/AppGrid";
 import { useUser, type User } from "@/lib/useUser";
 
@@ -61,6 +62,7 @@ function Welcome({ user }: { user: User }) {
           Pick a tool to get started.
         </p>
       </div>
+      <AnnouncementsPanel />
       <AppGrid />
     </div>
   );

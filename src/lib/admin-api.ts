@@ -1,6 +1,7 @@
 // Tiny typed wrapper around the /api/admin/* endpoints.
 
 import type { App, AppGroup } from "./apps";
+import type { Announcement } from "./announcements";
 
 export interface AdminUser {
   id: number;
@@ -112,4 +113,27 @@ export const adminGroups = {
 // Analytics
 export const adminAnalytics = {
   summary: () => jsonRequest<AnalyticsSummary>("/api/admin/analytics"),
+};
+
+// Announcements
+export const adminAnnouncements = {
+  list: () =>
+    jsonRequest<{ announcements: Announcement[] }>("/api/admin/announcements"),
+  create: (data: { title: string; body: string; isPinned?: boolean }) =>
+    jsonRequest<{ announcement: Announcement }>("/api/admin/announcements", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (
+    id: number,
+    data: { title?: string; body?: string; isPinned?: boolean; isActive?: boolean },
+  ) =>
+    jsonRequest<{ ok: true }>(`/api/admin/announcements/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  remove: (id: number) =>
+    jsonRequest<{ ok: true }>(`/api/admin/announcements/${id}`, {
+      method: "DELETE",
+    }),
 };

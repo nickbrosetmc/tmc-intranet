@@ -4,6 +4,7 @@ import { useUser } from "@/lib/useUser";
 import { Toaster } from "@/components/ui/sonner";
 
 const NAV = [
+  { href: "/admin/announcements", label: "Announcements" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/apps", label: "Apps" },
   { href: "/admin/groups", label: "Groups" },
