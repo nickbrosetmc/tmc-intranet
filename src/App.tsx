@@ -84,7 +84,7 @@ function SignInState() {
           </a>
         </Button>
         <p className="text-xs text-muted-foreground mt-4">
-          Restricted to @marketingtmc.com accounts.
+          TMC team only. Ask Nick if you need access.
         </p>
       </div>
     </div>

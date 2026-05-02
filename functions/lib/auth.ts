@@ -4,7 +4,10 @@ export interface Env {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   SESSION_SECRET: string;
-  ALLOWED_DOMAIN: string;
+  /** Comma-separated email domain(s) to allow. e.g. "marketingtmc.com". Optional. */
+  ALLOWED_DOMAIN?: string;
+  /** Comma-separated explicit emails to allow on top of the domain. Optional. */
+  ALLOWED_EMAILS?: string;
 }
 
 export interface SessionUser {
@@ -39,7 +42,6 @@ export function buildLoginUrl(request: Request, env: Env, state: string): string
     state,
     access_type: "online",
     prompt: "select_account",
-    hd: env.ALLOWED_DOMAIN,
   });
   return `${GOOGLE_AUTHORIZE_URL}?${params}`;
 }
@@ -89,8 +91,20 @@ export async function exchangeCodeForUser(
   return (await userRes.json()) as GoogleUserInfo;
 }
 
-export function isEmailAllowed(email: string, allowedDomain: string): boolean {
-  return email.toLowerCase().endsWith(`@${allowedDomain.toLowerCase()}`);
+export function isEmailAllowed(email: string, env: Env): boolean {
+  const lower = email.toLowerCase();
+
+  const domains = (env.ALLOWED_DOMAIN ?? "")
+    .split(",")
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean);
+  if (domains.some((d) => lower.endsWith(`@${d}`))) return true;
+
+  const emails = (env.ALLOWED_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return emails.includes(lower);
 }
 
 export async function createSessionCookie(

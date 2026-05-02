@@ -8,8 +8,11 @@ pages_build_output_dir = "./dist"
 # Listing them here for documentation only.
 #
 # Required vars (Plaintext):
-#   GOOGLE_CLIENT_ID   = "<from Google Cloud Console OAuth client>"
-#   ALLOWED_DOMAIN     = "marketingtmc.com"
+#   GOOGLE_CLIENT_ID = "<from Google Cloud Console OAuth client>"
+#
+# Optional allowlist vars (set at least one — both can be combined):
+#   ALLOWED_DOMAIN   = "marketingtmc.com"               # comma-separated domains
+#   ALLOWED_EMAILS   = "alice@gmail.com,bob@gmail.com"  # comma-separated explicit emails
 #
 # Required secrets (Secret):
 #   GOOGLE_CLIENT_SECRET = <from Google Cloud Console OAuth client>

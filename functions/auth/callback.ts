@@ -35,9 +35,9 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   if (!user.verified_email) {
     return errorPage("Your Google account email is not verified.");
   }
-  if (!isEmailAllowed(user.email, env.ALLOWED_DOMAIN)) {
+  if (!isEmailAllowed(user.email, env)) {
     return errorPage(
-      `Access restricted to @${env.ALLOWED_DOMAIN} accounts. You signed in as ${user.email}.`,
+      `${user.email} isn't on the allowlist for the TMC Tech Hub. Ask Nick to add you.`,
     );
   }
 

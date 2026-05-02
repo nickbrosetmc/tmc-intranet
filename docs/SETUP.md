@@ -38,15 +38,20 @@ DNS for `tmctechhub.com` is hosted in **GoHighLevel**, not Cloudflare (because G
 
 ## 3. Google OAuth — set up the OAuth client
 
-1. Open https://console.cloud.google.com (use a Google account with admin rights on the `marketingtmc.com` Workspace, or just any Google account works for client setup).
-2. Top-left project picker → **New Project** → name it `TMC Tech Hub`. Pick the existing TMC org if visible.
+> Some team members use personal Gmail accounts (not `@marketingtmc.com`), so we use **External** user type and explicitly list each team member as a Test User. Stays in Testing mode permanently — never need verification.
+
+1. Open https://console.cloud.google.com.
+2. Top-left project picker → **New Project** → name it `TMC Tech Hub`.
 3. Left nav → **APIs & Services** → **OAuth consent screen** → click **Get started**.
-   - User type: **Internal** (only marketingtmc.com users — this is the right choice).
+   - User type: **External** (required because some users have personal Gmail).
    - App name: `TMC Tech Hub`
    - User support email: your email
    - Developer contact: your email
    - Save.
-4. Left nav → **Credentials** → **Create Credentials** → **OAuth client ID**.
+4. Still on **OAuth consent screen** → **Audience** tab (or scroll down) → **Test users** → **Add users**:
+   - Add every team member's email — both `@marketingtmc.com` and personal Gmail. All 5.
+   - Only people on this list can sign in while the app is in Testing mode.
+5. Left nav → **Credentials** → **Create Credentials** → **OAuth client ID**.
    - Application type: **Web application**
    - Name: `TMC Tech Hub`
    - Authorized JavaScript origins:
@@ -56,19 +61,24 @@ DNS for `tmctechhub.com` is hosted in **GoHighLevel**, not Cloudflare (because G
      - `https://portal.tmctechhub.com/auth/callback`
      - `https://tmc-intranet.pages.dev/auth/callback` *(useful for testing on the .pages.dev URL)*
    - Click **Create**.
-5. Copy the **Client ID** and **Client Secret** — paste them into Cloudflare in step 4.
+6. Copy the **Client ID** and **Client Secret** — paste them into Cloudflare in step 4.
+
+> **Why this is safe:** Google's "Test users" list + our server-side allowlist is a double layer — even if someone fooled the OAuth dance, they'd still need to be in `ALLOWED_EMAILS`. There's no path for an outsider to gain access.
 
 ## 4. Cloudflare — set the auth env vars
 
 In Cloudflare Pages → `tmc-intranet` → **Settings** → **Variables and Secrets** → **Add**:
 
-| Type        | Name                 | Value                                                |
-|-------------|----------------------|------------------------------------------------------|
-| Plaintext   | `GOOGLE_CLIENT_ID`   | _from Google Cloud step 4_                           |
-| Plaintext   | `ALLOWED_DOMAIN`     | `marketingtmc.com`                                   |
-| Plaintext   | `NODE_VERSION`       | `22` (already set in step 1)                         |
-| Secret      | `GOOGLE_CLIENT_SECRET` | _from Google Cloud step 4_                         |
-| Secret      | `SESSION_SECRET`     | random string — generate with command below         |
+| Type        | Name                   | Value                                                                     |
+|-------------|------------------------|---------------------------------------------------------------------------|
+| Plaintext   | `GOOGLE_CLIENT_ID`     | _from Google Cloud step 5_                                                |
+| Plaintext   | `ALLOWED_DOMAIN`       | `marketingtmc.com` _(team members on the company domain)_                 |
+| Plaintext   | `ALLOWED_EMAILS`       | `personal1@gmail.com,personal2@gmail.com` _(team members using personal Gmail)_ |
+| Plaintext   | `NODE_VERSION`         | `22` (already set in step 1)                                              |
+| Secret      | `GOOGLE_CLIENT_SECRET` | _from Google Cloud step 5_                                                |
+| Secret      | `SESSION_SECRET`       | random string — generate with command below                              |
+
+A user is allowed if their email matches `ALLOWED_DOMAIN` **or** appears in `ALLOWED_EMAILS`. Either env var can be set independently.
 
 Generate `SESSION_SECRET`:
 ```bash
@@ -118,4 +128,5 @@ GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 SESSION_SECRET=...
 ALLOWED_DOMAIN=marketingtmc.com
+ALLOWED_EMAILS=personal1@gmail.com,personal2@gmail.com
 ```
