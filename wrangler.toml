@@ -22,5 +22,5 @@ pages_build_output_dir = "./dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "tmc-intranet-db"
-database_id = "PASTE_DATABASE_ID_HERE"
+database_id = "540c98da-59bc-463a-b8f1-e3e684a8d099"
 migrations_dir = "migrations"
