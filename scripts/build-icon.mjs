@@ -1,27 +1,22 @@
-// Generates the PWA app icon set.
-// Run: node scripts/build-icon.mjs (or `npm run icons:build`)
+// Generates the PWA app icon set from a single SVG source.
+// Run: node scripts/build-icon.mjs
 //
-// Reuses the TMC marketing logo's Spartan helmet:
-//  1. Crop the helmet portion of src/assets/tmc-logo.png
-//  2. Make the white background transparent (per-pixel luminance threshold)
-//  3. Composite onto a dark gradient + add a "TMC" caption below
-//  4. Export at the sizes Web/Apple need
+// The icon design lives inline below — edit `svg` to tweak. Sharp renders
+// it to PNG at the sizes Web/Apple need.
 
+import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import sharp from "sharp";
 
 const ROOT = path.resolve(fileURLToPath(import.meta.url), "../..");
 const ICONS_DIR = path.join(ROOT, "public", "icons");
-const SOURCE_LOGO = path.join(ROOT, "src", "assets", "tmc-logo.png");
 
-// Tweak these if the cropped helmet shifts around.
-const HELMET_CROP = { left: 280, top: 110, width: 520, height: 520 };
-// White-pixel threshold — pixels this bright (avg of RGB) become transparent.
-const WHITE_THRESHOLD = 230;
-
-// Background + caption layer. The helmet is composited on top by sharp.
-const bgSvg = `
+// Brand: gold #CFB583, slate #404E5C, off-white #F1F1F0, dark #0E0F19.
+// "TH" wordmark in gold on near-black, with gold rule above and below
+// to evoke a "hub" / dashboard. Distinct from the marketing logo so
+// users won't confuse the dock icon with the GoHighLevel app.
+const svg = `
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1">
@@ -29,49 +24,32 @@ const bgSvg = `
       <stop offset="1" stop-color="#0E0F19"/>
     </linearGradient>
   </defs>
+
+  <!-- Background (full bleed; OS rounds the corners) -->
   <rect width="1024" height="1024" fill="url(#bg)"/>
-  <rect x="384" y="800" width="256" height="6" rx="3" fill="#CFB583" opacity="0.7"/>
-  <text x="512" y="900"
+
+  <!-- Big bold "TMC" mark, vertically centered -->
+  <text x="512" y="540"
         text-anchor="middle"
         font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
-        font-weight="700"
+        font-weight="800"
+        font-size="380"
+        fill="#CFB583"
+        letter-spacing="-12">TMC</text>
+
+  <!-- Hairline gold rule between TMC and PORTAL -->
+  <rect x="384" y="600" width="256" height="6" rx="3" fill="#CFB583" opacity="0.85"/>
+
+  <!-- "PORTAL" caption below — readable at 192px, fades into a wash at dock size -->
+  <text x="512" y="730"
+        text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-weight="600"
         font-size="92"
         fill="#CFB583"
-        letter-spacing="22">TMC</text>
+        letter-spacing="22">PORTAL</text>
 </svg>
 `;
-
-/**
- * Crop the helmet from the marketing logo and make its white background
- * transparent so it can be composited on the dark icon background.
- */
-async function buildHelmetLayer() {
-  const cropped = await sharp(SOURCE_LOGO)
-    .extract(HELMET_CROP)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const { data, info } = cropped;
-  const out = Buffer.alloc(data.length);
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    const brightness = (r + g + b) / 3;
-    out[i] = r;
-    out[i + 1] = g;
-    out[i + 2] = b;
-    out[i + 3] = brightness >= WHITE_THRESHOLD ? 0 : data[i + 3];
-  }
-
-  // Resize the helmet to ~720px (about 70% of the icon, leaves room for
-  // the TMC caption underneath).
-  return sharp(out, { raw: info })
-    .resize(720, 720, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .png()
-    .toBuffer();
-}
 
 const outputs = [
   { size: 192, file: "icon-192.png" },
@@ -79,28 +57,18 @@ const outputs = [
   { size: 180, file: "apple-touch-icon.png" },
 ];
 
-const helmet = await buildHelmetLayer();
-
-// Build the master 1024 icon (bg + caption + helmet), then resize down
-// for each output. Doing it once at high res avoids per-size resizing
-// of the SVG text which softens edges.
-const master = await sharp(Buffer.from(bgSvg))
-  .composite([
-    {
-      input: helmet,
-      // Center horizontally; top portion of canvas (helmet at y=80–800).
-      top: 80,
-      left: Math.floor((1024 - 720) / 2),
-    },
-  ])
-  .png()
-  .toBuffer();
+const buffer = Buffer.from(svg);
 
 for (const { size, file } of outputs) {
   const out = path.join(ICONS_DIR, file);
-  await sharp(master)
+  await sharp(buffer)
     .resize(size, size)
     .png({ compressionLevel: 9 })
     .toFile(out);
   console.log(`✓ ${file} (${size}×${size})`);
 }
+
+// Also save the SVG itself so the manifest can offer it as a vector option
+// for browsers that prefer it.
+await writeFile(path.join(ICONS_DIR, "icon.svg"), svg.trim());
+console.log("✓ icon.svg");
