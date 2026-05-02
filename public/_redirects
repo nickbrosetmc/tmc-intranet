@@ -1,0 +1,4 @@
+# SPA fallback — Pages Functions and static assets are served first;
+# anything else (e.g. /admin/users typed directly into the address bar)
+# falls through to index.html so wouter can route it client-side.
+/*    /index.html   200
