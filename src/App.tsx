@@ -1,5 +1,6 @@
 import tmcLogo from "@/assets/tmc-logo.png";
 import { Button } from "@/components/ui/button";
+import { AppGrid } from "@/components/AppGrid";
 import { useUser, type User } from "@/lib/useUser";
 
 function App() {
@@ -9,10 +10,20 @@ function App() {
     <div className="min-h-screen flex flex-col bg-background">
       <Header user={state.status === "authenticated" ? state.user : null} />
 
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-16">
-        {state.status === "loading" && <LoadingState />}
-        {state.status === "anonymous" && <SignInState />}
-        {state.status === "authenticated" && <WelcomeState user={state.user} />}
+      <main className="flex-1 flex flex-col items-center px-6 py-12">
+        {state.status === "loading" && (
+          <div className="flex-1 flex items-center justify-center">
+            <LoadingState />
+          </div>
+        )}
+        {state.status === "anonymous" && (
+          <div className="flex-1 flex items-center justify-center">
+            <SignInState />
+          </div>
+        )}
+        {state.status === "authenticated" && (
+          <WelcomeState user={state.user} />
+        )}
       </main>
 
       <footer className="border-t border-tmc-gold/20 px-6 py-4 text-center">
@@ -93,18 +104,16 @@ function SignInState() {
 
 function WelcomeState({ user }: { user: User }) {
   return (
-    <div className="max-w-2xl text-center space-y-6">
-      <div className="inline-block px-3 py-1 rounded-full bg-tmc-gold/15 border border-tmc-gold/40">
-        <span className="text-xs font-medium tracking-wide text-tmc-slate uppercase">
-          App Grid Coming Next
-        </span>
+    <div className="w-full flex flex-col items-center gap-10">
+      <div className="text-center space-y-2">
+        <h1 className="text-3xl font-semibold tracking-tight text-tmc-dark">
+          Hey, {user.name.split(" ")[0]}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Pick a tool to get started.
+        </p>
       </div>
-      <h1 className="text-5xl font-semibold tracking-tight text-tmc-dark">
-        Welcome, {user.name.split(" ")[0]}
-      </h1>
-      <p className="text-lg text-muted-foreground">
-        Your tools will appear here in a moment.
-      </p>
+      <AppGrid />
     </div>
   );
 }
