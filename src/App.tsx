@@ -7,6 +7,7 @@ import { AdminUsers } from "@/pages/admin/AdminUsers";
 import { AdminApps } from "@/pages/admin/AdminApps";
 import { AdminGroups } from "@/pages/admin/AdminGroups";
 import { AdminAnalytics } from "@/pages/admin/AdminAnalytics";
+import { AdminAnnouncements } from "@/pages/admin/AdminAnnouncements";
 
 function App() {
   const state = useUser();
@@ -21,7 +22,12 @@ function App() {
           <Route path="/" component={HomePage} />
           <Route path="/admin">
             <AdminLayout>
-              <AdminUsers />
+              <AdminAnnouncements />
+            </AdminLayout>
+          </Route>
+          <Route path="/admin/announcements">
+            <AdminLayout>
+              <AdminAnnouncements />
             </AdminLayout>
           </Route>
           <Route path="/admin/users">

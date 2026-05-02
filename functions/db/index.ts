@@ -1,13 +1,15 @@
 import { drizzle } from "drizzle-orm/d1";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
   users,
   appGroups,
   apps,
   appLaunches,
+  announcements,
   type UserRow,
   type AppRow,
   type AppGroupRow,
+  type AnnouncementRow,
 } from "./schema";
 
 export type DB = ReturnType<typeof drizzle>;
@@ -89,4 +91,16 @@ export async function recordLaunch(
     .insert(appLaunches)
     .values({ userId, appId, launchType })
     .run();
+}
+
+/** Active announcements for the home page, pinned first then newest. */
+export async function listActiveAnnouncements(
+  db: DB,
+): Promise<AnnouncementRow[]> {
+  return db
+    .select()
+    .from(announcements)
+    .where(eq(announcements.isActive, true))
+    .orderBy(desc(announcements.isPinned), desc(announcements.createdAt))
+    .all();
 }

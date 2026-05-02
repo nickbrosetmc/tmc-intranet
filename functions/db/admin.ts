@@ -1,11 +1,14 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
+  announcements,
   appGroups,
   apps,
   appLaunches,
   users,
+  type AnnouncementRow,
   type AppGroupRow,
   type AppRow,
+  type NewAnnouncementRow,
   type NewAppRow,
   type NewUserRow,
   type UserRow,
@@ -191,6 +194,50 @@ export async function getAnalyticsSummary(db: DB): Promise<AnalyticsSummary> {
     topUsers,
     recentLaunches,
   };
+}
+
+// ─── Announcements ───────────────────────────────────────────────────────
+
+export async function listAllAnnouncements(
+  db: DB,
+): Promise<AnnouncementRow[]> {
+  return db
+    .select()
+    .from(announcements)
+    .orderBy(desc(announcements.isPinned), desc(announcements.createdAt))
+    .all();
+}
+
+export async function createAnnouncement(
+  db: DB,
+  data: { title: string; body: string; createdBy?: number; isPinned?: boolean },
+): Promise<AnnouncementRow> {
+  return db
+    .insert(announcements)
+    .values({
+      title: data.title.trim(),
+      body: data.body.trim(),
+      createdBy: data.createdBy,
+      isPinned: data.isPinned ?? false,
+    } satisfies NewAnnouncementRow)
+    .returning()
+    .get();
+}
+
+export async function updateAnnouncement(
+  db: DB,
+  id: number,
+  data: Partial<Pick<NewAnnouncementRow, "title" | "body" | "isPinned" | "isActive">>,
+): Promise<void> {
+  await db
+    .update(announcements)
+    .set({ ...data, updatedAt: sql`CURRENT_TIMESTAMP` })
+    .where(eq(announcements.id, id))
+    .run();
+}
+
+export async function deleteAnnouncement(db: DB, id: number): Promise<void> {
+  await db.delete(announcements).where(eq(announcements.id, id)).run();
 }
 
 // Re-export helper so admin endpoints can use it

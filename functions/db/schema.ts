@@ -54,3 +54,17 @@ export const appLaunches = sqliteTable("app_launches", {
 
 export type AppLaunchRow = typeof appLaunches.$inferSelect;
 export type NewAppLaunchRow = typeof appLaunches.$inferInsert;
+
+export const announcements = sqliteTable("announcements", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdBy: integer("created_by").references(() => users.id),
+  isPinned: integer("is_pinned", { mode: "boolean" }).notNull().default(false),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type AnnouncementRow = typeof announcements.$inferSelect;
+export type NewAnnouncementRow = typeof announcements.$inferInsert;
