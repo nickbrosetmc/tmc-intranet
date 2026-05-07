@@ -6,10 +6,12 @@ import {
   apps,
   appLaunches,
   announcements,
+  calculatorSettings,
   type UserRow,
   type AppRow,
   type AppGroupRow,
   type AnnouncementRow,
+  type CalculatorSettingsRow,
 } from "./schema";
 
 export type DB = ReturnType<typeof drizzle>;
@@ -103,4 +105,30 @@ export async function listActiveAnnouncements(
     .where(eq(announcements.isActive, true))
     .orderBy(desc(announcements.isPinned), desc(announcements.createdAt))
     .all();
+}
+
+/** Singleton calculator settings row. Always id=1. */
+export async function getCalculatorSettings(
+  db: DB,
+): Promise<CalculatorSettingsRow> {
+  const row = await db
+    .select()
+    .from(calculatorSettings)
+    .where(eq(calculatorSettings.id, 1))
+    .get();
+  if (!row) {
+    throw new Error("Calculator settings row missing — migration 0006 not applied?");
+  }
+  return row;
+}
+
+export async function updateCalculatorSettings(
+  db: DB,
+  updates: Partial<Omit<CalculatorSettingsRow, "id" | "updatedAt">>,
+): Promise<void> {
+  await db
+    .update(calculatorSettings)
+    .set({ ...updates, updatedAt: sql`CURRENT_TIMESTAMP` })
+    .where(eq(calculatorSettings.id, 1))
+    .run();
 }
