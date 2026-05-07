@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { fetchApps, launchApp, type App, type GroupWithApps } from "@/lib/apps";
+import { useLocation } from "wouter";
+import { fetchApps, launchApp, recordLaunch, type App, type GroupWithApps } from "@/lib/apps";
+
+/** Internal SPA paths look like "/foo" — anything else is treated as external. */
+function isInternalPath(url: string | null): boolean {
+  return !!url && url.startsWith("/") && !url.startsWith("//");
+}
 
 export function AppGrid() {
   const [groups, setGroups] = useState<GroupWithApps[] | null>(null);
@@ -52,7 +58,19 @@ export function AppGrid() {
 }
 
 function AppTile({ app }: { app: App }) {
-  const handleClick = () => launchApp(app);
+  const [, navigate] = useLocation();
+  const internal = isInternalPath(app.webUrl);
+
+  const handleClick = () => {
+    if (app.isComingSoon) return;
+    if (internal && app.webUrl) {
+      // Log launch best-effort, then SPA-navigate
+      recordLaunch(app.id, "web");
+      navigate(app.webUrl);
+      return;
+    }
+    launchApp(app);
+  };
 
   const tileBg = app.iconBgColor ? `#${app.iconBgColor}` : "#404E5C";
 
