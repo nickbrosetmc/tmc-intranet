@@ -17,14 +17,6 @@ export function Header({ user }: { user: User | null }) {
       </Link>
       {user ? (
         <div className="flex items-center gap-4">
-          {isTeam && (
-            <Link
-              href="/calculator"
-              className="text-xs text-tmc-slate hover:text-tmc-gold-dark font-medium uppercase tracking-wide"
-            >
-              Calculator
-            </Link>
-          )}
           {isAdmin && (
             <Link
               href="/admin/announcements"

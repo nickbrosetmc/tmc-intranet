@@ -10,6 +10,7 @@ import { AdminAnalytics } from "@/pages/admin/AdminAnalytics";
 import { AdminAnnouncements } from "@/pages/admin/AdminAnnouncements";
 import { AdminClients } from "@/pages/admin/AdminClients";
 import { CalculatorPage } from "@/pages/Calculator";
+import { VideoCalculatorPage } from "@/pages/VideoCalculator";
 
 function App() {
   const state = useUser();
@@ -23,6 +24,7 @@ function App() {
         <Switch>
           <Route path="/" component={HomePage} />
           <Route path="/calculator" component={CalculatorPage} />
+          <Route path="/video-calculator" component={VideoCalculatorPage} />
           <Route path="/admin">
             <AdminLayout>
               <AdminAnnouncements />
