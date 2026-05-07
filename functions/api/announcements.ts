@@ -1,11 +1,10 @@
 import { getDb, listActiveAnnouncements } from "../db";
-import { getSession, type Env } from "../lib/auth";
+import type { Env } from "../lib/auth";
+import { isResponse, requireTeamSession } from "../lib/admin";
 
 export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
-  const session = await getSession(request, env);
-  if (!session) {
-    return Response.json({ error: "Not authenticated" }, { status: 401 });
-  }
+  const session = await requireTeamSession(request, env);
+  if (isResponse(session)) return session;
 
   const db = getDb(env.DB);
   const rows = await listActiveAnnouncements(db);

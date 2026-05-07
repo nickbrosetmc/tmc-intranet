@@ -8,6 +8,7 @@ import { AdminApps } from "@/pages/admin/AdminApps";
 import { AdminGroups } from "@/pages/admin/AdminGroups";
 import { AdminAnalytics } from "@/pages/admin/AdminAnalytics";
 import { AdminAnnouncements } from "@/pages/admin/AdminAnnouncements";
+import { AdminClients } from "@/pages/admin/AdminClients";
 import { CalculatorPage } from "@/pages/Calculator";
 
 function App() {
@@ -30,6 +31,11 @@ function App() {
           <Route path="/admin/announcements">
             <AdminLayout>
               <AdminAnnouncements />
+            </AdminLayout>
+          </Route>
+          <Route path="/admin/clients">
+            <AdminLayout>
+              <AdminClients />
             </AdminLayout>
           </Route>
           <Route path="/admin/users">

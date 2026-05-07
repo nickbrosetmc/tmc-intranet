@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 
 const NAV = [
   { href: "/admin/announcements", label: "Announcements" },
+  { href: "/admin/clients", label: "Clients" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/apps", label: "Apps" },
   { href: "/admin/groups", label: "Groups" },
@@ -25,7 +26,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
   if (state.status === "anonymous") {
     return <Redirect to="/" />;
   }
-  if (state.user.role !== "admin") {
+  if (state.user.type !== "team" || state.user.role !== "admin") {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="max-w-md text-center space-y-3">

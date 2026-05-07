@@ -1,5 +1,6 @@
 import { getAppById, getDb, getUserByEmail, recordLaunch } from "../../../db";
-import { getSession, type Env } from "../../../lib/auth";
+import type { Env } from "../../../lib/auth";
+import { isResponse, requireTeamSession } from "../../../lib/admin";
 
 interface LaunchBody {
   type?: "desktop" | "web";
@@ -10,10 +11,8 @@ export const onRequestPost: PagesFunction<Env> = async ({
   env,
   params,
 }) => {
-  const session = await getSession(request, env);
-  if (!session) {
-    return Response.json({ error: "Not authenticated" }, { status: 401 });
-  }
+  const session = await requireTeamSession(request, env);
+  if (isResponse(session)) return session;
 
   const idStr = Array.isArray(params.id) ? params.id[0] : params.id;
   const appId = Number(idStr);

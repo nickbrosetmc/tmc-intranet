@@ -115,6 +115,75 @@ export const adminAnalytics = {
   summary: () => jsonRequest<AnalyticsSummary>("/api/admin/analytics"),
 };
 
+// Clients
+export interface AdminClient {
+  id: number;
+  name: string;
+  filesUrl: string | null;
+  ghlUrl: string | null;
+  passwordVaultUrl: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminClientUser {
+  id: number;
+  clientId: number;
+  username: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+  lastSignedIn: string | null;
+}
+
+export const adminClients = {
+  list: () => jsonRequest<{ clients: AdminClient[] }>("/api/admin/clients"),
+  create: (data: {
+    name: string;
+    filesUrl?: string | null;
+    ghlUrl?: string | null;
+    passwordVaultUrl?: string | null;
+  }) =>
+    jsonRequest<{ client: AdminClient }>("/api/admin/clients", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (
+    id: number,
+    data: Partial<Pick<AdminClient, "name" | "filesUrl" | "ghlUrl" | "passwordVaultUrl" | "isActive">>,
+  ) =>
+    jsonRequest<{ ok: true }>(`/api/admin/clients/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  remove: (id: number) =>
+    jsonRequest<{ ok: true }>(`/api/admin/clients/${id}`, {
+      method: "DELETE",
+    }),
+  listUsers: (clientId: number) =>
+    jsonRequest<{ users: AdminClientUser[] }>(
+      `/api/admin/clients/${clientId}/users`,
+    ),
+  createUser: (
+    clientId: number,
+    data: { username: string; password: string; name: string },
+  ) =>
+    jsonRequest<{ user: AdminClientUser }>(`/api/admin/clients/${clientId}/users`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateUser: (userId: number, data: { name?: string; password?: string }) =>
+    jsonRequest<{ ok: true }>(`/api/admin/client-users/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  removeUser: (userId: number) =>
+    jsonRequest<{ ok: true }>(`/api/admin/client-users/${userId}`, {
+      method: "DELETE",
+    }),
+};
+
 // Announcements
 export const adminAnnouncements = {
   list: () =>
