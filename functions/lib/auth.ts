@@ -9,11 +9,30 @@ export interface Env {
 
 export type Role = "user" | "admin";
 
-export interface SessionUser {
+export interface TeamSessionUser {
+  type: "team";
   email: string;
   name: string;
   picture?: string;
   role: Role;
+}
+
+export interface ClientSessionUser {
+  type: "client";
+  clientUserId: number;
+  clientId: number;
+  username: string;
+  name: string;
+}
+
+export type SessionUser = TeamSessionUser | ClientSessionUser;
+
+export function isTeamSession(s: SessionUser): s is TeamSessionUser {
+  return s.type === "team";
+}
+
+export function isClientSession(s: SessionUser): s is ClientSessionUser {
+  return s.type === "client";
 }
 
 const SESSION_COOKIE = "tmc_session";
@@ -95,12 +114,24 @@ export async function createSessionCookie(
   user: SessionUser,
   env: Env,
 ): Promise<string> {
-  const jwt = await new SignJWT({
-    email: user.email,
-    name: user.name,
-    picture: user.picture,
-    role: user.role,
-  })
+  const payload =
+    user.type === "team"
+      ? {
+          type: "team" as const,
+          email: user.email,
+          name: user.name,
+          picture: user.picture,
+          role: user.role,
+        }
+      : {
+          type: "client" as const,
+          clientUserId: user.clientUserId,
+          clientId: user.clientId,
+          username: user.username,
+          name: user.name,
+        };
+
+  const jwt = await new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${SESSION_TTL_DAYS}d`)
@@ -122,11 +153,33 @@ export async function getSession(
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, getSecretKey(env.SESSION_SECRET));
-    if (typeof payload.email !== "string" || typeof payload.name !== "string") {
-      return null;
+    if (typeof payload.name !== "string") return null;
+
+    // Discriminate by `type`. Default to "team" for backwards-compat with
+    // sessions minted before client auth existed.
+    const type = payload.type === "client" ? "client" : "team";
+
+    if (type === "client") {
+      if (
+        typeof payload.clientUserId !== "number" ||
+        typeof payload.clientId !== "number" ||
+        typeof payload.username !== "string"
+      ) {
+        return null;
+      }
+      return {
+        type: "client",
+        clientUserId: payload.clientUserId,
+        clientId: payload.clientId,
+        username: payload.username,
+        name: payload.name,
+      };
     }
+
+    if (typeof payload.email !== "string") return null;
     const role = payload.role === "admin" ? "admin" : "user";
     return {
+      type: "team",
       email: payload.email,
       name: payload.name,
       picture: typeof payload.picture === "string" ? payload.picture : undefined,

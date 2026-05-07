@@ -7,11 +7,15 @@ import {
   appLaunches,
   announcements,
   calculatorSettings,
+  clients,
+  clientUsers,
   type UserRow,
   type AppRow,
   type AppGroupRow,
   type AnnouncementRow,
   type CalculatorSettingsRow,
+  type ClientRow,
+  type ClientUserRow,
 } from "./schema";
 
 export type DB = ReturnType<typeof drizzle>;
@@ -130,5 +134,38 @@ export async function updateCalculatorSettings(
     .update(calculatorSettings)
     .set({ ...updates, updatedAt: sql`CURRENT_TIMESTAMP` })
     .where(eq(calculatorSettings.id, 1))
+    .run();
+}
+
+// ─── Clients ─────────────────────────────────────────────────────────────
+
+export async function getClientById(
+  db: DB,
+  id: number,
+): Promise<ClientRow | null> {
+  const row = await db.select().from(clients).where(eq(clients.id, id)).get();
+  return row ?? null;
+}
+
+export async function getClientUserByUsername(
+  db: DB,
+  username: string,
+): Promise<ClientUserRow | null> {
+  const row = await db
+    .select()
+    .from(clientUsers)
+    .where(eq(clientUsers.username, username.toLowerCase()))
+    .get();
+  return row ?? null;
+}
+
+export async function recordClientUserSignIn(
+  db: DB,
+  id: number,
+): Promise<void> {
+  await db
+    .update(clientUsers)
+    .set({ lastSignedIn: sql`CURRENT_TIMESTAMP` })
+    .where(eq(clientUsers.id, id))
     .run();
 }

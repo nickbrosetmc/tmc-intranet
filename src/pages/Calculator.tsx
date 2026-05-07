@@ -55,7 +55,12 @@ export function CalculatorPage() {
   }, [userState.status]);
 
   const isAdmin =
-    userState.status === "authenticated" && userState.user.role === "admin";
+    userState.status === "authenticated" &&
+    userState.user.type === "team" &&
+    userState.user.role === "admin";
+
+  const isClient =
+    userState.status === "authenticated" && userState.user.type === "client";
 
   const results = useMemo(
     () => (settings ? computePackage(pkg, settings) : null),
@@ -74,6 +79,17 @@ export function CalculatorPage() {
         <a href="/auth/login" className="text-tmc-gold-dark hover:underline">
           Sign in →
         </a>
+      </div>
+    );
+  }
+
+  if (isClient) {
+    return (
+      <div className="text-center max-w-md mx-auto space-y-3">
+        <h1 className="text-xl font-semibold text-tmc-dark">Team only</h1>
+        <p className="text-sm text-muted-foreground">
+          The pricing calculator is for the TMC team.
+        </p>
       </div>
     );
   }

@@ -51,6 +51,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
 
   const sessionCookie = await createSessionCookie(
     {
+      type: "team",
       email: row.email,
       name: googleUser.name,
       picture: googleUser.picture,

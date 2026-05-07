@@ -1,11 +1,30 @@
 import { useEffect, useState } from "react";
 
-export interface User {
+export interface TeamUser {
+  type: "team";
   email: string;
   name: string;
   picture?: string;
   role: "user" | "admin";
 }
+
+export interface ClientUser {
+  type: "client";
+  clientUserId: number;
+  clientId: number;
+  username: string;
+  name: string;
+  client: {
+    id: number;
+    name: string;
+    filesUrl: string | null;
+    ghlUrl: string | null;
+    passwordVaultUrl: string | null;
+    isActive: boolean;
+  } | null;
+}
+
+export type User = TeamUser | ClientUser;
 
 export type UserState =
   | { status: "loading" }

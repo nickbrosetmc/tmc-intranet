@@ -69,6 +69,34 @@ export const announcements = sqliteTable("announcements", {
 export type AnnouncementRow = typeof announcements.$inferSelect;
 export type NewAnnouncementRow = typeof announcements.$inferInsert;
 
+export const clients = sqliteTable("clients", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  filesUrl: text("files_url"),
+  ghlUrl: text("ghl_url"),
+  passwordVaultUrl: text("password_vault_url"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type ClientRow = typeof clients.$inferSelect;
+export type NewClientRow = typeof clients.$inferInsert;
+
+export const clientUsers = sqliteTable("client_users", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  clientId: integer("client_id").notNull().references(() => clients.id),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  name: text("name").notNull(),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  lastSignedIn: text("last_signed_in"),
+});
+
+export type ClientUserRow = typeof clientUsers.$inferSelect;
+export type NewClientUserRow = typeof clientUsers.$inferInsert;
+
 export const calculatorSettings = sqliteTable("calculator_settings", {
   id: integer("id").primaryKey(),
   rateAdmin: integer("rate_admin").notNull().default(60),
