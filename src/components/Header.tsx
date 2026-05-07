@@ -13,9 +13,15 @@ export function Header({ user }: { user: User | null }) {
       </Link>
       {user ? (
         <div className="flex items-center gap-4">
+          <Link
+            href="/calculator"
+            className="text-xs text-tmc-slate hover:text-tmc-gold-dark font-medium uppercase tracking-wide"
+          >
+            Calculator
+          </Link>
           {user.role === "admin" && (
             <Link
-              href="/admin/users"
+              href="/admin/announcements"
               className="text-xs text-tmc-slate hover:text-tmc-gold-dark font-medium uppercase tracking-wide"
             >
               Admin

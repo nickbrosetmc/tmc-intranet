@@ -68,3 +68,22 @@ export const announcements = sqliteTable("announcements", {
 
 export type AnnouncementRow = typeof announcements.$inferSelect;
 export type NewAnnouncementRow = typeof announcements.$inferInsert;
+
+export const calculatorSettings = sqliteTable("calculator_settings", {
+  id: integer("id").primaryKey(),
+  rateAdmin: integer("rate_admin").notNull().default(60),
+  rateFt: integer("rate_ft").notNull().default(23),
+  ratePt: integer("rate_pt").notNull().default(20),
+  reviewTier: text("review_tier", { enum: ["admin", "ft", "pt", "none"] })
+    .notNull()
+    .default("admin"),
+  reviewMins: integer("review_mins").notNull().default(5),
+  softwareTotal: integer("software_total").notNull().default(2000),
+  clientCount: integer("client_count").notNull().default(12),
+  marginFloor: integer("margin_floor").notNull().default(30),
+  billableRate: integer("billable_rate").notNull().default(150),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type CalculatorSettingsRow = typeof calculatorSettings.$inferSelect;

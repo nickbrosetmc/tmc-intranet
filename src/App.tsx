@@ -8,6 +8,7 @@ import { AdminApps } from "@/pages/admin/AdminApps";
 import { AdminGroups } from "@/pages/admin/AdminGroups";
 import { AdminAnalytics } from "@/pages/admin/AdminAnalytics";
 import { AdminAnnouncements } from "@/pages/admin/AdminAnnouncements";
+import { CalculatorPage } from "@/pages/Calculator";
 
 function App() {
   const state = useUser();
@@ -20,6 +21,7 @@ function App() {
       <main className="flex-1 flex flex-col items-center px-6 py-12">
         <Switch>
           <Route path="/" component={HomePage} />
+          <Route path="/calculator" component={CalculatorPage} />
           <Route path="/admin">
             <AdminLayout>
               <AdminAnnouncements />
