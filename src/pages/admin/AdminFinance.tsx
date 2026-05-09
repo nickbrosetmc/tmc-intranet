@@ -629,14 +629,19 @@ function ClientDialog({
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">— not set —</SelectItem>
-                {d.paymentMethods.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.name}
-                    {p.feePct > 0 || p.feeFlat > 0
-                      ? ` (${p.feePct > 0 ? (p.feePct * 100).toFixed(2) + "%" : ""}${p.feeFlat > 0 ? ` + $${(p.feeFlat / 100).toFixed(2)}` : ""})`
-                      : ""}
-                  </SelectItem>
-                ))}
+                {d.paymentMethods.map((p) => {
+                  const parts: string[] = [];
+                  if (p.feePct > 0) parts.push(`${(p.feePct * 100).toFixed(2)}%`);
+                  if (p.feeFlat > 0) parts.push(`$${(p.feeFlat / 100).toFixed(2)}`);
+                  if (p.instantPayoutPct > 0)
+                    parts.push(`+${(p.instantPayoutPct * 100).toFixed(1)}% instant`);
+                  return (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.name}
+                      {parts.length > 0 ? ` (${parts.join(" + ")})` : ""}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>

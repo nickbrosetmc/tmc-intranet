@@ -104,6 +104,8 @@ export const paymentMethods = sqliteTable("payment_methods", {
   name: text("name").notNull().unique(),
   feePct: real("fee_pct").notNull().default(0),
   feeFlat: integer("fee_flat").notNull().default(0),
+  /** Compounds AFTER the initial fee. e.g. Wave Pro instant payout = 0.01. */
+  instantPayoutPct: real("instant_payout_pct").notNull().default(0),
   notes: text("notes"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
