@@ -60,6 +60,7 @@ import {
   finance,
   fmtMoney,
   netAfterFees,
+  payrollCategoryId,
   projectMonth,
   thisMonthIso,
   type ExpenseCategory,
@@ -70,10 +71,11 @@ import {
 } from "@/lib/finance";
 
 const TABS = [
-  { id: "revenue", label: "Recurring Revenue" },
-  { id: "expenses", label: "Recurring Expenses" },
-  { id: "gear", label: "One-time / Gear" },
-  { id: "categories", label: "Categories & Budget" },
+  { id: "revenue", label: "Revenue" },
+  { id: "operating", label: "Operating" },
+  { id: "payroll", label: "Payroll" },
+  { id: "planning", label: "Planning & Gear" },
+  { id: "budgets", label: "Budgets" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
@@ -162,7 +164,7 @@ export function AdminFinance() {
         <StatCard
           label="Monthly expenses"
           value={fmtMoney(summary!.monthlyExpenses)}
-          subtitle={`+ ${fmtMoney(summary!.oneTimePlannedThisMonth)} one-time this month`}
+          subtitle={`${fmtMoney(summary!.monthlyOperating)} operating + ${fmtMoney(summary!.monthlyPayroll)} payroll`}
         />
         <StatCard
           label="Projected end balance"
@@ -201,11 +203,18 @@ export function AdminFinance() {
       {tab === "revenue" && (
         <RecurringClientsTable d={d} onChanged={refresh} />
       )}
-      {tab === "expenses" && (
-        <RecurringExpensesTable d={d} onChanged={refresh} />
+      {tab === "operating" && (
+        <RecurringExpensesTable
+          d={d}
+          onChanged={refresh}
+          variant="operating"
+        />
       )}
-      {tab === "gear" && <OneTimeExpensesTable d={d} onChanged={refresh} />}
-      {tab === "categories" && (
+      {tab === "payroll" && (
+        <RecurringExpensesTable d={d} onChanged={refresh} variant="payroll" />
+      )}
+      {tab === "planning" && <PlanningSection d={d} onChanged={refresh} />}
+      {tab === "budgets" && (
         <CategoriesTable status={budgetStatus} onChanged={refresh} />
       )}
     </div>
@@ -676,17 +685,32 @@ function ClientDialog({
 function RecurringExpensesTable({
   d,
   onChanged,
+  variant,
 }: {
   d: FinanceDashboard;
   onChanged: () => void;
+  variant: "operating" | "payroll";
 }) {
   const catById = new Map(d.categories.map((c) => [c.id, c]));
-  const total = d.recurringExpenses.filter((e) => e.isActive).reduce((s, e) => s + e.monthlyAmount, 0);
+  const payrollId = payrollCategoryId(d);
+  const filtered = d.recurringExpenses.filter((e) => {
+    const isPayroll = payrollId != null && e.categoryId === payrollId;
+    return variant === "payroll" ? isPayroll : !isPayroll;
+  });
+  const total = filtered.filter((e) => e.isActive).reduce((s, e) => s + e.monthlyAmount, 0);
+  const title = variant === "payroll" ? "Payroll" : "Operating expenses";
+  const subtitle =
+    variant === "payroll"
+      ? "Salaries, payroll fees, workers comp."
+      : "Software, services, and other recurring non-payroll costs.";
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
-        <CardTitle className="text-base">Recurring expenses</CardTitle>
-        <RecurringExpenseDialog mode="create" d={d} onSaved={onChanged} />
+        <div>
+          <CardTitle className="text-base">{title}</CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+        </div>
+        <RecurringExpenseDialog mode="create" d={d} onSaved={onChanged} defaultPayroll={variant === "payroll"} />
       </CardHeader>
       <CardContent>
         <Table>
@@ -701,14 +725,16 @@ function RecurringExpensesTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {d.recurringExpenses.length === 0 ? (
+            {filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
-                  No recurring expenses yet.
+                  {variant === "payroll"
+                    ? "No payroll items yet."
+                    : "No operating expenses yet."}
                 </TableCell>
               </TableRow>
             ) : (
-              d.recurringExpenses.map((e) => {
+              filtered.map((e) => {
                 const cat = e.categoryId != null ? catById.get(e.categoryId) : null;
                 return (
                   <TableRow key={e.id} className={!e.isActive ? "opacity-50" : undefined}>
@@ -739,7 +765,9 @@ function RecurringExpensesTable({
               })
             )}
             <TableRow className="font-bold border-t-2">
-              <TableCell colSpan={2}>Total recurring expenses</TableCell>
+              <TableCell colSpan={2}>
+                {variant === "payroll" ? "Total payroll" : "Total operating"}
+              </TableCell>
               <TableCell className="text-right tabular-nums text-red-700">{fmtMoney(total)}</TableCell>
               <TableCell colSpan={3}></TableCell>
             </TableRow>
@@ -755,17 +783,21 @@ function RecurringExpenseDialog({
   expense,
   d,
   onSaved,
+  defaultPayroll,
 }: {
   mode: "create" | "edit";
   expense?: RecurringExpense;
   d: FinanceDashboard;
   onSaved: () => void;
+  defaultPayroll?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const payrollId = payrollCategoryId(d);
   const [form, setForm] = useState({
     name: expense?.name ?? "",
     monthlyAmount: expense?.monthlyAmount ?? 0,
-    categoryId: expense?.categoryId ?? null,
+    categoryId:
+      expense?.categoryId ?? (defaultPayroll && payrollId != null ? payrollId : null),
     paymentDay: expense?.paymentDay ?? 1,
     isActive: expense?.isActive ?? true,
     notes: expense?.notes ?? "",
@@ -886,57 +918,206 @@ function RecurringExpenseDialog({
   );
 }
 
-function OneTimeExpensesTable({
+/**
+ * Planning & Gear — combines one-time purchases (planned + paid) into a
+ * status-grouped layout. The intent is "what's coming up vs what's already
+ * happened" rather than a flat table.
+ */
+function PlanningSection({
   d,
   onChanged,
 }: {
   d: FinanceDashboard;
   onChanged: () => void;
 }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const monthIso = today.slice(0, 7);
+
+  const planned = d.oneTimeExpenses.filter((e) => e.status === "planned");
+  const paid = d.oneTimeExpenses.filter((e) => e.status === "paid");
+
+  // Group planned by horizon
+  const undated = planned.filter((e) => !e.plannedDate);
+  const thisMonth = planned.filter(
+    (e) => e.plannedDate && e.plannedDate.startsWith(monthIso) && e.plannedDate >= today,
+  );
+  const overdue = planned.filter(
+    (e) => e.plannedDate && e.plannedDate < today,
+  );
+  const future = planned.filter(
+    (e) =>
+      e.plannedDate &&
+      !e.plannedDate.startsWith(monthIso) &&
+      e.plannedDate >= today,
+  );
+
+  // Last 90 days of paid for context
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  const recentPaid = paid.filter(
+    (e) => e.paidDate && new Date(e.paidDate) >= ninetyDaysAgo,
+  );
+
+  const totalPlanned = planned.reduce((s, e) => s + e.amount, 0);
+  const totalThisMonth =
+    thisMonth.reduce((s, e) => s + e.amount, 0) +
+    overdue.reduce((s, e) => s + e.amount, 0);
+  const totalFuture = future.reduce((s, e) => s + e.amount, 0);
+  const totalUndated = undated.reduce((s, e) => s + e.amount, 0);
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base">Planning & gear</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Plan ahead. The cashflow chart drops on the planned date so you
+              can see if a purchase fits before you commit.
+            </p>
+          </div>
+          <OneTimeDialog mode="create" d={d} onSaved={onChanged} />
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <PlanStat label="Wishlist (no date)" value={totalUndated} count={undated.length} />
+            <PlanStat label="This month" value={totalThisMonth} count={thisMonth.length + overdue.length} tone={overdue.length > 0 ? "warn" : undefined} />
+            <PlanStat label="Future months" value={totalFuture} count={future.length} />
+            <PlanStat label="Total planned" value={totalPlanned} count={planned.length} bold />
+          </div>
+
+          {overdue.length > 0 && (
+            <PlanningGroup
+              title="Past due — needs attention"
+              tone="danger"
+              items={overdue}
+              d={d}
+              onChanged={onChanged}
+            />
+          )}
+          <PlanningGroup
+            title="This month"
+            tone="warn"
+            items={thisMonth}
+            d={d}
+            onChanged={onChanged}
+            emptyHint="Nothing planned for this month yet."
+          />
+          <PlanningGroup
+            title="Future months"
+            items={future}
+            d={d}
+            onChanged={onChanged}
+            emptyHint="Nothing scheduled past this month."
+          />
+          <PlanningGroup
+            title="Wishlist (no date)"
+            tone="muted"
+            items={undated}
+            d={d}
+            onChanged={onChanged}
+            emptyHint="Add things you're considering — leave the date blank."
+          />
+
+          {recentPaid.length > 0 && (
+            <PlanningGroup
+              title="Recently paid (last 90 days)"
+              tone="muted"
+              items={recentPaid}
+              d={d}
+              onChanged={onChanged}
+            />
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function PlanStat({
+  label,
+  value,
+  count,
+  bold,
+  tone,
+}: {
+  label: string;
+  value: number;
+  count: number;
+  bold?: boolean;
+  tone?: "warn" | "danger";
+}) {
+  const cls =
+    tone === "danger"
+      ? "ring-1 ring-red-300 bg-red-50/40"
+      : tone === "warn"
+        ? "ring-1 ring-yellow-300 bg-yellow-50/40"
+        : "";
+  return (
+    <div className={`rounded-md border bg-card p-3 ${cls}`}>
+      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </div>
+      <div className={`tabular-nums mt-1 ${bold ? "text-xl font-bold" : "text-lg font-semibold"}`}>
+        {fmtMoney(value)}
+      </div>
+      <div className="text-[11px] text-muted-foreground">
+        {count} item{count === 1 ? "" : "s"}
+      </div>
+    </div>
+  );
+}
+
+function PlanningGroup({
+  title,
+  tone,
+  items,
+  d,
+  onChanged,
+  emptyHint,
+}: {
+  title: string;
+  tone?: "warn" | "danger" | "muted";
+  items: OneTimeExpense[];
+  d: FinanceDashboard;
+  onChanged: () => void;
+  emptyHint?: string;
+}) {
+  if (items.length === 0 && !emptyHint) return null;
+  const titleColor =
+    tone === "danger"
+      ? "text-red-700"
+      : tone === "warn"
+        ? "text-yellow-700"
+        : tone === "muted"
+          ? "text-muted-foreground"
+          : "text-tmc-dark";
   const catById = new Map(d.categories.map((c) => [c.id, c]));
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between">
-        <CardTitle className="text-base">One-time / gear purchases</CardTitle>
-        <OneTimeDialog mode="create" d={d} onSaved={onChanged} />
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>What</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {d.oneTimeExpenses.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
-                  No one-time expenses yet. Add gear or other planned purchases here.
-                </TableCell>
-              </TableRow>
-            ) : (
-              d.oneTimeExpenses.map((e) => {
+    <div className="mb-4">
+      <h3 className={`text-xs font-semibold uppercase tracking-widest ${titleColor} mb-2`}>
+        {title}
+      </h3>
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic px-2 py-3">{emptyHint}</p>
+      ) : (
+        <div className="rounded-md border">
+          <Table>
+            <TableBody>
+              {items.map((e) => {
                 const cat = e.categoryId != null ? catById.get(e.categoryId) : null;
                 const dateStr = e.status === "paid" ? e.paidDate : e.plannedDate;
                 return (
-                  <TableRow key={e.id}>
+                  <TableRow key={e.id} className={tone === "muted" ? "opacity-75" : undefined}>
                     <TableCell className="font-medium">{e.name}</TableCell>
                     <TableCell className="text-sm">{cat ? <CatPill cat={cat} /> : "—"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtMoney(e.amount)}</TableCell>
-                    <TableCell className="text-sm">{dateStr ?? "—"}</TableCell>
-                    <TableCell className="text-sm">
-                      <span className={
-                        e.status === "paid"
-                          ? "text-green-700"
-                          : "text-yellow-700 italic"
-                      }>{e.status}</span>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {dateStr ?? "—"}
                     </TableCell>
-                    <TableCell className="text-right space-x-1">
+                    <TableCell className="text-right tabular-nums font-semibold">
+                      {fmtMoney(e.amount)}
+                    </TableCell>
+                    <TableCell className="text-right space-x-1 w-32">
                       <OneTimeDialog mode="edit" expense={e} d={d} onSaved={onChanged} />
                       <DeleteAlert
                         title={`Remove ${e.name}?`}
@@ -949,14 +1130,15 @@ function OneTimeExpensesTable({
                     </TableCell>
                   </TableRow>
                 );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
   );
 }
+
 
 function OneTimeDialog({
   mode,
