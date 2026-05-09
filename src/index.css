@@ -197,3 +197,31 @@
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #D4D8D9; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #CFB583; }
+
+/* ── Print mode ──────────────────────────────────────────────────
+   Pages opting in to printing add `print:block` to a dedicated
+   PrintableReport node and `print:hidden` to interactive chrome.
+   Global rules below hide app shell so reports come out clean. */
+@media print {
+  body { background: white; }
+  /* Hide app shell — header, admin sidebar, footer */
+  header.glass-header,
+  aside,
+  footer,
+  .toaster,
+  [role="dialog"] { display: none !important; }
+
+  /* Force light/contrast for paper */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Sensible page margins */
+  @page { margin: 0.5in; }
+
+  /* Don't break tables awkwardly */
+  table { page-break-inside: auto; }
+  tr { page-break-inside: avoid; page-break-after: auto; }
+  thead { display: table-header-group; }
+}
