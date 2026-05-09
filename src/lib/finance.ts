@@ -193,9 +193,18 @@ export function projectMonth(input: ProjectionInput): DayPoint[] {
 export interface DashboardSummary {
   mrrGross: number;
   mrrNet: number;
-  monthlyExpenses: number;
+  monthlyExpenses: number;          // total recurring (payroll + operating)
+  monthlyPayroll: number;
+  monthlyOperating: number;
   oneTimePlannedThisMonth: number;
-  projectedNet: number;          // mrrNet - monthlyExpenses - one-time planned this month
+  projectedNet: number;             // mrrNet - monthlyExpenses - one-time planned this month
+}
+
+/** Find the Payroll category id by canonical name. Case-insensitive. */
+export function payrollCategoryId(d: FinanceDashboard): number | null {
+  return (
+    d.categories.find((c) => c.name.toLowerCase() === "payroll")?.id ?? null
+  );
 }
 
 export function computeSummary(d: FinanceDashboard, monthIso: string): DashboardSummary {
@@ -208,10 +217,18 @@ export function computeSummary(d: FinanceDashboard, monthIso: string): Dashboard
     const pm = c.paymentMethodId != null ? pmById.get(c.paymentMethodId) : null;
     mrrNet += netAfterFees(c.monthlyAmount, pm);
   }
-  let monthlyExpenses = 0;
+  const payrollId = payrollCategoryId(d);
+  let monthlyPayroll = 0;
+  let monthlyOperating = 0;
   for (const e of d.recurringExpenses) {
-    if (e.isActive) monthlyExpenses += e.monthlyAmount;
+    if (!e.isActive) continue;
+    if (payrollId != null && e.categoryId === payrollId) {
+      monthlyPayroll += e.monthlyAmount;
+    } else {
+      monthlyOperating += e.monthlyAmount;
+    }
   }
+  const monthlyExpenses = monthlyPayroll + monthlyOperating;
   const monthPrefix = `${monthIso}-`;
   let oneTimePlannedThisMonth = 0;
   for (const e of d.oneTimeExpenses) {
@@ -222,6 +239,8 @@ export function computeSummary(d: FinanceDashboard, monthIso: string): Dashboard
     mrrGross,
     mrrNet,
     monthlyExpenses,
+    monthlyPayroll,
+    monthlyOperating,
     oneTimePlannedThisMonth,
     projectedNet: mrrNet - monthlyExpenses - oneTimePlannedThisMonth,
   };
