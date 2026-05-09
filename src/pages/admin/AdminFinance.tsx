@@ -134,7 +134,8 @@ export function AdminFinance() {
   const lowestPoint = projection.length > 0 ? Math.min(...projection.map((p) => p.balance)) : startBalance;
 
   return (
-    <div className="space-y-6">
+    <>
+      <div className="space-y-6 print:hidden">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-tmc-dark">
@@ -144,7 +145,17 @@ export function AdminFinance() {
             Recurring revenue, expenses, gear, and cashflow projection.
           </p>
         </div>
-        <MonthPicker value={monthIso} onChange={setMonthIso} />
+        <div className="flex items-center gap-2 flex-wrap">
+          <MonthPicker value={monthIso} onChange={setMonthIso} />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.print()}
+            title="Save the full report as PDF via your browser's print dialog"
+          >
+            Export PDF
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -229,6 +240,17 @@ export function AdminFinance() {
         <CategoriesTable status={budgetStatus} onChanged={refresh} />
       )}
     </div>
+    {summary && (
+      <PrintableReport
+        d={d}
+        monthIso={monthIso}
+        startBalance={startBalance}
+        summary={summary}
+        projection={projection}
+        budgetStatus={budgetStatus}
+      />
+    )}
+    </>
   );
 }
 
@@ -1850,5 +1872,406 @@ function DeleteAlert({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+// ─── Printable report ───────────────────────────────────────────────────
+// Renders all modules stacked for paper. Hidden in screen mode, shown in
+// print mode. Minimal styling — print stylesheet handles the rest.
+
+function PrintableReport({
+  d,
+  monthIso,
+  startBalance,
+  summary,
+  projection,
+  budgetStatus,
+}: {
+  d: FinanceDashboard;
+  monthIso: string;
+  startBalance: number;
+  summary: ReturnType<typeof computeSummary>;
+  projection: ReturnType<typeof projectMonth>;
+  budgetStatus: ReturnType<typeof categoryBudgetStatus>;
+}) {
+  const pmById = new Map(d.paymentMethods.map((p) => [p.id, p]));
+  const catById = new Map(d.categories.map((c) => [c.id, c]));
+  const payrollId = payrollCategoryId(d);
+  const operating = d.recurringExpenses.filter(
+    (e) => payrollId == null || e.categoryId !== payrollId,
+  );
+  const payroll = d.recurringExpenses.filter(
+    (e) => payrollId != null && e.categoryId === payrollId,
+  );
+  const invoicesThisMonth = d.oneOffInvoices.filter((i) =>
+    i.payoutDate.startsWith(monthIso),
+  );
+  const otherInvoices = d.oneOffInvoices.filter(
+    (i) => !i.payoutDate.startsWith(monthIso),
+  );
+
+  const endBalance = projection.length > 0 ? projection[projection.length - 1].balance : startBalance;
+  const lowestPoint = projection.length > 0 ? Math.min(...projection.map((p) => p.balance)) : startBalance;
+
+  const monthLabel = new Date(`${monthIso}-01T00:00:00`).toLocaleDateString(
+    undefined,
+    { month: "long", year: "numeric" },
+  );
+
+  return (
+    <div
+      className="hidden print:block"
+      style={{
+        fontFamily: "'Geist Variable', system-ui, -apple-system, sans-serif",
+        color: "#0E0F19",
+        background: "white",
+        fontSize: 10,
+        lineHeight: 1.4,
+      }}
+    >
+      {/* Title */}
+      <div
+        style={{
+          borderBottom: "2px solid #CFB583",
+          paddingBottom: 8,
+          marginBottom: 12,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#404E5C" }}>
+            TMC Marketing — Finance Report
+          </div>
+          <div style={{ color: "#6D6E76", fontSize: 11 }}>
+            {monthLabel} · Generated {new Date().toLocaleString()}
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 22, fontWeight: 700, color: "#0E0F19", lineHeight: 1 }}>
+            {fmtMoney(d.settings.currentBalance)}
+          </div>
+          <div style={{ fontSize: 9, color: "#6D6E76" }}>cash on hand</div>
+        </div>
+      </div>
+
+      {/* Summary stats grid */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 8,
+          marginBottom: 16,
+        }}
+      >
+        <PrintStat label="MRR (net)" value={fmtMoney(summary.mrrNet)} note={summary.oneOffNetThisMonth > 0 ? `+ ${fmtMoney(summary.oneOffNetThisMonth)} one-off` : ""} />
+        <PrintStat label="Operating expenses" value={fmtMoney(summary.monthlyOperating)} />
+        <PrintStat label="Payroll" value={fmtMoney(summary.monthlyPayroll)} />
+        <PrintStat label="Projected end balance" value={fmtMoney(endBalance)} note={`low: ${fmtMoney(lowestPoint)}`} />
+      </div>
+
+      {/* Cashflow projection */}
+      <PrintSection title={`Cashflow projection — ${monthLabel}`} subtitle={`Starting balance: ${fmtMoney(startBalance)}`}>
+        <PrintTable
+          headers={["Day", "Date", "Income", "Expense", "Balance"]}
+          rows={projection.map((p) => [
+            String(p.day),
+            p.date.slice(5),
+            p.income > 0 ? fmtMoney(p.income) : "",
+            p.expense > 0 ? `−${fmtMoney(p.expense)}` : "",
+            fmtMoney(p.balance),
+          ])}
+          align={["left", "left", "right", "right", "right"]}
+          striped
+        />
+      </PrintSection>
+
+      {/* Recurring revenue */}
+      <PrintSection title="Recurring revenue">
+        <PrintTable
+          headers={["Client", "Gross", "Method", "Net", "Day"]}
+          rows={d.recurringClients.map((c) => {
+            const pm = c.paymentMethodId != null ? pmById.get(c.paymentMethodId) ?? null : null;
+            return [
+              c.name + (c.isActive ? "" : " (inactive)"),
+              fmtMoney(c.monthlyAmount),
+              pm?.name ?? "—",
+              fmtMoney(netAfterFees(c.monthlyAmount, pm)),
+              c.invoiceDay != null ? String(c.invoiceDay) : "—",
+            ];
+          })}
+          align={["left", "right", "left", "right", "right"]}
+          totalRow={[
+            "Total MRR",
+            fmtMoney(d.recurringClients.filter((c) => c.isActive).reduce((s, c) => s + c.monthlyAmount, 0)),
+            "",
+            fmtMoney(summary.mrrNet),
+            "",
+          ]}
+        />
+      </PrintSection>
+
+      {/* One-off invoices */}
+      {d.oneOffInvoices.length > 0 && (
+        <PrintSection title="One-off invoices">
+          {invoicesThisMonth.length > 0 && (
+            <>
+              <PrintSubheading>This month</PrintSubheading>
+              <PrintTable
+                headers={["Client", "Gross", "Method", "Payout", "Net"]}
+                rows={invoicesThisMonth.map((i) => {
+                  const pm = i.paymentMethodId != null ? pmById.get(i.paymentMethodId) ?? null : null;
+                  return [
+                    i.clientName + (i.instantPayout ? " (instant)" : ""),
+                    fmtMoney(i.grossAmount),
+                    pm?.name ?? "—",
+                    i.payoutDate,
+                    fmtMoney(invoiceNetAmount(i.grossAmount, pm, i.instantPayout)),
+                  ];
+                })}
+                align={["left", "right", "left", "left", "right"]}
+              />
+            </>
+          )}
+          {otherInvoices.length > 0 && (
+            <>
+              <PrintSubheading>Other months</PrintSubheading>
+              <PrintTable
+                headers={["Client", "Gross", "Method", "Payout", "Net"]}
+                rows={otherInvoices.map((i) => {
+                  const pm = i.paymentMethodId != null ? pmById.get(i.paymentMethodId) ?? null : null;
+                  return [
+                    i.clientName + (i.instantPayout ? " (instant)" : ""),
+                    fmtMoney(i.grossAmount),
+                    pm?.name ?? "—",
+                    i.payoutDate,
+                    fmtMoney(invoiceNetAmount(i.grossAmount, pm, i.instantPayout)),
+                  ];
+                })}
+                align={["left", "right", "left", "left", "right"]}
+              />
+            </>
+          )}
+        </PrintSection>
+      )}
+
+      {/* Operating expenses */}
+      <PrintSection title="Operating expenses">
+        <PrintTable
+          headers={["Name", "Category", "Monthly", "Pay day"]}
+          rows={operating.map((e) => [
+            e.name + (e.isActive ? "" : " (inactive)"),
+            (e.categoryId != null ? catById.get(e.categoryId)?.name : null) ?? "—",
+            fmtMoney(e.monthlyAmount),
+            e.paymentDay != null ? String(e.paymentDay) : "—",
+          ])}
+          align={["left", "left", "right", "right"]}
+          totalRow={[
+            "Total operating",
+            "",
+            fmtMoney(summary.monthlyOperating),
+            "",
+          ]}
+        />
+      </PrintSection>
+
+      {/* Payroll */}
+      <PrintSection title="Payroll">
+        <PrintTable
+          headers={["Name", "Monthly", "Pay day"]}
+          rows={payroll.map((e) => [
+            e.name + (e.isActive ? "" : " (inactive)"),
+            fmtMoney(e.monthlyAmount),
+            e.paymentDay != null ? String(e.paymentDay) : "—",
+          ])}
+          align={["left", "right", "right"]}
+          totalRow={["Total payroll", fmtMoney(summary.monthlyPayroll), ""]}
+        />
+      </PrintSection>
+
+      {/* Planning & gear */}
+      {d.oneTimeExpenses.length > 0 && (
+        <PrintSection title="Planning & gear">
+          <PrintTable
+            headers={["What", "Category", "Amount", "Status", "Date"]}
+            rows={d.oneTimeExpenses.map((e) => [
+              e.name,
+              (e.categoryId != null ? catById.get(e.categoryId)?.name : null) ?? "—",
+              fmtMoney(e.amount),
+              e.status,
+              e.status === "paid" ? e.paidDate ?? "—" : e.plannedDate ?? "—",
+            ])}
+            align={["left", "left", "right", "left", "left"]}
+          />
+        </PrintSection>
+      )}
+
+      {/* Budgets */}
+      <PrintSection title="Categories & budgets">
+        <PrintTable
+          headers={["Category", "Spent this month", "Budget", "Used %"]}
+          rows={budgetStatus.map((s) => [
+            s.category.name,
+            fmtMoney(s.spent),
+            s.budget != null ? fmtMoney(s.budget) : "—",
+            s.percentUsed != null ? `${s.percentUsed}%` : "—",
+          ])}
+          align={["left", "right", "right", "right"]}
+        />
+      </PrintSection>
+
+      <div style={{ textAlign: "center", marginTop: 16, fontSize: 9, color: "#6D6E76" }}>
+        TMC Marketing · Internal · Generated by the Tech Hub finance dashboard
+      </div>
+    </div>
+  );
+}
+
+function PrintStat({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div
+      style={{
+        border: "1px solid #d1cfc9",
+        borderRadius: 4,
+        padding: 6,
+        background: "#fafaf6",
+      }}
+    >
+      <div style={{ fontSize: 8, textTransform: "uppercase", letterSpacing: 0.5, color: "#6D6E76" }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{value}</div>
+      {note && <div style={{ fontSize: 8, color: "#6D6E76", marginTop: 1 }}>{note}</div>}
+    </div>
+  );
+}
+
+function PrintSection({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ marginBottom: 14, breakInside: "avoid" }}>
+      <h2
+        style={{
+          fontSize: 12,
+          fontWeight: 700,
+          color: "#404E5C",
+          borderBottom: "1px solid #CFB583",
+          paddingBottom: 2,
+          marginBottom: 6,
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+        }}
+      >
+        {title}
+        {subtitle && (
+          <span style={{ fontSize: 9, fontWeight: 400, color: "#6D6E76", marginLeft: 8, textTransform: "none", letterSpacing: 0 }}>
+            {subtitle}
+          </span>
+        )}
+      </h2>
+      {children}
+    </div>
+  );
+}
+
+function PrintSubheading({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: 9, fontWeight: 600, color: "#6D6E76", marginTop: 6, marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.4 }}>
+      {children}
+    </div>
+  );
+}
+
+function PrintTable({
+  headers,
+  rows,
+  align = [],
+  striped,
+  totalRow,
+}: {
+  headers: string[];
+  rows: string[][];
+  align?: ("left" | "right" | "center")[];
+  striped?: boolean;
+  totalRow?: string[];
+}) {
+  if (rows.length === 0) {
+    return <div style={{ fontSize: 9, fontStyle: "italic", color: "#6D6E76", padding: 4 }}>— none —</div>;
+  }
+  const cellAlign = (i: number) => align[i] ?? "left";
+  return (
+    <table
+      style={{
+        width: "100%",
+        borderCollapse: "collapse",
+        fontSize: 9.5,
+      }}
+    >
+      <thead>
+        <tr>
+          {headers.map((h, i) => (
+            <th
+              key={i}
+              style={{
+                textAlign: cellAlign(i),
+                padding: "3px 6px",
+                borderBottom: "1px solid #404E5C",
+                background: "#f1f1f0",
+                fontWeight: 700,
+                fontSize: 8.5,
+                textTransform: "uppercase",
+                letterSpacing: 0.3,
+              }}
+            >
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, rIdx) => (
+          <tr key={rIdx} style={{ background: striped && rIdx % 2 === 1 ? "#fafaf6" : "white" }}>
+            {row.map((cell, i) => (
+              <td
+                key={i}
+                style={{
+                  textAlign: cellAlign(i),
+                  padding: "2.5px 6px",
+                  borderBottom: "0.5px solid #e2e0da",
+                  fontVariantNumeric: cellAlign(i) === "right" ? "tabular-nums" : "normal",
+                }}
+              >
+                {cell}
+              </td>
+            ))}
+          </tr>
+        ))}
+        {totalRow && (
+          <tr style={{ fontWeight: 700, borderTop: "1px solid #404E5C" }}>
+            {totalRow.map((cell, i) => (
+              <td
+                key={i}
+                style={{
+                  textAlign: cellAlign(i),
+                  padding: "4px 6px",
+                  borderTop: "1px solid #404E5C",
+                  fontVariantNumeric: cellAlign(i) === "right" ? "tabular-nums" : "normal",
+                }}
+              >
+                {cell}
+              </td>
+            ))}
+          </tr>
+        )}
+      </tbody>
+    </table>
   );
 }
