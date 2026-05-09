@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, integer, text } from "drizzle-orm/sqlite-core";
+import { sqliteTable, integer, real, text } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -96,6 +96,84 @@ export const clientUsers = sqliteTable("client_users", {
 
 export type ClientUserRow = typeof clientUsers.$inferSelect;
 export type NewClientUserRow = typeof clientUsers.$inferInsert;
+
+// ─── Finance dashboard ───────────────────────────────────────────────────
+
+export const paymentMethods = sqliteTable("payment_methods", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  feePct: real("fee_pct").notNull().default(0),
+  feeFlat: integer("fee_flat").notNull().default(0),
+  notes: text("notes"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type PaymentMethodRow = typeof paymentMethods.$inferSelect;
+
+export const expenseCategories = sqliteTable("expense_categories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  monthlyBudget: integer("monthly_budget"),
+  color: text("color").notNull().default("404E5C"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type ExpenseCategoryRow = typeof expenseCategories.$inferSelect;
+export type NewExpenseCategoryRow = typeof expenseCategories.$inferInsert;
+
+export const recurringClients = sqliteTable("recurring_clients", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  monthlyAmount: integer("monthly_amount").notNull(),
+  paymentMethodId: integer("payment_method_id").references(() => paymentMethods.id),
+  invoiceDay: integer("invoice_day"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  notes: text("notes"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type RecurringClientRow = typeof recurringClients.$inferSelect;
+export type NewRecurringClientRow = typeof recurringClients.$inferInsert;
+
+export const recurringExpenses = sqliteTable("recurring_expenses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  categoryId: integer("category_id").references(() => expenseCategories.id),
+  monthlyAmount: integer("monthly_amount").notNull(),
+  paymentDay: integer("payment_day"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  notes: text("notes"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type RecurringExpenseRow = typeof recurringExpenses.$inferSelect;
+export type NewRecurringExpenseRow = typeof recurringExpenses.$inferInsert;
+
+export const oneTimeExpenses = sqliteTable("one_time_expenses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  categoryId: integer("category_id").references(() => expenseCategories.id),
+  amount: integer("amount").notNull(),
+  status: text("status", { enum: ["planned", "paid"] }).notNull().default("planned"),
+  plannedDate: text("planned_date"),
+  paidDate: text("paid_date"),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type OneTimeExpenseRow = typeof oneTimeExpenses.$inferSelect;
+export type NewOneTimeExpenseRow = typeof oneTimeExpenses.$inferInsert;
+
+export const financeSettings = sqliteTable("finance_settings", {
+  id: integer("id").primaryKey(),
+  currentBalance: integer("current_balance").notNull().default(0),
+  balanceUpdatedAt: text("balance_updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  notes: text("notes"),
+  updatedBy: integer("updated_by").references(() => users.id),
+});
+export type FinanceSettingsRow = typeof financeSettings.$inferSelect;
 
 export const calculatorSettings = sqliteTable("calculator_settings", {
   id: integer("id").primaryKey(),
