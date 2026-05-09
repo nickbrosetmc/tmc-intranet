@@ -3,8 +3,9 @@
 export interface PaymentMethod {
   id: number;
   name: string;
-  feePct: number;       // e.g. 0.029
-  feeFlat: number;      // CENTS, e.g. 30 = $0.30
+  feePct: number;             // e.g. 0.029 — initial processing fee on gross
+  feeFlat: number;            // CENTS, e.g. 30 = $0.30
+  instantPayoutPct: number;   // e.g. 0.01 — compounds on the remaining after initial fee
   notes: string | null;
   sortOrder: number;
   createdAt: string;
@@ -79,16 +80,24 @@ export interface FinanceDashboard {
 
 /**
  * Net amount received after payment processor fees.
- * monthlyAmount is in dollars; fee_flat is in cents.
+ *
+ * Two-step compounded fee:
+ *   remaining = gross - (gross × fee_pct) - (fee_flat / 100)
+ *   net       = remaining × (1 - instant_payout_pct)
+ *
+ * Example (V/MC/Disc on $1,000 with 3.9% + 1% instant):
+ *   $1000 - $39 = $961 remaining
+ *   $961 × (1 - 0.01) = $951.39 net
  */
 export function netAfterFees(
   monthlyAmount: number,
   pm: PaymentMethod | null | undefined,
 ): number {
   if (!pm) return monthlyAmount;
-  const pctFee = monthlyAmount * pm.feePct;
-  const flatFee = pm.feeFlat / 100;
-  return Math.round((monthlyAmount - pctFee - flatFee) * 100) / 100;
+  const initialFee = monthlyAmount * pm.feePct + pm.feeFlat / 100;
+  const remaining = monthlyAmount - initialFee;
+  const net = remaining * (1 - pm.instantPayoutPct);
+  return Math.round(net * 100) / 100;
 }
 
 export interface DayPoint {
