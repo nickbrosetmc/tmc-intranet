@@ -46,6 +46,18 @@ export interface RecurringExpense {
   updatedAt: string;
 }
 
+export interface OneOffInvoice {
+  id: number;
+  clientName: string;
+  grossAmount: number;
+  paymentMethodId: number | null;
+  payoutDate: string;
+  instantPayout: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface OneTimeExpense {
   id: number;
   name: string;
@@ -74,6 +86,7 @@ export interface FinanceDashboard {
   recurringClients: RecurringClient[];
   recurringExpenses: RecurringExpense[];
   oneTimeExpenses: OneTimeExpense[];
+  oneOffInvoices: OneOffInvoice[];
 }
 
 // ─── Calculations ────────────────────────────────────────────────────────
@@ -85,9 +98,9 @@ export interface FinanceDashboard {
  *   remaining = gross - (gross × fee_pct) - (fee_flat / 100)
  *   net       = remaining × (1 - instant_payout_pct)
  *
- * Example (V/MC/Disc on $1,000 with 3.9% + 1% instant):
- *   $1000 - $39 = $961 remaining
- *   $961 × (1 - 0.01) = $951.39 net
+ * Example (V/MC/Disc on $1,000 with 2.9% + 1% instant):
+ *   $1000 - $29 = $971 remaining
+ *   $971 × (1 - 0.01) = $961.29 net
  */
 export function netAfterFees(
   monthlyAmount: number,
@@ -98,6 +111,46 @@ export function netAfterFees(
   const remaining = monthlyAmount - initialFee;
   const net = remaining * (1 - pm.instantPayoutPct);
   return Math.round(net * 100) / 100;
+}
+
+/**
+ * Net for a one-off invoice. Like netAfterFees but the instant payout
+ * fee only applies if the invoice's instantPayout flag is set —
+ * recurring clients always do instant payout, but one-off invoices are
+ * per-invoice.
+ */
+export function invoiceNetAmount(
+  gross: number,
+  pm: PaymentMethod | null | undefined,
+  instantPayout: boolean,
+): number {
+  if (!pm) return gross;
+  const initialFee = gross * pm.feePct + pm.feeFlat / 100;
+  const remaining = gross - initialFee;
+  const instantPct = instantPayout ? pm.instantPayoutPct : 0;
+  const net = remaining * (1 - instantPct);
+  return Math.round(net * 100) / 100;
+}
+
+/** Detailed breakdown for an invoice — useful for the form UI. */
+export function invoiceFeeBreakdown(
+  gross: number,
+  pm: PaymentMethod | null | undefined,
+  instantPayout: boolean,
+): { initialFee: number; remaining: number; instantFee: number; net: number } {
+  if (!pm) {
+    return { initialFee: 0, remaining: gross, instantFee: 0, net: gross };
+  }
+  const initialFee = gross * pm.feePct + pm.feeFlat / 100;
+  const remaining = gross - initialFee;
+  const instantFee = instantPayout ? remaining * pm.instantPayoutPct : 0;
+  const net = remaining - instantFee;
+  return {
+    initialFee: Math.round(initialFee * 100) / 100,
+    remaining: Math.round(remaining * 100) / 100,
+    instantFee: Math.round(instantFee * 100) / 100,
+    net: Math.round(net * 100) / 100,
+  };
 }
 
 export interface DayPoint {
@@ -133,17 +186,20 @@ export interface ProjectionInput {
   clients: RecurringClient[];
   recurringExpenses: RecurringExpense[];
   oneTimeExpenses: OneTimeExpense[];
+  oneOffInvoices: OneOffInvoice[];
   paymentMethods: PaymentMethod[];
 }
 
 /**
  * Compute a day-by-day balance projection for the given month.
  * Income from a recurring client lands on its invoiceDay (net of fees).
+ * One-off invoices land on their payoutDate (net of fees, with instant
+ * payout fee applied if flagged).
  * Recurring expenses hit on paymentDay. One-time expenses hit on
  * plannedDate (if planned and within month) or paidDate (if paid).
  */
 export function projectMonth(input: ProjectionInput): DayPoint[] {
-  const { monthIso, startBalance, clients, recurringExpenses, oneTimeExpenses, paymentMethods } = input;
+  const { monthIso, startBalance, clients, recurringExpenses, oneTimeExpenses, oneOffInvoices, paymentMethods } = input;
   const days = daysInMonth(monthIso);
   const pmById = new Map(paymentMethods.map((p) => [p.id, p]));
 
@@ -157,13 +213,22 @@ export function projectMonth(input: ProjectionInput): DayPoint[] {
     incomeByDay[d] += netAfterFees(c.monthlyAmount, pm);
   }
 
+  const monthPrefix = `${monthIso}-`;
+
+  for (const inv of oneOffInvoices) {
+    if (!inv.payoutDate.startsWith(monthPrefix)) continue;
+    const day = Number(inv.payoutDate.slice(8, 10));
+    if (!Number.isFinite(day)) continue;
+    const pm = inv.paymentMethodId != null ? pmById.get(inv.paymentMethodId) : null;
+    incomeByDay[clampDay(day, monthIso)] += invoiceNetAmount(inv.grossAmount, pm, inv.instantPayout);
+  }
+
   for (const e of recurringExpenses) {
     if (!e.isActive || e.paymentDay == null) continue;
     const d = clampDay(e.paymentDay, monthIso);
     expenseByDay[d] += e.monthlyAmount;
   }
 
-  const monthPrefix = `${monthIso}-`;
   for (const e of oneTimeExpenses) {
     const dateStr = e.status === "paid" ? e.paidDate : e.plannedDate;
     if (!dateStr) continue;
@@ -197,7 +262,8 @@ export interface DashboardSummary {
   monthlyPayroll: number;
   monthlyOperating: number;
   oneTimePlannedThisMonth: number;
-  projectedNet: number;             // mrrNet - monthlyExpenses - one-time planned this month
+  oneOffNetThisMonth: number;       // sum of one-off invoice nets for the current month
+  projectedNet: number;             // mrrNet + one-off net - expenses
 }
 
 /** Find the Payroll category id by canonical name. Case-insensitive. */
@@ -235,6 +301,12 @@ export function computeSummary(d: FinanceDashboard, monthIso: string): Dashboard
     const dateStr = e.status === "paid" ? e.paidDate : e.plannedDate;
     if (dateStr?.startsWith(monthPrefix)) oneTimePlannedThisMonth += e.amount;
   }
+  let oneOffNetThisMonth = 0;
+  for (const inv of d.oneOffInvoices) {
+    if (!inv.payoutDate.startsWith(monthPrefix)) continue;
+    const pm = inv.paymentMethodId != null ? pmById.get(inv.paymentMethodId) : null;
+    oneOffNetThisMonth += invoiceNetAmount(inv.grossAmount, pm, inv.instantPayout);
+  }
   return {
     mrrGross,
     mrrNet,
@@ -242,7 +314,8 @@ export function computeSummary(d: FinanceDashboard, monthIso: string): Dashboard
     monthlyPayroll,
     monthlyOperating,
     oneTimePlannedThisMonth,
-    projectedNet: mrrNet - monthlyExpenses - oneTimePlannedThisMonth,
+    oneOffNetThisMonth,
+    projectedNet: mrrNet + oneOffNetThisMonth - monthlyExpenses - oneTimePlannedThisMonth,
   };
 }
 
@@ -363,6 +436,20 @@ export const finance = {
     jsonReq<{ ok: true }>(`/api/admin/finance/one-time-expenses/${id}`, {
       method: "DELETE",
     }),
+
+  // One-off invoices
+  createInvoice: (data: Partial<OneOffInvoice>) =>
+    jsonReq<{ invoice: OneOffInvoice }>("/api/admin/finance/invoices", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateInvoice: (id: number, data: Partial<OneOffInvoice>) =>
+    jsonReq<{ ok: true }>(`/api/admin/finance/invoices/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  deleteInvoice: (id: number) =>
+    jsonReq<{ ok: true }>(`/api/admin/finance/invoices/${id}`, { method: "DELETE" }),
 
   // Categories
   createCategory: (data: Partial<ExpenseCategory>) =>

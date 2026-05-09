@@ -153,6 +153,20 @@ export const recurringExpenses = sqliteTable("recurring_expenses", {
 export type RecurringExpenseRow = typeof recurringExpenses.$inferSelect;
 export type NewRecurringExpenseRow = typeof recurringExpenses.$inferInsert;
 
+export const oneOffInvoices = sqliteTable("one_off_invoices", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  clientName: text("client_name").notNull(),
+  grossAmount: integer("gross_amount").notNull(),
+  paymentMethodId: integer("payment_method_id").references(() => paymentMethods.id),
+  payoutDate: text("payout_date").notNull(),
+  instantPayout: integer("instant_payout", { mode: "boolean" }).notNull().default(false),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type OneOffInvoiceRow = typeof oneOffInvoices.$inferSelect;
+export type NewOneOffInvoiceRow = typeof oneOffInvoices.$inferInsert;
+
 export const oneTimeExpenses = sqliteTable("one_time_expenses", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),

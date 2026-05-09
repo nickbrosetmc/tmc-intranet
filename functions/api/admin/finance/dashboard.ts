@@ -4,6 +4,7 @@ import { getDb } from "../../../db";
 import {
   getFinanceSettings,
   listExpenseCategories,
+  listOneOffInvoices,
   listOneTimeExpenses,
   listPaymentMethods,
   listRecurringClients,
@@ -26,6 +27,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     clients,
     recurring,
     oneTime,
+    invoices,
   ] = await Promise.all([
     getFinanceSettings(db),
     listPaymentMethods(db),
@@ -33,6 +35,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     listRecurringClients(db),
     listRecurringExpenses(db),
     listOneTimeExpenses(db),
+    listOneOffInvoices(db),
   ]);
 
   return Response.json({
@@ -42,5 +45,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     recurringClients: clients,
     recurringExpenses: recurring,
     oneTimeExpenses: oneTime,
+    oneOffInvoices: invoices,
   });
 };

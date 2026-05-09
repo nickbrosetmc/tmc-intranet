@@ -59,12 +59,15 @@ import {
   computeSummary,
   finance,
   fmtMoney,
+  invoiceFeeBreakdown,
+  invoiceNetAmount,
   netAfterFees,
   payrollCategoryId,
   projectMonth,
   thisMonthIso,
   type ExpenseCategory,
   type FinanceDashboard,
+  type OneOffInvoice,
   type OneTimeExpense,
   type RecurringClient,
   type RecurringExpense,
@@ -112,6 +115,7 @@ export function AdminFinance() {
             clients: d.recurringClients,
             recurringExpenses: d.recurringExpenses,
             oneTimeExpenses: d.oneTimeExpenses,
+            oneOffInvoices: d.oneOffInvoices,
             paymentMethods: d.paymentMethods,
           })
         : [],
@@ -157,9 +161,13 @@ export function AdminFinance() {
         <StatCard
           label="MRR (net)"
           value={fmtMoney(summary!.mrrNet)}
-          subtitle={summary!.mrrGross !== summary!.mrrNet
-            ? `gross ${fmtMoney(summary!.mrrGross)}`
-            : "after fees"}
+          subtitle={
+            summary!.oneOffNetThisMonth > 0
+              ? `+ ${fmtMoney(summary!.oneOffNetThisMonth)} one-off this month`
+              : summary!.mrrGross !== summary!.mrrNet
+                ? `gross ${fmtMoney(summary!.mrrGross)}`
+                : "after fees"
+          }
         />
         <StatCard
           label="Monthly expenses"
@@ -201,7 +209,10 @@ export function AdminFinance() {
       </div>
 
       {tab === "revenue" && (
-        <RecurringClientsTable d={d} onChanged={refresh} />
+        <div className="space-y-4">
+          <RecurringClientsTable d={d} onChanged={refresh} />
+          <OneOffInvoicesTable d={d} onChanged={refresh} />
+        </div>
       )}
       {tab === "operating" && (
         <RecurringExpensesTable
@@ -681,6 +692,332 @@ function ClientDialog({
     </Dialog>
   );
 }
+
+// ─── One-off invoices ────────────────────────────────────────────────────
+
+function OneOffInvoicesTable({
+  d,
+  onChanged,
+}: {
+  d: FinanceDashboard;
+  onChanged: () => void;
+}) {
+  const pmById = new Map(d.paymentMethods.map((p) => [p.id, p]));
+  const sorted = [...d.oneOffInvoices].sort((a, b) =>
+    b.payoutDate.localeCompare(a.payoutDate),
+  );
+  const total = sorted.reduce(
+    (s, i) =>
+      s +
+      invoiceNetAmount(
+        i.grossAmount,
+        i.paymentMethodId != null ? pmById.get(i.paymentMethodId) ?? null : null,
+        i.instantPayout,
+      ),
+    0,
+  );
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-base">One-off invoices</CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Project work, ad-hoc charges — anything outside a monthly retainer.
+            Lands on the cashflow chart on its payout date.
+          </p>
+        </div>
+        <InvoiceDialog mode="create" d={d} onSaved={onChanged} />
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Client</TableHead>
+              <TableHead className="text-right">Gross</TableHead>
+              <TableHead>Method</TableHead>
+              <TableHead>Payout</TableHead>
+              <TableHead className="text-right">Net received</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sorted.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                  No one-off invoices yet. Click "Add invoice" to log one.
+                </TableCell>
+              </TableRow>
+            ) : (
+              sorted.map((inv) => {
+                const pm =
+                  inv.paymentMethodId != null
+                    ? pmById.get(inv.paymentMethodId) ?? null
+                    : null;
+                const net = invoiceNetAmount(inv.grossAmount, pm, inv.instantPayout);
+                return (
+                  <TableRow key={inv.id}>
+                    <TableCell className="font-medium">
+                      {inv.clientName}
+                      {inv.notes && (
+                        <span className="block text-[11px] text-muted-foreground italic">
+                          {inv.notes}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {fmtMoney(inv.grossAmount)}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {pm?.name ?? "—"}
+                      {inv.instantPayout && (
+                        <span className="ml-1 text-[10px] uppercase tracking-wider bg-tmc-gold/30 text-tmc-dark px-1 rounded">
+                          instant
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">{inv.payoutDate}</TableCell>
+                    <TableCell className="text-right tabular-nums text-green-700">
+                      {fmtMoney(net)}
+                    </TableCell>
+                    <TableCell className="text-right space-x-1">
+                      <InvoiceDialog mode="edit" invoice={inv} d={d} onSaved={onChanged} />
+                      <DeleteAlert
+                        title={`Delete invoice for ${inv.clientName}?`}
+                        onConfirm={async () => {
+                          await finance.deleteInvoice(inv.id);
+                          toast.success("Deleted");
+                          onChanged();
+                        }}
+                      />
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+            {sorted.length > 0 && (
+              <TableRow className="font-bold border-t-2">
+                <TableCell colSpan={4}>Total received</TableCell>
+                <TableCell className="text-right tabular-nums text-green-700">
+                  {fmtMoney(total)}
+                </TableCell>
+                <TableCell></TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InvoiceDialog({
+  mode,
+  invoice,
+  d,
+  onSaved,
+}: {
+  mode: "create" | "edit";
+  invoice?: OneOffInvoice;
+  d: FinanceDashboard;
+  onSaved: () => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    clientName: invoice?.clientName ?? "",
+    grossAmount: invoice?.grossAmount ?? 0,
+    paymentMethodId: invoice?.paymentMethodId ?? null,
+    payoutDate: invoice?.payoutDate ?? today,
+    instantPayout: invoice?.instantPayout ?? false,
+    notes: invoice?.notes ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const pm =
+    form.paymentMethodId != null
+      ? d.paymentMethods.find((p) => p.id === form.paymentMethodId) ?? null
+      : null;
+  const breakdown = invoiceFeeBreakdown(form.grossAmount, pm, form.instantPayout);
+
+  async function submit() {
+    if (!form.clientName.trim() || !form.grossAmount) {
+      toast.error("Client name and amount required");
+      return;
+    }
+    if (!form.payoutDate && !form.instantPayout) {
+      toast.error("Payout date required (or check Instant payout)");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        clientName: form.clientName,
+        grossAmount: form.grossAmount,
+        paymentMethodId: form.paymentMethodId,
+        // When instant, payout date is "today" — money lands the same day
+        payoutDate: form.instantPayout ? today : form.payoutDate,
+        instantPayout: form.instantPayout,
+        notes: form.notes || null,
+      };
+      if (mode === "create") {
+        await finance.createInvoice(payload);
+        toast.success(`Invoice for ${form.clientName} added`);
+      } else {
+        await finance.updateInvoice(invoice!.id, payload);
+        toast.success("Saved");
+      }
+      setOpen(false);
+      onSaved();
+    } catch (e) {
+      toast.error(`Save failed: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {mode === "create" ? (
+          <Button className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark" size="sm">
+            Add invoice
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost">Edit</Button>
+        )}
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {mode === "create" ? "Add one-off invoice" : `Edit invoice — ${invoice?.clientName}`}
+          </DialogTitle>
+          <DialogDescription>
+            For project work, ad-hoc charges, or anything outside a monthly retainer.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5 col-span-2">
+            <Label>Client</Label>
+            <Input
+              value={form.clientName}
+              onChange={(e) => setForm({ ...form, clientName: e.target.value })}
+              placeholder="Acme Inc"
+              list="recurring-client-names"
+            />
+            <datalist id="recurring-client-names">
+              {d.recurringClients.map((c) => (
+                <option key={c.id} value={c.name} />
+              ))}
+            </datalist>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Invoice amount ($)</Label>
+            <Input
+              type="number"
+              value={form.grossAmount}
+              onChange={(e) =>
+                setForm({ ...form, grossAmount: Number(e.target.value) || 0 })
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Payment method</Label>
+            <Select
+              value={form.paymentMethodId != null ? String(form.paymentMethodId) : "none"}
+              onValueChange={(v) =>
+                setForm({ ...form, paymentMethodId: v === "none" ? null : Number(v) })
+              }
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— not set —</SelectItem>
+                {d.paymentMethods.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <label className="flex items-center gap-2 col-span-2 text-sm bg-muted rounded p-2">
+            <input
+              type="checkbox"
+              checked={form.instantPayout}
+              onChange={(e) => setForm({ ...form, instantPayout: e.target.checked })}
+            />
+            <span className="font-medium">Instant payout</span>
+            <span className="text-xs text-muted-foreground">
+              (subtracts {pm ? `${(pm.instantPayoutPct * 100).toFixed(1)}%` : "1%"} from net; payout dated today)
+            </span>
+          </label>
+
+          {!form.instantPayout && (
+            <div className="space-y-1.5 col-span-2">
+              <Label>Payout date</Label>
+              <Input
+                type="date"
+                value={form.payoutDate}
+                onChange={(e) => setForm({ ...form, payoutDate: e.target.value })}
+              />
+            </div>
+          )}
+
+          <div className="space-y-1.5 col-span-2">
+            <Label>Notes (optional)</Label>
+            <Input
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="e.g. Q3 brand video, deposit on launch"
+            />
+          </div>
+
+          {/* Live breakdown */}
+          {form.grossAmount > 0 && (
+            <div className="col-span-2 rounded-md border bg-muted/40 p-3 space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span>Gross invoiced</span>
+                <span className="tabular-nums">{fmtMoney(form.grossAmount)}</span>
+              </div>
+              {pm && pm.feePct > 0 && (
+                <div className="flex justify-between text-red-700">
+                  <span>− Initial fee ({(pm.feePct * 100).toFixed(2)}%)</span>
+                  <span className="tabular-nums">−${breakdown.initialFee.toFixed(2)}</span>
+                </div>
+              )}
+              {pm && form.instantPayout && pm.instantPayoutPct > 0 && (
+                <div className="flex justify-between text-red-700">
+                  <span>− Instant payout ({(pm.instantPayoutPct * 100).toFixed(1)}% of remaining)</span>
+                  <span className="tabular-nums">−${breakdown.instantFee.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-green-700 border-t pt-1">
+                <span>Amount received</span>
+                <span className="tabular-nums">${breakdown.net.toFixed(2)}</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground italic pt-1">
+                Verify this matches what Wave shows.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button
+            onClick={submit}
+            disabled={saving}
+            className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
+          >
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Recurring expenses ──────────────────────────────────────────────────
 
 function RecurringExpensesTable({
   d,
