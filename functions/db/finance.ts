@@ -2,6 +2,7 @@ import { asc, eq, sql } from "drizzle-orm";
 import {
   expenseCategories,
   financeSettings,
+  oneOffInvoices,
   oneTimeExpenses,
   paymentMethods,
   recurringClients,
@@ -9,9 +10,11 @@ import {
   type ExpenseCategoryRow,
   type FinanceSettingsRow,
   type NewExpenseCategoryRow,
+  type NewOneOffInvoiceRow,
   type NewOneTimeExpenseRow,
   type NewRecurringClientRow,
   type NewRecurringExpenseRow,
+  type OneOffInvoiceRow,
   type OneTimeExpenseRow,
   type PaymentMethodRow,
   type RecurringClientRow,
@@ -59,6 +62,37 @@ export async function listOneTimeExpenses(db: DB): Promise<OneTimeExpenseRow[]> 
     .from(oneTimeExpenses)
     .orderBy(asc(oneTimeExpenses.plannedDate), asc(oneTimeExpenses.name))
     .all();
+}
+
+export async function listOneOffInvoices(db: DB): Promise<OneOffInvoiceRow[]> {
+  return db
+    .select()
+    .from(oneOffInvoices)
+    .orderBy(asc(oneOffInvoices.payoutDate), asc(oneOffInvoices.clientName))
+    .all();
+}
+
+export async function createOneOffInvoice(
+  db: DB,
+  data: NewOneOffInvoiceRow,
+): Promise<OneOffInvoiceRow> {
+  return db.insert(oneOffInvoices).values(data).returning().get();
+}
+
+export async function updateOneOffInvoice(
+  db: DB,
+  id: number,
+  data: Partial<NewOneOffInvoiceRow>,
+): Promise<void> {
+  await db
+    .update(oneOffInvoices)
+    .set({ ...data, updatedAt: sql`CURRENT_TIMESTAMP` })
+    .where(eq(oneOffInvoices.id, id))
+    .run();
+}
+
+export async function deleteOneOffInvoice(db: DB, id: number): Promise<void> {
+  await db.delete(oneOffInvoices).where(eq(oneOffInvoices.id, id)).run();
 }
 
 export async function getFinanceSettings(db: DB): Promise<FinanceSettingsRow> {
