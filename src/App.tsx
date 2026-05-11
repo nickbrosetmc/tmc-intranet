@@ -9,6 +9,7 @@ import { AdminGroups } from "@/pages/admin/AdminGroups";
 import { AdminAnalytics } from "@/pages/admin/AdminAnalytics";
 import { AdminAnnouncements } from "@/pages/admin/AdminAnnouncements";
 import { AdminClients } from "@/pages/admin/AdminClients";
+import { AdminContent } from "@/pages/admin/AdminContent";
 import { AdminFinance } from "@/pages/admin/AdminFinance";
 import { CalculatorPage } from "@/pages/Calculator";
 import { VideoCalculatorPage } from "@/pages/VideoCalculator";
@@ -44,6 +45,11 @@ function App() {
           <Route path="/admin/finance">
             <AdminLayout>
               <AdminFinance />
+            </AdminLayout>
+          </Route>
+          <Route path="/admin/content">
+            <AdminLayout>
+              <AdminContent />
             </AdminLayout>
           </Route>
           <Route path="/admin/users">

@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 
 const NAV = [
   { href: "/admin/announcements", label: "Announcements" },
+  { href: "/admin/content", label: "Content" },
   { href: "/admin/finance", label: "Finance" },
   { href: "/admin/clients", label: "Clients" },
   { href: "/admin/users", label: "Users" },

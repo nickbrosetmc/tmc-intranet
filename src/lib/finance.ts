@@ -29,6 +29,8 @@ export interface RecurringClient {
   isActive: boolean;
   notes: string | null;
   sortOrder: number;
+  /** Posts/week target; null = not in content pipeline. */
+  weeklyPostTarget: number | null;
   createdAt: string;
   updatedAt: string;
 }
