@@ -94,6 +94,18 @@ export async function listPostsInRange(
     .all();
 }
 
+export async function getContentPostById(
+  db: DB,
+  id: number,
+): Promise<ContentPostRow | null> {
+  const row = await db
+    .select()
+    .from(contentPosts)
+    .where(eq(contentPosts.id, id))
+    .get();
+  return row ?? null;
+}
+
 export async function createContentPost(
   db: DB,
   data: NewContentPostRow,
