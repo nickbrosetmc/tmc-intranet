@@ -4,6 +4,16 @@ import { getDb } from "../../../../db";
 import { createContentPost } from "../../../../db/content";
 import type { NewContentPostRow } from "../../../../db/schema";
 
+/**
+ * Once a post moves past review, pillar + funnel are required so coverage
+ * analysis is meaningful. Idea/drafting/review can be untagged while the
+ * team is still figuring out the angle.
+ */
+const COMPLETED_STATUSES = new Set(["approved", "scheduled", "posted"]);
+export function requiresPillarAndFunnel(status: string | undefined): boolean {
+  return COMPLETED_STATUSES.has(status ?? "");
+}
+
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const session = await requireAdmin(request, env);
   if (isResponse(session)) return session;
@@ -22,6 +32,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     );
   }
 
+  const status = body.status ?? "idea";
+  if (requiresPillarAndFunnel(status) && (!body.pillarId || !body.funnelStageId)) {
+    return Response.json(
+      {
+        error:
+          "Pillar and funnel stage are required when a post is approved, scheduled, or posted.",
+      },
+      { status: 400 },
+    );
+  }
+
   const db = getDb(env.DB);
   const created = await createContentPost(db, {
     clientId: body.clientId,
@@ -30,7 +51,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     funnelStageId: body.funnelStageId ?? null,
     scheduledDate: body.scheduledDate,
     platform: body.platform ?? null,
-    status: body.status ?? "idea",
+    status,
     assignedTo: body.assignedTo ?? null,
     notes: body.notes ?? null,
   });

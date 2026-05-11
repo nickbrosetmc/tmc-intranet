@@ -81,12 +81,25 @@ export function AdminContent() {
     return toIsoDate(addDays(startOfWeek(today), 7));
   });
 
-  // Fetch a wider range — current month + the next week — so coverage view has data.
+  // Fetch a wide range — 90 days back (for rolling Coverage windows) +
+  // 5 weeks around the anchor so This Week is covered even if user is
+  // browsing a future week.
   const range = useMemo(() => {
+    const today = new Date();
     const anchor = parseIsoDate(anchorIso);
-    const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-    const end = new Date(anchor.getFullYear(), anchor.getMonth() + 2, 1);
-    return { start: toIsoDate(start), end: toIsoDate(end) };
+    const earliest = new Date(
+      Math.min(
+        today.getTime() - 90 * 24 * 60 * 60 * 1000,
+        anchor.getTime() - 14 * 24 * 60 * 60 * 1000,
+      ),
+    );
+    const latest = new Date(
+      Math.max(
+        today.getTime() + 35 * 24 * 60 * 60 * 1000,
+        anchor.getTime() + 21 * 24 * 60 * 60 * 1000,
+      ),
+    );
+    return { start: toIsoDate(earliest), end: toIsoDate(latest) };
   }, [anchorIso]);
 
   const [d, setD] = useState<ContentDashboard | null>(null);
@@ -145,7 +158,7 @@ export function AdminContent() {
           onChanged={refresh}
         />
       )}
-      {tab === "coverage" && <CoverageView d={d} anchorIso={anchorIso} />}
+      {tab === "coverage" && <CoverageView d={d} />}
       {tab === "settings" && <SettingsView d={d} onChanged={refresh} />}
     </div>
   );
@@ -186,8 +199,12 @@ function WeekView({
   function shiftWeek(weeks: number) {
     setAnchorIso(toIsoDate(addDays(parseIsoDate(anchorIso), 7 * weeks)));
   }
-  function jumpToThisWeek() {
-    setAnchorIso(toIsoDate(addDays(startOfWeek(new Date()), 7)));
+  // The "current production week" is whatever week we're approving FOR
+  // this Friday — i.e. the week starting next Monday.
+  const productionWeekIso = toIsoDate(addDays(startOfWeek(new Date()), 7));
+  const isProductionWeek = weekStart === productionWeekIso;
+  function jumpToProductionWeek() {
+    setAnchorIso(productionWeekIso);
   }
 
   return (
@@ -200,13 +217,20 @@ function WeekView({
           </Button>
           <div className="font-semibold text-tmc-dark min-w-44 text-center">
             Week of {weekLabel(anchorIso)}
+            {isProductionWeek && (
+              <span className="ml-2 inline-block text-[10px] font-semibold uppercase tracking-wider bg-tmc-gold/30 text-tmc-dark px-1.5 py-0.5 rounded">
+                Current
+              </span>
+            )}
           </div>
           <Button variant="outline" size="sm" onClick={() => shiftWeek(1)}>
             Next →
           </Button>
-          <Button variant="ghost" size="sm" onClick={jumpToThisWeek}>
-            Next week
-          </Button>
+          {!isProductionWeek && (
+            <Button variant="ghost" size="sm" onClick={jumpToProductionWeek}>
+              ← Back to current week
+            </Button>
+          )}
         </div>
         <PostDialog
           mode="create"
@@ -608,9 +632,20 @@ function PostDialog({
   });
   const [saving, setSaving] = useState(false);
 
+  const completionStatuses: PostStatus[] = ["approved", "scheduled", "posted"];
+  const tagsRequired = completionStatuses.includes(form.status);
+  const missingPillar = tagsRequired && form.pillarId == null;
+  const missingFunnel = tagsRequired && form.funnelStageId == null;
+
   async function submit() {
     if (!form.clientId || !form.title.trim() || !form.scheduledDate) {
       toast.error("Client, title, and date required");
+      return;
+    }
+    if (missingPillar || missingFunnel) {
+      toast.error(
+        "Pillar and funnel stage are required to mark a post as approved or beyond.",
+      );
       return;
     }
     setSaving(true);
@@ -716,14 +751,18 @@ function PostDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Pillar</Label>
+            <Label className={missingPillar ? "text-red-700" : ""}>
+              Pillar{tagsRequired && " *"}
+            </Label>
             <Select
               value={form.pillarId != null ? String(form.pillarId) : "none"}
               onValueChange={(v) =>
                 setForm({ ...form, pillarId: v === "none" ? null : Number(v) })
               }
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className={missingPillar ? "ring-2 ring-red-300" : ""}>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">— not set —</SelectItem>
                 {d.pillars.map((p) => (
@@ -731,16 +770,23 @@ function PostDialog({
                 ))}
               </SelectContent>
             </Select>
+            {missingPillar && (
+              <p className="text-[11px] text-red-700">Required to approve.</p>
+            )}
           </div>
           <div className="space-y-1.5">
-            <Label>Funnel stage</Label>
+            <Label className={missingFunnel ? "text-red-700" : ""}>
+              Funnel stage{tagsRequired && " *"}
+            </Label>
             <Select
               value={form.funnelStageId != null ? String(form.funnelStageId) : "none"}
               onValueChange={(v) =>
                 setForm({ ...form, funnelStageId: v === "none" ? null : Number(v) })
               }
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className={missingFunnel ? "ring-2 ring-red-300" : ""}>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">— not set —</SelectItem>
                 {d.funnelStages.map((s) => (
@@ -748,6 +794,9 @@ function PostDialog({
                 ))}
               </SelectContent>
             </Select>
+            {missingFunnel && (
+              <p className="text-[11px] text-red-700">Required to approve.</p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Status</Label>
@@ -813,46 +862,67 @@ function PostDialog({
 
 // ─── Coverage view ───────────────────────────────────────────────────────
 
-function CoverageView({
-  d,
-  anchorIso,
-}: {
-  d: ContentDashboard;
-  anchorIso: string;
-}) {
-  // Coverage for the current month containing anchor
-  const anchor = parseIsoDate(anchorIso);
-  const monthStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-  const monthEnd = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
-  const monthStartIso = toIsoDate(monthStart);
-  const monthEndIso = toIsoDate(monthEnd);
-  const monthPosts = d.posts.filter(
-    (p) => p.scheduledDate >= monthStartIso && p.scheduledDate < monthEndIso,
+const WINDOWS = [30, 60, 90] as const;
+type Window = (typeof WINDOWS)[number];
+
+function CoverageView({ d }: { d: ContentDashboard }) {
+  const [windowDays, setWindowDays] = useState<Window>(30);
+
+  // Rolling window ending today (inclusive). Past content only — completed
+  // work is what coverage analysis is meaningful for. Posts marked
+  // approved/scheduled count once they hit their scheduled_date.
+  const today = new Date();
+  const todayIso = toIsoDate(today);
+  const startDate = addDays(today, -windowDays + 1);
+  const startIso = toIsoDate(startDate);
+
+  const windowPosts = d.posts.filter(
+    (p) => p.scheduledDate >= startIso && p.scheduledDate <= todayIso,
   );
 
   const tracked = d.clients.filter(
     (c) => c.isActive && c.weeklyPostTarget && c.weeklyPostTarget > 0,
   );
 
-  const monthLabel = monthStart.toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
+  const rangeLabel = `${startDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${today.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
 
   // Agency-wide
-  const agencyPillar = coverage(monthPosts, d.pillars, "pillarId");
-  const agencyFunnel = coverage(monthPosts, d.funnelStages, "funnelStageId");
+  const agencyPillar = coverage(windowPosts, d.pillars, "pillarId");
+  const agencyFunnel = coverage(windowPosts, d.funnelStages, "funnelStageId");
 
   return (
     <div className="space-y-4">
-      <div className="text-sm text-muted-foreground">
-        Showing coverage for <strong>{monthLabel}</strong> (use the week selector
-        on the This Week tab to pick a different month).
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="text-sm text-muted-foreground">
+          Rolling <strong>{windowDays}-day</strong> window · {rangeLabel} ·{" "}
+          <strong>{windowPosts.length}</strong> posts
+        </div>
+        <div className="inline-flex rounded-md border bg-card p-0.5">
+          {WINDOWS.map((w) => (
+            <button
+              key={w}
+              onClick={() => setWindowDays(w)}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                windowDays === w
+                  ? "bg-tmc-gold text-tmc-dark"
+                  : "text-muted-foreground hover:text-tmc-dark"
+              }`}
+            >
+              {w} days
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <MixCard title={`Pillar mix — agency-wide (${monthPosts.length} posts)`} buckets={agencyPillar} />
-        <MixCard title={`Funnel stage mix — agency-wide`} buckets={agencyFunnel} />
+        <MixCard
+          title={`Pillar mix — agency-wide`}
+          buckets={agencyPillar}
+        />
+        <MixCard
+          title={`Funnel stage mix — agency-wide`}
+          buckets={agencyFunnel}
+        />
       </div>
 
       <Card>
@@ -867,7 +937,7 @@ function CoverageView({
           ) : (
             <div className="space-y-4">
               {tracked.map((c) => {
-                const clientPosts = monthPosts.filter((p) => p.clientId === c.id);
+                const clientPosts = windowPosts.filter((p) => p.clientId === c.id);
                 const pillarCov = coverage(clientPosts, d.pillars, "pillarId");
                 const funnelCov = coverage(clientPosts, d.funnelStages, "funnelStageId");
                 return (
@@ -875,7 +945,7 @@ function CoverageView({
                     <div className="flex items-center justify-between">
                       <div className="font-medium">{c.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {clientPosts.length} posts this month
+                        {clientPosts.length} posts in last {windowDays} days
                       </div>
                     </div>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
