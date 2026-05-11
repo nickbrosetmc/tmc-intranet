@@ -1,0 +1,285 @@
+// Content pipeline — types, API wrapper, week math, status logic.
+
+import type { RecurringClient } from "./finance";
+
+export interface Pillar {
+  id: number;
+  name: string;
+  description: string | null;
+  color: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface FunnelStage {
+  id: number;
+  name: string;
+  description: string | null;
+  color: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export type PostStatus =
+  | "idea"
+  | "drafting"
+  | "review"
+  | "approved"
+  | "scheduled"
+  | "posted";
+
+export interface ContentPost {
+  id: number;
+  clientId: number;
+  title: string;
+  pillarId: number | null;
+  funnelStageId: number | null;
+  scheduledDate: string;          // YYYY-MM-DD
+  platform: string | null;
+  status: PostStatus;
+  assignedTo: number | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContentDashboard {
+  pillars: Pillar[];
+  funnelStages: FunnelStage[];
+  clients: RecurringClient[];
+  posts: ContentPost[];
+  range: { start: string; end: string };
+}
+
+// ─── Status metadata ─────────────────────────────────────────────────────
+
+export const STATUSES: { id: PostStatus; label: string; color: string }[] = [
+  { id: "idea",      label: "Idea",       color: "#94a3b8" },
+  { id: "drafting",  label: "Drafting",   color: "#3b82f6" },
+  { id: "review",    label: "Review",     color: "#f59e0b" },
+  { id: "approved",  label: "Approved",   color: "#16a34a" },
+  { id: "scheduled", label: "Scheduled",  color: "#7c3aed" },
+  { id: "posted",    label: "Posted",     color: "#404E5C" },
+];
+
+export function statusMeta(s: PostStatus) {
+  return STATUSES.find((x) => x.id === s) ?? STATUSES[0];
+}
+
+/** "Approved" or later counts as ready for next week's posting. */
+export function isApproved(status: PostStatus): boolean {
+  return status === "approved" || status === "scheduled" || status === "posted";
+}
+
+// ─── Week math ───────────────────────────────────────────────────────────
+
+/** Return ISO date "YYYY-MM-DD" of the Monday of the week containing `date`. */
+export function startOfWeek(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+export function addDays(date: Date, n: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+export function toIsoDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function parseIsoDate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/** Mon–Sun ISO dates for the week containing the given date. */
+export function weekDates(anchorIso: string): string[] {
+  const start = startOfWeek(parseIsoDate(anchorIso));
+  return Array.from({ length: 7 }, (_, i) => toIsoDate(addDays(start, i)));
+}
+
+/** End-of-week (exclusive) for range queries. */
+export function nextWeekStart(anchorIso: string): string {
+  const start = startOfWeek(parseIsoDate(anchorIso));
+  return toIsoDate(addDays(start, 7));
+}
+
+export function weekLabel(anchorIso: string): string {
+  const start = startOfWeek(parseIsoDate(anchorIso));
+  const end = addDays(start, 6);
+  const sameMonth = start.getMonth() === end.getMonth();
+  const fmt = (d: Date, withYear: boolean) =>
+    `${d.toLocaleString("en-US", { month: "short" })} ${d.getDate()}${withYear ? `, ${d.getFullYear()}` : ""}`;
+  return `${fmt(start, false)}${sameMonth ? "" : "–" + fmt(end, false)}${sameMonth ? `–${end.getDate()}` : ""}, ${end.getFullYear()}`;
+}
+
+// ─── Progress tracking ───────────────────────────────────────────────────
+
+export interface WeekProgress {
+  total: number;
+  approved: number;
+  pctApproved: number;             // 0–100
+  targetPctToday: number;          // expected based on day of week + 85% Thursday target
+  onTrack: boolean;
+  fridayDeadline: string;          // ISO date of Friday EOD before the week
+  daysUntilDeadline: number;       // can be negative if past
+}
+
+/**
+ * Targets: 0% Mon, 25% Tue, 50% Wed, 85% Thu, 100% Fri+ (clamped).
+ * Posts for week W must be approved by Friday of week W-1.
+ */
+export function computeProgress(
+  postsForWeek: ContentPost[],
+  weekStartIso: string,
+  today: Date,
+): WeekProgress {
+  const total = postsForWeek.length;
+  const approved = postsForWeek.filter((p) => isApproved(p.status)).length;
+  const pctApproved = total > 0 ? Math.round((approved / total) * 100) : 0;
+
+  // Deadline = Friday of the week BEFORE the target week
+  const targetWeekStart = parseIsoDate(weekStartIso);
+  const deadline = addDays(targetWeekStart, -3); // Mon - 3 days = Fri prior
+  const deadlineIso = toIsoDate(deadline);
+
+  const today0 = new Date(today);
+  today0.setHours(0, 0, 0, 0);
+  const dayMs = 1000 * 60 * 60 * 24;
+  const daysUntilDeadline = Math.round(
+    (deadline.getTime() - today0.getTime()) / dayMs,
+  );
+
+  // What % should we be at TODAY?
+  const cur = new Date(today0);
+  const dow = cur.getDay(); // 0=Sun..6=Sat
+  // Anchor: deadline is Friday. Target curve for the week leading up to deadline:
+  // Mon=0%, Tue=25%, Wed=50%, Thu=85%, Fri=100%, weekend/past=100%
+  const daysFromDeadline = daysUntilDeadline; // positive = future, negative = past
+  let targetPctToday: number;
+  if (daysFromDeadline <= 0) targetPctToday = 100;
+  else if (daysFromDeadline === 1) targetPctToday = 85;       // Thursday
+  else if (daysFromDeadline === 2) targetPctToday = 50;       // Wednesday
+  else if (daysFromDeadline === 3) targetPctToday = 25;       // Tuesday
+  else if (daysFromDeadline === 4) targetPctToday = 0;        // Monday
+  else targetPctToday = 0;                                    // earlier — no expectation
+  void dow;
+
+  return {
+    total,
+    approved,
+    pctApproved,
+    targetPctToday,
+    onTrack: pctApproved >= targetPctToday,
+    fridayDeadline: deadlineIso,
+    daysUntilDeadline,
+  };
+}
+
+// ─── Coverage ────────────────────────────────────────────────────────────
+
+export interface CoverageBucket {
+  id: number;
+  name: string;
+  color: string;
+  count: number;
+  pct: number;
+}
+
+/** Group posts by a categorical field (pillar or funnel stage). */
+export function coverage(
+  posts: ContentPost[],
+  buckets: { id: number; name: string; color: string }[],
+  fieldKey: "pillarId" | "funnelStageId",
+): CoverageBucket[] {
+  const total = posts.length;
+  return buckets.map((b) => {
+    const count = posts.filter((p) => p[fieldKey] === b.id).length;
+    return {
+      id: b.id,
+      name: b.name,
+      color: b.color,
+      count,
+      pct: total > 0 ? Math.round((count / total) * 100) : 0,
+    };
+  });
+}
+
+// ─── API wrapper ─────────────────────────────────────────────────────────
+
+async function jsonReq<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    ...init,
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+  });
+  if (!res.ok) {
+    let msg = `${res.status}`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) msg = body.error;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
+  return (await res.json()) as T;
+}
+
+export const content = {
+  dashboard: (startIso: string, endIso: string) =>
+    jsonReq<ContentDashboard>(
+      `/api/admin/content?start=${startIso}&end=${endIso}`,
+    ),
+
+  // Posts
+  createPost: (data: Partial<ContentPost>) =>
+    jsonReq<{ post: ContentPost }>("/api/admin/content/posts", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updatePost: (id: number, data: Partial<ContentPost>) =>
+    jsonReq<{ ok: true }>(`/api/admin/content/posts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  deletePost: (id: number) =>
+    jsonReq<{ ok: true }>(`/api/admin/content/posts/${id}`, { method: "DELETE" }),
+
+  // Pillars
+  createPillar: (data: Partial<Pillar>) =>
+    jsonReq<{ pillar: Pillar }>("/api/admin/content/pillars", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updatePillar: (id: number, data: Partial<Pillar>) =>
+    jsonReq<{ ok: true }>(`/api/admin/content/pillars/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  deletePillar: (id: number) =>
+    jsonReq<{ ok: true }>(`/api/admin/content/pillars/${id}`, { method: "DELETE" }),
+
+  // Funnel stages
+  createFunnelStage: (data: Partial<FunnelStage>) =>
+    jsonReq<{ funnelStage: FunnelStage }>("/api/admin/content/funnel-stages", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateFunnelStage: (id: number, data: Partial<FunnelStage>) =>
+    jsonReq<{ ok: true }>(`/api/admin/content/funnel-stages/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  deleteFunnelStage: (id: number) =>
+    jsonReq<{ ok: true }>(`/api/admin/content/funnel-stages/${id}`, { method: "DELETE" }),
+};

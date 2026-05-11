@@ -55,6 +55,49 @@ export const appLaunches = sqliteTable("app_launches", {
 export type AppLaunchRow = typeof appLaunches.$inferSelect;
 export type NewAppLaunchRow = typeof appLaunches.$inferInsert;
 
+// ─── Content pipeline ────────────────────────────────────────────────────
+
+export const pillars = sqliteTable("pillars", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  color: text("color").notNull().default("404E5C"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type PillarRow = typeof pillars.$inferSelect;
+export type NewPillarRow = typeof pillars.$inferInsert;
+
+export const funnelStages = sqliteTable("funnel_stages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  color: text("color").notNull().default("404E5C"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type FunnelStageRow = typeof funnelStages.$inferSelect;
+export type NewFunnelStageRow = typeof funnelStages.$inferInsert;
+
+export const contentPosts = sqliteTable("content_posts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  clientId: integer("client_id").notNull().references(() => recurringClients.id),
+  title: text("title").notNull(),
+  pillarId: integer("pillar_id").references(() => pillars.id),
+  funnelStageId: integer("funnel_stage_id").references(() => funnelStages.id),
+  scheduledDate: text("scheduled_date").notNull(),
+  platform: text("platform"),
+  status: text("status", {
+    enum: ["idea", "drafting", "review", "approved", "scheduled", "posted"],
+  }).notNull().default("idea"),
+  assignedTo: integer("assigned_to").references(() => users.id),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type ContentPostRow = typeof contentPosts.$inferSelect;
+export type NewContentPostRow = typeof contentPosts.$inferInsert;
+
 export const announcements = sqliteTable("announcements", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   title: text("title").notNull(),
@@ -132,6 +175,8 @@ export const recurringClients = sqliteTable("recurring_clients", {
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   notes: text("notes"),
   sortOrder: integer("sort_order").notNull().default(0),
+  /** Posts/week for this client (1–7); null = not in content pipeline. */
+  weeklyPostTarget: integer("weekly_post_target"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
