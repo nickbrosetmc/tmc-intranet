@@ -63,6 +63,8 @@ export const pillars = sqliteTable("pillars", {
   description: text("description"),
   color: text("color").notNull().default("404E5C"),
   sortOrder: integer("sort_order").notNull().default(0),
+  /** Target % of monthly content for this pillar. Null = no target. */
+  targetPct: integer("target_pct"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 export type PillarRow = typeof pillars.$inferSelect;
