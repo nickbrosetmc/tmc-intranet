@@ -493,27 +493,71 @@ function MixCard({
         ) : (
           <div className="space-y-1.5">
             {buckets.map((b) => (
-              <div key={b.id} className="flex items-center gap-2 text-xs">
-                <div
-                  className="w-2 h-2 rounded-sm"
-                  style={{ backgroundColor: `#${b.color}` }}
-                />
-                <span className="flex-1">{b.name}</span>
-                <span className="font-semibold tabular-nums">
-                  {b.count} ({b.pct}%)
-                </span>
-                <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full"
-                    style={{ backgroundColor: `#${b.color}`, width: `${b.pct}%` }}
-                  />
-                </div>
-              </div>
+              <CoverageRow key={b.id} bucket={b} barWidth={24} />
             ))}
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Single row in a mix / coverage card. Shows actual + target tick + delta. */
+function CoverageRow({
+  bucket: b,
+  barWidth,
+}: {
+  bucket: ReturnType<typeof coverage>[number];
+  barWidth: number;
+}) {
+  const widthClass = barWidth === 20 ? "w-20" : "w-24";
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <div
+        className="w-2 h-2 rounded-sm shrink-0"
+        style={{ backgroundColor: `#${b.color}` }}
+      />
+      <span className="flex-1 truncate">{b.name}</span>
+      <span className="font-semibold tabular-nums">
+        {b.count} ({b.pct}%)
+      </span>
+      {b.targetPct != null && <DeltaPill delta={b.delta ?? 0} target={b.targetPct} />}
+      <div className={`${widthClass} h-1.5 bg-muted rounded-full overflow-hidden relative shrink-0`}>
+        <div
+          className="h-full"
+          style={{ backgroundColor: `#${b.color}`, width: `${Math.min(b.pct, 100)}%` }}
+        />
+        {b.targetPct != null && b.targetPct > 0 && b.targetPct < 100 && (
+          <div
+            className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-tmc-dark"
+            style={{ left: `${b.targetPct}%` }}
+            title={`Target ${b.targetPct}%`}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DeltaPill({ delta, target }: { delta: number; target: number }) {
+  const abs = Math.abs(delta);
+  // ±5pp = on track; ±10pp = warning; beyond = bad
+  const tone =
+    abs <= 5 ? "good" : abs <= 10 ? "warn" : "bad";
+  const cls = {
+    good: "bg-green-100 text-green-800",
+    warn: "bg-yellow-100 text-yellow-800",
+    bad: "bg-red-100 text-red-800",
+  }[tone];
+  const sign = delta > 0 ? "+" : "";
+  return (
+    <span
+      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded tabular-nums ${cls}`}
+      title={`Target ${target}%`}
+    >
+      {sign}
+      {delta}pp
+    </span>
   );
 }
 
@@ -867,16 +911,7 @@ function CoverageBlock({
       ) : (
         <div className="space-y-1">
           {buckets.map((b) => (
-            <div key={b.id} className="flex items-center gap-2 text-xs">
-              <span className="flex-1 truncate">{b.name}</span>
-              <span className="font-semibold tabular-nums w-10 text-right">{b.count}</span>
-              <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full"
-                  style={{ backgroundColor: `#${b.color}`, width: `${b.pct}%` }}
-                />
-              </div>
-            </div>
+            <CoverageRow key={b.id} bucket={b} barWidth={20} />
           ))}
         </div>
       )}
@@ -920,6 +955,7 @@ function PillarsCard({
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Description</TableHead>
+              <TableHead className="text-right">Target</TableHead>
               <TableHead>Color</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -937,6 +973,9 @@ function PillarsCard({
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {p.description ?? "—"}
+                </TableCell>
+                <TableCell className="text-right tabular-nums font-semibold">
+                  {p.targetPct != null ? `${p.targetPct}%` : "—"}
                 </TableCell>
                 <TableCell className="font-mono text-xs">#{p.color}</TableCell>
                 <TableCell className="text-right space-x-1">
@@ -993,11 +1032,18 @@ function PillarDialog({
   onSaved: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    name: string;
+    description: string;
+    color: string;
+    sortOrder: number;
+    targetPct: number | null;
+  }>({
     name: pillar?.name ?? "",
     description: pillar?.description ?? "",
     color: pillar?.color ?? "404E5C",
     sortOrder: pillar?.sortOrder ?? 0,
+    targetPct: pillar?.targetPct ?? null,
   });
   const [saving, setSaving] = useState(false);
 
@@ -1013,6 +1059,7 @@ function PillarDialog({
         description: form.description || null,
         color: form.color.replace(/^#/, ""),
         sortOrder: form.sortOrder,
+        targetPct: form.targetPct,
       };
       if (mode === "create") {
         await content.createPillar(payload);
@@ -1060,6 +1107,25 @@ function PillarDialog({
           <div className="space-y-1.5">
             <Label>Color (hex, no #)</Label>
             <Input value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Monthly target % (optional)</Label>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={form.targetPct ?? ""}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  targetPct: e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+              placeholder="e.g. 30"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Used in Coverage tab to flag over/under-indexing. Targets across pillars should add up to ~100%.
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label>Sort order</Label>

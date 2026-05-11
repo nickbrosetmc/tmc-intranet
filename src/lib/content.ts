@@ -8,6 +8,8 @@ export interface Pillar {
   description: string | null;
   color: string;
   sortOrder: number;
+  /** Target % of monthly content; null = no target. */
+  targetPct: number | null;
   createdAt: string;
 }
 
@@ -193,23 +195,31 @@ export interface CoverageBucket {
   color: string;
   count: number;
   pct: number;
+  /** Target % from pillar.targetPct, if set. */
+  targetPct: number | null;
+  /** pct - targetPct. Null if no target set. */
+  delta: number | null;
 }
 
 /** Group posts by a categorical field (pillar or funnel stage). */
 export function coverage(
   posts: ContentPost[],
-  buckets: { id: number; name: string; color: string }[],
+  buckets: { id: number; name: string; color: string; targetPct?: number | null }[],
   fieldKey: "pillarId" | "funnelStageId",
 ): CoverageBucket[] {
   const total = posts.length;
   return buckets.map((b) => {
     const count = posts.filter((p) => p[fieldKey] === b.id).length;
+    const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+    const targetPct = b.targetPct ?? null;
     return {
       id: b.id,
       name: b.name,
       color: b.color,
       count,
-      pct: total > 0 ? Math.round((count / total) * 100) : 0,
+      pct,
+      targetPct,
+      delta: targetPct != null ? pct - targetPct : null,
     };
   });
 }
