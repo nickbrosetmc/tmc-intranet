@@ -90,7 +90,7 @@ export const contentPosts = sqliteTable("content_posts", {
   scheduledDate: text("scheduled_date").notNull(),
   platform: text("platform"),
   status: text("status", {
-    enum: ["idea", "drafting", "review", "approved", "scheduled", "posted"],
+    enum: ["idea", "drafting", "review", "completed"],
   }).notNull().default("idea"),
   assignedTo: integer("assigned_to").references(() => users.id),
   notes: text("notes"),

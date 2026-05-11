@@ -22,13 +22,7 @@ export interface FunnelStage {
   createdAt: string;
 }
 
-export type PostStatus =
-  | "idea"
-  | "drafting"
-  | "review"
-  | "approved"
-  | "scheduled"
-  | "posted";
+export type PostStatus = "idea" | "drafting" | "review" | "completed";
 
 export interface ContentPost {
   id: number;
@@ -59,18 +53,16 @@ export const STATUSES: { id: PostStatus; label: string; color: string }[] = [
   { id: "idea",      label: "Idea",       color: "#94a3b8" },
   { id: "drafting",  label: "Drafting",   color: "#3b82f6" },
   { id: "review",    label: "Review",     color: "#f59e0b" },
-  { id: "approved",  label: "Approved",   color: "#16a34a" },
-  { id: "scheduled", label: "Scheduled",  color: "#7c3aed" },
-  { id: "posted",    label: "Posted",     color: "#404E5C" },
+  { id: "completed", label: "Completed",  color: "#16a34a" },
 ];
 
 export function statusMeta(s: PostStatus) {
   return STATUSES.find((x) => x.id === s) ?? STATUSES[0];
 }
 
-/** "Approved" or later counts as ready for next week's posting. */
-export function isApproved(status: PostStatus): boolean {
-  return status === "approved" || status === "scheduled" || status === "posted";
+/** Completed = the work is done. Only mark when Nick has approved. */
+export function isCompleted(status: PostStatus): boolean {
+  return status === "completed";
 }
 
 // ─── Week math ───────────────────────────────────────────────────────────
@@ -128,8 +120,8 @@ export function weekLabel(anchorIso: string): string {
 
 export interface WeekProgress {
   total: number;
-  approved: number;
-  pctApproved: number;             // 0–100
+  completed: number;
+  pctCompleted: number;            // 0–100
   targetPctToday: number;          // expected based on day of week + 85% Thursday target
   onTrack: boolean;
   fridayDeadline: string;          // ISO date of Friday EOD before the week
@@ -138,7 +130,7 @@ export interface WeekProgress {
 
 /**
  * Targets: 0% Mon, 25% Tue, 50% Wed, 85% Thu, 100% Fri+ (clamped).
- * Posts for week W must be approved by Friday of week W-1.
+ * Posts for week W must be completed by Friday of week W-1.
  */
 export function computeProgress(
   postsForWeek: ContentPost[],
@@ -146,8 +138,8 @@ export function computeProgress(
   today: Date,
 ): WeekProgress {
   const total = postsForWeek.length;
-  const approved = postsForWeek.filter((p) => isApproved(p.status)).length;
-  const pctApproved = total > 0 ? Math.round((approved / total) * 100) : 0;
+  const completed = postsForWeek.filter((p) => isCompleted(p.status)).length;
+  const pctCompleted = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   // Deadline = Friday of the week BEFORE the target week
   const targetWeekStart = parseIsoDate(weekStartIso);
@@ -178,10 +170,10 @@ export function computeProgress(
 
   return {
     total,
-    approved,
-    pctApproved,
+    completed,
+    pctCompleted,
     targetPctToday,
-    onTrack: pctApproved >= targetPctToday,
+    onTrack: pctCompleted >= targetPctToday,
     fridayDeadline: deadlineIso,
     daysUntilDeadline,
   };

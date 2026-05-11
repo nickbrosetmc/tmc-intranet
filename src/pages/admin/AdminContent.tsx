@@ -74,7 +74,8 @@ type Tab = (typeof TABS)[number]["id"];
 
 export function AdminContent() {
   const [tab, setTab] = useState<Tab>("week");
-  // Anchor date — we work in week chunks. "Next week" is the one being approved.
+  // Anchor date — we work in week chunks. Default shows the production week
+  // (the week whose completion deadline is THIS Friday).
   const [anchorIso, setAnchorIso] = useState<string>(() => {
     const today = new Date();
     // Show next week by default (the one we're approving FOR)
@@ -442,12 +443,12 @@ function ProgressCard({
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <div className="text-xs uppercase tracking-widest text-muted-foreground">
-              Approval progress for this week's content
+              Completion progress for this week's content
             </div>
             <div className="text-3xl font-bold tabular-nums text-tmc-dark mt-1">
-              {progress.approved}/{progress.total}{" "}
+              {progress.completed}/{progress.total}{" "}
               <span className="text-base font-normal text-muted-foreground">
-                ({progress.pctApproved}%)
+                ({progress.pctCompleted}%)
               </span>
             </div>
             <div className="text-sm mt-1">
@@ -461,7 +462,7 @@ function ProgressCard({
                 </span>
               ) : (
                 <span className="text-muted-foreground">
-                  Approval deadline: {deadlineLabel} ·{" "}
+                  Completion deadline: {deadlineLabel} ·{" "}
                   {progress.daysUntilDeadline} day{progress.daysUntilDeadline === 1 ? "" : "s"} out · target today:{" "}
                   <strong>{progress.targetPctToday}%</strong>
                 </span>
@@ -470,7 +471,7 @@ function ProgressCard({
           </div>
           <div className="flex-1 min-w-44 max-w-md">
             <ProgressBar
-              actual={progress.pctApproved}
+              actual={progress.pctCompleted}
               target={progress.targetPctToday}
             />
           </div>
@@ -632,8 +633,7 @@ function PostDialog({
   });
   const [saving, setSaving] = useState(false);
 
-  const completionStatuses: PostStatus[] = ["approved", "scheduled", "posted"];
-  const tagsRequired = completionStatuses.includes(form.status);
+  const tagsRequired = form.status === "completed";
   const missingPillar = tagsRequired && form.pillarId == null;
   const missingFunnel = tagsRequired && form.funnelStageId == null;
 
@@ -644,7 +644,7 @@ function PostDialog({
     }
     if (missingPillar || missingFunnel) {
       toast.error(
-        "Pillar and funnel stage are required to mark a post as approved or beyond.",
+        "Pillar and funnel stage are required to mark a post completed.",
       );
       return;
     }
@@ -771,7 +771,7 @@ function PostDialog({
               </SelectContent>
             </Select>
             {missingPillar && (
-              <p className="text-[11px] text-red-700">Required to approve.</p>
+              <p className="text-[11px] text-red-700">Required to complete.</p>
             )}
           </div>
           <div className="space-y-1.5">
@@ -795,7 +795,7 @@ function PostDialog({
               </SelectContent>
             </Select>
             {missingFunnel && (
-              <p className="text-[11px] text-red-700">Required to approve.</p>
+              <p className="text-[11px] text-red-700">Required to complete.</p>
             )}
           </div>
           <div className="space-y-1.5">
@@ -868,9 +868,9 @@ type Window = (typeof WINDOWS)[number];
 function CoverageView({ d }: { d: ContentDashboard }) {
   const [windowDays, setWindowDays] = useState<Window>(30);
 
-  // Rolling window ending today (inclusive). Past content only — completed
-  // work is what coverage analysis is meaningful for. Posts marked
-  // approved/scheduled count once they hit their scheduled_date.
+  // Rolling window ending today (inclusive). Past content only —
+  // anything with a scheduled_date in the window counts toward coverage
+  // regardless of status, since the work was planned for that date.
   const today = new Date();
   const todayIso = toIsoDate(today);
   const startDate = addDays(today, -windowDays + 1);
