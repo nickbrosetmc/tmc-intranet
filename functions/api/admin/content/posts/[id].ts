@@ -47,10 +47,7 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
     (merged.pillarId == null || merged.funnelStageId == null)
   ) {
     return Response.json(
-      {
-        error:
-          "Pillar and funnel stage are required when a post is approved, scheduled, or posted.",
-      },
+      { error: "Pillar and funnel stage are required to mark a post completed." },
       { status: 400 },
     );
   }
