@@ -9,9 +9,9 @@ import { AdminGroups } from "@/pages/admin/AdminGroups";
 import { AdminAnalytics } from "@/pages/admin/AdminAnalytics";
 import { AdminAnnouncements } from "@/pages/admin/AdminAnnouncements";
 import { AdminClients } from "@/pages/admin/AdminClients";
-import { AdminContent } from "@/pages/admin/AdminContent";
 import { AdminFinance } from "@/pages/admin/AdminFinance";
 import { CalculatorPage } from "@/pages/Calculator";
+import { ContentPage } from "@/pages/Content";
 import { VideoCalculatorPage } from "@/pages/VideoCalculator";
 
 function App() {
@@ -27,6 +27,7 @@ function App() {
           <Route path="/" component={HomePage} />
           <Route path="/calculator" component={CalculatorPage} />
           <Route path="/video-calculator" component={VideoCalculatorPage} />
+          <Route path="/content" component={ContentPage} />
           <Route path="/admin">
             <AdminLayout>
               <AdminAnnouncements />
@@ -47,11 +48,8 @@ function App() {
               <AdminFinance />
             </AdminLayout>
           </Route>
-          <Route path="/admin/content">
-            <AdminLayout>
-              <AdminContent />
-            </AdminLayout>
-          </Route>
+          {/* /admin/content removed — content tracker is now a top-level team app
+              at /content. Admins see the Settings tab there too. */}
           <Route path="/admin/users">
             <AdminLayout>
               <AdminUsers />

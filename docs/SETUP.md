@@ -38,7 +38,7 @@ DNS for `tmctechhub.com` is hosted in **GoHighLevel**, not Cloudflare (because G
 
 ## 3. Google OAuth — set up the OAuth client
 
-> Some team members use personal Gmail accounts (not `@marketingtmc.com`), so we use **External** user type and explicitly list each team member as a Test User. Stays in Testing mode permanently — never need verification.
+> The OAuth consent screen is **published** (External user type, non-sensitive scopes). Anyone with a Google account can attempt to sign in — our DB-backed invite list is the actual access control. No Test Users list needed.
 
 1. Open https://console.cloud.google.com.
 2. Top-left project picker → **New Project** → name it `TMC Tech Hub`.
@@ -48,9 +48,7 @@ DNS for `tmctechhub.com` is hosted in **GoHighLevel**, not Cloudflare (because G
    - User support email: your email
    - Developer contact: your email
    - Save.
-4. Still on **OAuth consent screen** → **Audience** tab (or scroll down) → **Test users** → **Add users**:
-   - Add every team member's email — both `@marketingtmc.com` and personal Gmail. All 5.
-   - Only people on this list can sign in while the app is in Testing mode.
+4. **Publish the app** — OAuth consent screen → "Publish app" → confirm. Scopes (`openid email profile`) are non-sensitive, so no verification required.
 5. Left nav → **Credentials** → **Create Credentials** → **OAuth client ID**.
    - Application type: **Web application**
    - Name: `TMC Tech Hub`
@@ -63,7 +61,7 @@ DNS for `tmctechhub.com` is hosted in **GoHighLevel**, not Cloudflare (because G
    - Click **Create**.
 6. Copy the **Client ID** and **Client Secret** — paste them into Cloudflare in step 4.
 
-> **Why this is safe:** Google's "Test users" list + our DB-backed invite list is a double layer. An outsider can't even reach the OAuth callback because they're not on Google's test users list, and even if they did, the DB lookup would reject them.
+> **Why this is safe:** any random person can complete Google's OAuth dance, but our `/auth/callback` checks the `users` table and rejects unknown emails. The DB is the gate.
 
 ## 4. Cloudflare D1 — create database and apply migrations
 
@@ -148,15 +146,12 @@ If anything fails, check Cloudflare Pages → Deployments → latest → **Funct
 
 ## 7. Adding new team members later
 
-Two-step invite:
+Single step: add them via the Admin → Users panel (or directly via SQL):
+```bash
+npm run db:console -- "INSERT INTO users (email, role) VALUES ('newperson@example.com', 'user')"
+```
 
-1. **Add their email to Google Test users list** (Google Cloud Console → OAuth consent screen → Audience → Test users → Add user)
-2. **Insert them into the D1 `users` table**:
-   ```bash
-   npm run db:console -- "INSERT INTO users (email, role) VALUES ('newperson@example.com', 'user')"
-   ```
-
-They can now sign in with their Google account. After they sign in once, their name and profile picture auto-populate.
+They can now sign in with their Google account. After they sign in once, their name and profile picture auto-populate. (No more Test Users list to manage — the OAuth consent screen is published.)
 
 ---
 

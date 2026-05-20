@@ -238,24 +238,26 @@ async function jsonReq<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const content = {
+  // Dashboard + post CRUD are TEAM-accessible (anyone signed in can use
+  // the content tracker). Settings mutations below stay admin-only.
   dashboard: (startIso: string, endIso: string) =>
     jsonReq<ContentDashboard>(
-      `/api/admin/content?start=${startIso}&end=${endIso}`,
+      `/api/content/dashboard?start=${startIso}&end=${endIso}`,
     ),
 
-  // Posts
+  // Posts (team)
   createPost: (data: Partial<ContentPost>) =>
-    jsonReq<{ post: ContentPost }>("/api/admin/content/posts", {
+    jsonReq<{ post: ContentPost }>("/api/content/posts", {
       method: "POST",
       body: JSON.stringify(data),
     }),
   updatePost: (id: number, data: Partial<ContentPost>) =>
-    jsonReq<{ ok: true }>(`/api/admin/content/posts/${id}`, {
+    jsonReq<{ ok: true }>(`/api/content/posts/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
   deletePost: (id: number) =>
-    jsonReq<{ ok: true }>(`/api/admin/content/posts/${id}`, { method: "DELETE" }),
+    jsonReq<{ ok: true }>(`/api/content/posts/${id}`, { method: "DELETE" }),
 
   // Pillars
   createPillar: (data: Partial<Pillar>) =>
