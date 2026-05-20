@@ -218,13 +218,18 @@ function WeekView({
 
   return (
     <div className="space-y-4">
-      {/* Week picker */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => shiftWeek(-1)}>
-            ← Prev
+      {/* Week picker — stacks on mobile, inline on sm+ */}
+      <div className="space-y-2 sm:space-y-0 sm:flex sm:items-center sm:justify-between sm:flex-wrap sm:gap-3">
+        <div className="flex items-center justify-between sm:justify-start gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => shiftWeek(-1)}
+            aria-label="Previous week"
+          >
+            ←
           </Button>
-          <div className="font-semibold text-tmc-dark min-w-44 text-center">
+          <div className="font-semibold text-tmc-dark text-center flex-1 sm:flex-none sm:min-w-44">
             Week of {weekLabel(anchorIso)}
             {isProductionWeek && (
               <span className="ml-2 inline-block text-[10px] font-semibold uppercase tracking-wider bg-tmc-gold/30 text-tmc-dark px-1.5 py-0.5 rounded">
@@ -232,21 +237,28 @@ function WeekView({
               </span>
             )}
           </div>
-          <Button variant="outline" size="sm" onClick={() => shiftWeek(1)}>
-            Next →
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => shiftWeek(1)}
+            aria-label="Next week"
+          >
+            →
           </Button>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
           {!isProductionWeek && (
             <Button variant="ghost" size="sm" onClick={jumpToProductionWeek}>
-              ← Back to current week
+              ← Current week
             </Button>
           )}
+          <PostDialog
+            mode="create"
+            d={d}
+            onSaved={onChanged}
+            defaultDate={weekStart}
+          />
         </div>
-        <PostDialog
-          mode="create"
-          d={d}
-          onSaved={onChanged}
-          defaultDate={weekStart}
-        />
       </div>
 
       {/* Progress */}
@@ -448,8 +460,8 @@ function ProgressCard({
   return (
     <Card className={ringClass}>
       <CardContent className="py-4">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+          <div className="min-w-0">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">
               Completion progress for this week's content
             </div>
@@ -477,7 +489,7 @@ function ProgressCard({
               )}
             </div>
           </div>
-          <div className="flex-1 min-w-44 max-w-md">
+          <div className="w-full sm:flex-1 sm:min-w-44 sm:max-w-md">
             <ProgressBar
               actual={progress.pctCompleted}
               target={progress.targetPctToday}
@@ -717,18 +729,18 @@ function PostDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger ?? defaultTrigger}</DialogTrigger>
-      <DialogContent>
+      <DialogContent className="w-[calc(100vw-1rem)] max-w-md sm:max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {mode === "create" ? "New content post" : "Edit post"}
           </DialogTitle>
           <DialogDescription>
-            Posts go through Idea → Drafting → Review → Approved → Scheduled → Posted.
-            Approved by Fri EOD before the post week.
+            Idea → Drafting → Review → Completed. Mark Completed only when
+            approved. Pillar + funnel are required at that point.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5 col-span-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5 sm:col-span-2">
             <Label>Title</Label>
             <Input
               value={form.title}
@@ -742,7 +754,7 @@ function PostDialog({
               value={String(form.clientId || "")}
               onValueChange={(v) => setForm({ ...form, clientId: Number(v) })}
             >
-              <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Select client" /></SelectTrigger>
               <SelectContent>
                 {tracked.map((c) => (
                   <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
@@ -768,7 +780,7 @@ function PostDialog({
                 setForm({ ...form, pillarId: v === "none" ? null : Number(v) })
               }
             >
-              <SelectTrigger className={missingPillar ? "ring-2 ring-red-300" : ""}>
+              <SelectTrigger className={`w-full ${missingPillar ? "ring-2 ring-red-300" : ""}`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -792,7 +804,7 @@ function PostDialog({
                 setForm({ ...form, funnelStageId: v === "none" ? null : Number(v) })
               }
             >
-              <SelectTrigger className={missingFunnel ? "ring-2 ring-red-300" : ""}>
+              <SelectTrigger className={`w-full ${missingFunnel ? "ring-2 ring-red-300" : ""}`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -812,7 +824,7 @@ function PostDialog({
               value={form.status}
               onValueChange={(v) => setForm({ ...form, status: v as PostStatus })}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {STATUSES.map((s) => (
                   <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
@@ -828,7 +840,7 @@ function PostDialog({
               placeholder="Instagram, LinkedIn, Blog…"
             />
           </div>
-          <div className="space-y-1.5 col-span-2">
+          <div className="space-y-1.5 sm:col-span-2">
             <Label>Notes</Label>
             <Input
               value={form.notes}
@@ -836,13 +848,15 @@ function PostDialog({
             />
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:gap-0">
           {mode === "edit" && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="ghost" className="text-destructive mr-auto">Delete</Button>
+                <Button variant="ghost" className="text-destructive sm:mr-auto w-full sm:w-auto">
+                  Delete
+                </Button>
               </AlertDialogTrigger>
-              <AlertDialogContent>
+              <AlertDialogContent className="w-[calc(100vw-1rem)] max-w-md">
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete this post?</AlertDialogTitle>
                   <AlertDialogDescription>Can't be undone.</AlertDialogDescription>
@@ -854,11 +868,17 @@ function PostDialog({
               </AlertDialogContent>
             </AlertDialog>
           )}
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button
+            variant="outline"
+            onClick={() => setOpen(false)}
+            className="w-full sm:w-auto"
+          >
+            Cancel
+          </Button>
           <Button
             onClick={submit}
             disabled={saving}
-            className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
+            className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark w-full sm:w-auto"
           >
             {saving ? "Saving…" : "Save"}
           </Button>

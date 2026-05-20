@@ -8,15 +8,15 @@ export function Header({ user }: { user: User | null }) {
   const subtitle = user?.type === "client" ? "CLIENT PORTAL" : "TECH HUB";
 
   return (
-    <header className="glass-header sticky top-0 z-10 px-6 py-4 flex items-center justify-between">
-      <Link href="/" className="flex items-center gap-3">
-        <img src={tmcLogo} alt="TMC Marketing" className="h-9 w-auto" />
-        <span className="text-sm font-medium text-tmc-slate tracking-wide">
+    <header className="glass-header sticky top-0 z-10 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
+      <Link href="/" className="flex items-center gap-2 sm:gap-3 min-w-0">
+        <img src={tmcLogo} alt="TMC Marketing" className="h-8 sm:h-9 w-auto shrink-0" />
+        <span className="text-xs sm:text-sm font-medium text-tmc-slate tracking-wide truncate">
           {subtitle}
         </span>
       </Link>
       {user ? (
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
           {isAdmin && (
             <Link
               href="/admin/announcements"
@@ -33,7 +33,7 @@ export function Header({ user }: { user: User | null }) {
               referrerPolicy="no-referrer"
             />
           )}
-          <span className="text-sm text-tmc-slate hidden sm:inline">
+          <span className="text-sm text-tmc-slate hidden md:inline">
             {user.name}
           </span>
           <a

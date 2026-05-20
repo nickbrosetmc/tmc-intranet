@@ -22,7 +22,7 @@ function App() {
     <div className="min-h-screen flex flex-col bg-background">
       <Header user={user} />
 
-      <main className="flex-1 flex flex-col items-center px-6 py-12">
+      <main className="flex-1 flex flex-col items-center px-3 sm:px-6 py-6 sm:py-12">
         <Switch>
           <Route path="/" component={HomePage} />
           <Route path="/calculator" component={CalculatorPage} />
