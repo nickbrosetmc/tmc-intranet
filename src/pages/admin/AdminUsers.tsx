@@ -186,7 +186,7 @@ function InviteDialog({ onInvited }: { onInvited: () => void }) {
     setSubmitting(true);
     try {
       await adminUsers.invite(email, role);
-      toast.success(`Invited ${email}. Add them as a Google Test User too.`);
+      toast.success(`Invited ${email}. They can sign in with Google now.`);
       setEmail("");
       setRole("user");
       setOpen(false);

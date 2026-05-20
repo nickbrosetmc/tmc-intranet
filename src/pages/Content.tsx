@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useUser } from "@/lib/useUser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,14 +66,21 @@ import {
 } from "@/lib/content";
 import type { RecurringClient } from "@/lib/finance";
 
-const TABS = [
-  { id: "week", label: "This Week" },
-  { id: "coverage", label: "Coverage" },
-  { id: "settings", label: "Settings" },
+const ALL_TABS = [
+  { id: "week", label: "This Week", adminOnly: false },
+  { id: "coverage", label: "Coverage", adminOnly: false },
+  { id: "settings", label: "Settings", adminOnly: true },
 ] as const;
-type Tab = (typeof TABS)[number]["id"];
+type Tab = (typeof ALL_TABS)[number]["id"];
 
-export function AdminContent() {
+export function ContentPage() {
+  const userState = useUser();
+  const isAdmin =
+    userState.status === "authenticated" &&
+    userState.user.type === "team" &&
+    userState.user.role === "admin";
+  const TABS = ALL_TABS.filter((t) => !t.adminOnly || isAdmin);
+
   const [tab, setTab] = useState<Tab>("week");
   // Anchor date — we work in week chunks. Default shows the production week
   // (the week whose completion deadline is THIS Friday).
@@ -160,7 +168,7 @@ export function AdminContent() {
         />
       )}
       {tab === "coverage" && <CoverageView d={d} />}
-      {tab === "settings" && <SettingsView d={d} onChanged={refresh} />}
+      {tab === "settings" && isAdmin && <SettingsView d={d} onChanged={refresh} />}
     </div>
   );
 }
