@@ -131,9 +131,9 @@ export function ContentPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-6xl space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-tmc-dark">
             Content Pipeline
           </h1>
@@ -283,10 +283,10 @@ function WeekView({
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[760px] text-sm">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-wider text-tmc-slate border-b">
-                    <th className="px-2 py-2 sticky left-0 bg-card">Client</th>
+                    <th className="px-2 py-2 sticky left-0 bg-card min-w-32">Client</th>
                     {dates.map((iso, i) => (
                       <DayHeader key={iso} iso={iso} dayIndex={i} />
                     ))}
