@@ -1,5 +1,6 @@
 import { Route, Switch } from "wouter";
 import { Header } from "@/components/Header";
+import { TeamNav } from "@/components/TeamNav";
 import { useUser } from "@/lib/useUser";
 import { HomePage } from "@/pages/Home";
 import { AdminLayout } from "@/pages/admin/AdminLayout";
@@ -12,6 +13,8 @@ import { AdminClients } from "@/pages/admin/AdminClients";
 import { AdminFinance } from "@/pages/admin/AdminFinance";
 import { CalculatorPage } from "@/pages/Calculator";
 import { ContentPage } from "@/pages/Content";
+import { TimeClockPage } from "@/pages/TimeClock";
+import { TimeOffPage } from "@/pages/TimeOff";
 import { VideoCalculatorPage } from "@/pages/VideoCalculator";
 
 function App() {
@@ -21,6 +24,7 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header user={user} />
+      <TeamNav user={user} />
 
       <main className="flex-1 flex flex-col items-center px-3 sm:px-6 py-6 sm:py-12">
         <Switch>
@@ -28,6 +32,8 @@ function App() {
           <Route path="/calculator" component={CalculatorPage} />
           <Route path="/video-calculator" component={VideoCalculatorPage} />
           <Route path="/content" component={ContentPage} />
+          <Route path="/time-clock" component={TimeClockPage} />
+          <Route path="/time-off" component={TimeOffPage} />
           <Route path="/admin">
             <AdminLayout>
               <AdminAnnouncements />
