@@ -256,3 +256,50 @@ export const calculatorSettings = sqliteTable("calculator_settings", {
 });
 
 export type CalculatorSettingsRow = typeof calculatorSettings.$inferSelect;
+
+// ─── Time clock ──────────────────────────────────────────────────────────
+
+export const jobs = sqliteTable("jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  description: text("description"),
+  payRateType: text("pay_rate_type", { enum: ["hourly", "salaried", "day_rate"] })
+    .notNull(),
+  payRate: real("pay_rate").notNull().default(0),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type JobRow = typeof jobs.$inferSelect;
+export type NewJobRow = typeof jobs.$inferInsert;
+
+export const jobEligibility = sqliteTable("job_eligibility", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  jobId: integer("job_id").notNull().references(() => jobs.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type JobEligibilityRow = typeof jobEligibility.$inferSelect;
+export type NewJobEligibilityRow = typeof jobEligibility.$inferInsert;
+
+export const timeClockShifts = sqliteTable("time_clock_shifts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  jobId: integer("job_id").notNull().references(() => jobs.id),
+  startedAt: text("started_at").notNull(),
+  endedAt: text("ended_at"),
+  notes: text("notes"),
+  status: text("status", {
+    enum: ["active", "completed", "pending", "denied"],
+  })
+    .notNull()
+    .default("active"),
+  approvedBy: integer("approved_by").references(() => users.id),
+  approvedAt: text("approved_at"),
+  denialReason: text("denial_reason"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type TimeClockShiftRow = typeof timeClockShifts.$inferSelect;
+export type NewTimeClockShiftRow = typeof timeClockShifts.$inferInsert;

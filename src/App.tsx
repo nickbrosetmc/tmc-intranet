@@ -11,6 +11,7 @@ import { AdminAnalytics } from "@/pages/admin/AdminAnalytics";
 import { AdminAnnouncements } from "@/pages/admin/AdminAnnouncements";
 import { AdminClients } from "@/pages/admin/AdminClients";
 import { AdminFinance } from "@/pages/admin/AdminFinance";
+import { AdminTimeClock } from "@/pages/admin/AdminTimeClock";
 import { CalculatorPage } from "@/pages/Calculator";
 import { ContentPage } from "@/pages/Content";
 import { TimeClockPage } from "@/pages/TimeClock";
@@ -52,6 +53,11 @@ function App() {
           <Route path="/admin/finance">
             <AdminLayout>
               <AdminFinance />
+            </AdminLayout>
+          </Route>
+          <Route path="/admin/time-clock">
+            <AdminLayout>
+              <AdminTimeClock />
             </AdminLayout>
           </Route>
           {/* /admin/content removed — content tracker is now a top-level team app
