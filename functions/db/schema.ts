@@ -303,3 +303,26 @@ export const timeClockShifts = sqliteTable("time_clock_shifts", {
 });
 export type TimeClockShiftRow = typeof timeClockShifts.$inferSelect;
 export type NewTimeClockShiftRow = typeof timeClockShifts.$inferInsert;
+
+// ─── Time off ────────────────────────────────────────────────────────────
+
+export const timeOffRequests = sqliteTable("time_off_requests", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  reason: text("reason"),
+  coveragePlan: text("coverage_plan").notNull(),
+  status: text("status", {
+    enum: ["pending", "approved", "denied", "cancelled"],
+  })
+    .notNull()
+    .default("pending"),
+  decidedBy: integer("decided_by").references(() => users.id),
+  decidedAt: text("decided_at"),
+  adminNote: text("admin_note"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type TimeOffRequestRow = typeof timeOffRequests.$inferSelect;
+export type NewTimeOffRequestRow = typeof timeOffRequests.$inferInsert;

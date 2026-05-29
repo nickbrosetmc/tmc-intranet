@@ -586,7 +586,7 @@ function CoverageRow({
 
 function DeltaPill({ delta, target }: { delta: number; target: number }) {
   const abs = Math.abs(delta);
-  // ±5pp = on track; ±10pp = warning; beyond = bad
+  // ±5% = on track; ±10% = warning; beyond = bad
   const tone =
     abs <= 5 ? "good" : abs <= 10 ? "warn" : "bad";
   const cls = {
@@ -601,7 +601,7 @@ function DeltaPill({ delta, target }: { delta: number; target: number }) {
       title={`Target ${target}%`}
     >
       {sign}
-      {delta}pp
+      {delta}%
     </span>
   );
 }
