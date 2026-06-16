@@ -94,6 +94,7 @@ export const contentPosts = sqliteTable("content_posts", {
   }).notNull().default("idea"),
   assignedTo: integer("assigned_to").references(() => users.id),
   reviewerId: integer("reviewer_id").references(() => users.id),
+  estimatedMinutes: integer("estimated_minutes"),
   notes: text("notes"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),

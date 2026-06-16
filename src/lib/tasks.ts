@@ -66,6 +66,7 @@ export interface TasksDashboard {
   weekEnd: string;          // YYYY-MM-DD, Sunday
   weekDueDate: string;      // YYYY-MM-DD, Friday — placeholder due date
   defaultPostAssigneeId: number | null;
+  defaultPostEstimatedMinutes: number | null;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────

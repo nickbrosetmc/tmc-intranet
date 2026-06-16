@@ -6,7 +6,10 @@ import { isResponse, requireAdmin } from "../../../lib/admin";
 import { getDb } from "../../../db";
 import { setContentSetting } from "../../../db/content";
 
-const ALLOWED_KEYS = new Set(["default_post_assignee_id"]);
+const ALLOWED_KEYS = new Set([
+  "default_post_assignee_id",
+  "default_post_estimated_minutes",
+]);
 
 interface PatchBody {
   key?: unknown;

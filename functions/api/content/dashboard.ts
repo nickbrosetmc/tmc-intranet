@@ -45,10 +45,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     seedDefaultAssigneeRaw != null && seedDefaultAssigneeRaw !== ""
       ? Number(seedDefaultAssigneeRaw)
       : null;
+  const seedDefaultEstRaw = seedSettings.default_post_estimated_minutes ?? null;
+  const seedDefaultEstMinutes =
+    seedDefaultEstRaw != null && seedDefaultEstRaw !== ""
+      ? Number(seedDefaultEstRaw)
+      : null;
   await seedBlankPostsForCurrentWeek(db, {
     monday,
     today,
     defaultAssigneeId: seedDefaultAssigneeId,
+    defaultEstimatedMinutes: seedDefaultEstMinutes,
   });
 
   const [pillars, funnelStages, clients, posts, settings, allUsers] =

@@ -68,10 +68,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     preSeedDefaultAssigneeRaw != null && preSeedDefaultAssigneeRaw !== ""
       ? Number(preSeedDefaultAssigneeRaw)
       : null;
+  const preSeedDefaultEstRaw =
+    preSeedSettings.default_post_estimated_minutes ?? null;
+  const preSeedDefaultEstMinutes =
+    preSeedDefaultEstRaw != null && preSeedDefaultEstRaw !== ""
+      ? Number(preSeedDefaultEstRaw)
+      : null;
   await seedBlankPostsForCurrentWeek(db, {
     monday: weekStart,
     today,
     defaultAssigneeId: preSeedDefaultAssigneeId,
+    defaultEstimatedMinutes: preSeedDefaultEstMinutes,
   });
 
   const [allTasks, allUsers, postsInWindow, openPosts, clients, settings, weekPosts] =
@@ -134,5 +141,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     weekEnd: ymd(weekEnd),
     weekDueDate: ymd(friday),
     defaultPostAssigneeId,
+    defaultPostEstimatedMinutes: preSeedDefaultEstMinutes,
   });
 };
