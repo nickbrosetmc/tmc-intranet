@@ -1677,6 +1677,28 @@ function FunnelStageDialog({
   );
 }
 
+const DAY_CODES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+type DayCode = (typeof DAY_CODES)[number];
+const DAY_LABEL: Record<DayCode, string> = {
+  mon: "M",
+  tue: "T",
+  wed: "W",
+  thu: "T",
+  fri: "F",
+  sat: "S",
+  sun: "S",
+};
+
+function parseDayCsv(csv: string | null): Set<DayCode> {
+  if (!csv) return new Set();
+  const out = new Set<DayCode>();
+  for (const raw of csv.split(",")) {
+    const t = raw.trim().toLowerCase();
+    if ((DAY_CODES as readonly string[]).includes(t)) out.add(t as DayCode);
+  }
+  return out;
+}
+
 function ClientTargetsCard({
   clients,
   onChanged,
@@ -1694,12 +1716,23 @@ function ClientTargetsCard({
       toast.error(`Failed: ${(e as Error).message}`);
     }
   }
+  async function setDays(id: number, days: Set<DayCode>) {
+    try {
+      const csv = Array.from(DAY_CODES).filter((d) => days.has(d)).join(",");
+      await finance.updateClient(id, { postingDays: csv || null });
+      onChanged();
+    } catch (e) {
+      toast.error(`Failed: ${(e as Error).message}`);
+    }
+  }
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Client weekly post targets</CardTitle>
+        <CardTitle className="text-base">Client weekly post schedule</CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          Set 1–7 to opt a client into the content pipeline. Leave blank to exclude.
+          Set posts/week to opt a client into the pipeline. Pick the
+          fixed days they post on to auto-seed blank slots on the planner
+          each week. Leave days blank for ad-hoc scheduling.
         </p>
       </CardHeader>
       <CardContent>
@@ -1707,30 +1740,61 @@ function ClientTargetsCard({
           <TableHeader>
             <TableRow>
               <TableHead>Client</TableHead>
-              <TableHead className="w-44 text-right">Posts/week</TableHead>
+              <TableHead className="w-24">Posts/wk</TableHead>
+              <TableHead>Posting days</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {active.map((c) => (
-              <TableRow key={c.id}>
-                <TableCell className="font-medium">{c.name}</TableCell>
-                <TableCell className="text-right">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={7}
-                    value={c.weeklyPostTarget ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value === "" ? null : Number(e.target.value);
-                      if (v !== null && (v < 0 || v > 7)) return;
-                      void setTarget(c.id, v);
-                    }}
-                    placeholder="—"
-                    className="w-20 ml-auto text-right tabular-nums"
-                  />
-                </TableCell>
-              </TableRow>
-            ))}
+            {active.map((c) => {
+              const days = parseDayCsv(c.postingDays);
+              return (
+                <TableRow key={c.id}>
+                  <TableCell className="font-medium">{c.name}</TableCell>
+                  <TableCell>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={7}
+                      value={c.weeklyPostTarget ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value === "" ? null : Number(e.target.value);
+                        if (v !== null && (v < 0 || v > 7)) return;
+                        void setTarget(c.id, v);
+                      }}
+                      placeholder="—"
+                      className="w-16 text-right tabular-nums"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      {DAY_CODES.map((dc) => {
+                        const on = days.has(dc);
+                        return (
+                          <button
+                            key={dc}
+                            type="button"
+                            onClick={() => {
+                              const next = new Set(days);
+                              if (on) next.delete(dc);
+                              else next.add(dc);
+                              void setDays(c.id, next);
+                            }}
+                            title={dc.toUpperCase()}
+                            className={`w-7 h-7 rounded-md text-[11px] font-semibold transition-colors ${
+                              on
+                                ? "bg-tmc-gold text-tmc-dark"
+                                : "bg-muted text-muted-foreground hover:bg-muted/80"
+                            }`}
+                          >
+                            {DAY_LABEL[dc]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </CardContent>

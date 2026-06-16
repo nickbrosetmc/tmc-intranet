@@ -11,6 +11,7 @@ import {
   listFunnelStages,
   listPillars,
   listPostsInRange,
+  seedBlankPostsForCurrentWeek,
 } from "../../db/content";
 import { listRecurringClients } from "../../db/finance";
 import { listAllUsers } from "../../db/admin";
@@ -30,6 +31,26 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const db = getDb(env.DB);
+
+  // Seed blank slots for the current week if any clients have
+  // posting_days set. Cheap no-op when nothing's missing.
+  const today = new Date();
+  const monday = new Date(today);
+  monday.setHours(0, 0, 0, 0);
+  const dayIdx = monday.getDay();
+  monday.setDate(monday.getDate() + (dayIdx === 0 ? -6 : 1 - dayIdx));
+  const seedSettings = await listContentSettings(db);
+  const seedDefaultAssigneeRaw = seedSettings.default_post_assignee_id ?? null;
+  const seedDefaultAssigneeId =
+    seedDefaultAssigneeRaw != null && seedDefaultAssigneeRaw !== ""
+      ? Number(seedDefaultAssigneeRaw)
+      : null;
+  await seedBlankPostsForCurrentWeek(db, {
+    monday,
+    today,
+    defaultAssigneeId: seedDefaultAssigneeId,
+  });
+
   const [pillars, funnelStages, clients, posts, settings, allUsers] =
     await Promise.all([
       listPillars(db),

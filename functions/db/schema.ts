@@ -187,6 +187,8 @@ export const recurringClients = sqliteTable("recurring_clients", {
   sortOrder: integer("sort_order").notNull().default(0),
   /** Posts/week for this client (1–7); null = not in content pipeline. */
   weeklyPostTarget: integer("weekly_post_target"),
+  /** Comma-separated lowercase 3-letter day codes (e.g. "tue,fri"); null = no fixed schedule. */
+  postingDays: text("posting_days"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

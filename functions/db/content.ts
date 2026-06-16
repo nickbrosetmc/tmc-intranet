@@ -146,6 +146,115 @@ export async function listOpenPosts(
     .all();
 }
 
+// ─── Auto-seed blank posts from posting_days ─────────────────────────────
+
+const DAY_CODE_BY_INDEX = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+function parseDayCodes(csv: string | null): Set<string> {
+  if (!csv) return new Set();
+  return new Set(
+    csv
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+/** Given a Monday date, return the dates in that Mon-Sun week. */
+function weekDays(monday: Date): { code: string; iso: string }[] {
+  const out: { code: string; iso: string }[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(d.getDate() + i);
+    const idx = d.getDay();
+    out.push({ code: DAY_CODE_BY_INDEX[idx], iso: d.toISOString().slice(0, 10) });
+  }
+  return out;
+}
+
+/**
+ * For each active client with posting_days, ensure a blank post exists
+ * on each of their posting days in the current week. Only creates posts
+ * for dates >= today (no backfilling — if you deleted Monday's slot we
+ * don't keep recreating it).
+ *
+ * Returns the number of posts created. Cheap when there's nothing to do
+ * since it short-circuits on the first scheduled check.
+ */
+export async function seedBlankPostsForCurrentWeek(
+  db: DB,
+  opts: {
+    monday: Date;
+    today: Date;
+    defaultAssigneeId: number | null;
+  },
+): Promise<number> {
+  const { monday, today, defaultAssigneeId } = opts;
+  const todayIso = today.toISOString().slice(0, 10);
+
+  // Find every active client that has a posting_days set.
+  const clients = await db
+    .select({
+      id: sql<number>`id`.as("id"),
+      name: sql<string>`name`.as("name"),
+      postingDays: sql<string | null>`posting_days`.as("posting_days"),
+    })
+    .from(sql`recurring_clients`)
+    .where(sql`is_active = 1 AND posting_days IS NOT NULL AND posting_days != ''`)
+    .all();
+  if (clients.length === 0) return 0;
+
+  const week = weekDays(monday);
+  let created = 0;
+
+  for (const c of clients) {
+    const days = parseDayCodes(c.postingDays);
+    if (days.size === 0) continue;
+    // Targets for this week, today onward.
+    const targetIsos = week
+      .filter((d) => days.has(d.code) && d.iso >= todayIso)
+      .map((d) => d.iso);
+    if (targetIsos.length === 0) continue;
+
+    // What already exists for this client in this week?
+    const existing = await db
+      .select({ scheduledDate: contentPosts.scheduledDate })
+      .from(contentPosts)
+      .where(
+        and(
+          eq(contentPosts.clientId, c.id),
+          gte(contentPosts.scheduledDate, week[0].iso),
+          lt(contentPosts.scheduledDate, addDayIso(week[6].iso, 1)),
+        ),
+      )
+      .all();
+    const existingDates = new Set(existing.map((e) => e.scheduledDate));
+
+    for (const iso of targetIsos) {
+      if (existingDates.has(iso)) continue;
+      await db
+        .insert(contentPosts)
+        .values({
+          clientId: c.id,
+          title: "Untitled",
+          scheduledDate: iso,
+          status: "idea",
+          assignedTo: defaultAssigneeId,
+        })
+        .run();
+      created++;
+    }
+  }
+  return created;
+}
+
+function addDayIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
 // ─── Settings (key/value) ────────────────────────────────────────────────
 
 export async function listContentSettings(
