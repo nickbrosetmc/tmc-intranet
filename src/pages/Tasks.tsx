@@ -413,7 +413,7 @@ function MyWeekView({
 
   return (
     <div className="space-y-5">
-      <SummaryStrip items={mine} />
+      <SummaryStrip items={mine} data={data} />
       {buckets.overdue.length > 0 && (
         <WeekBucket
           title="Overdue"
@@ -469,16 +469,27 @@ function MyWeekView({
   );
 }
 
-function SummaryStrip({ items }: { items: WeekItem[] }) {
+function SummaryStrip({
+  items,
+  data,
+}: {
+  items: WeekItem[];
+  data: TasksDashboard;
+}) {
   const tasksOnly = items.filter((it) => it.kind === "task").map((it) => it.task);
   const postsOnly = items.filter((it) => it.kind === "post").map((it) => it.post);
   const placeholders = items.filter((it) => it.kind === "placeholder");
   const openTasks = tasksOnly.filter(
     (t) => t.status === "pending" || t.status === "in_progress",
   );
+  const postFallback = data.defaultPostEstimatedMinutes ?? 0;
   const totalEstimated =
     openTasks.reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0) +
-    postsOnly.reduce((sum, p) => sum + (p.estimatedMinutes ?? 0), 0);
+    postsOnly.reduce(
+      (sum, p) => sum + (p.estimatedMinutes ?? postFallback),
+      0,
+    ) +
+    placeholders.length * postFallback;
   const urgent = openTasks.filter((t) => t.priority === "urgent").length;
   const inProgress = openTasks.filter((t) => t.status === "in_progress").length;
   const openCount = openTasks.length + postsOnly.length + placeholders.length;
@@ -779,8 +790,13 @@ function PostRow({
           </span>
           {client && <span>· {client.name}</span>}
           {post.platform && <span>· {post.platform}</span>}
-          {post.estimatedMinutes != null && (
-            <span>· est {formatMinutes(post.estimatedMinutes)}</span>
+          {(post.estimatedMinutes ?? data.defaultPostEstimatedMinutes) != null && (
+            <span>
+              · est{" "}
+              {formatMinutes(
+                post.estimatedMinutes ?? data.defaultPostEstimatedMinutes,
+              )}
+            </span>
           )}
           {post.status === "review" && reviewer ? (
             <span>
