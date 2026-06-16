@@ -100,6 +100,13 @@ export const contentPosts = sqliteTable("content_posts", {
 export type ContentPostRow = typeof contentPosts.$inferSelect;
 export type NewContentPostRow = typeof contentPosts.$inferInsert;
 
+export const contentSettings = sqliteTable("content_settings", {
+  key: text("key").primaryKey(),
+  value: text("value"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type ContentSettingRow = typeof contentSettings.$inferSelect;
+
 export const announcements = sqliteTable("announcements", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   title: text("title").notNull(),

@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
 import {
   contentPosts,
+  contentSettings,
   funnelStages,
   pillars,
   type ContentPostRow,
@@ -127,6 +128,32 @@ export async function updateContentPost(
 
 export async function deleteContentPost(db: DB, id: number): Promise<void> {
   await db.delete(contentPosts).where(eq(contentPosts.id, id)).run();
+}
+
+// ─── Settings (key/value) ────────────────────────────────────────────────
+
+export async function listContentSettings(
+  db: DB,
+): Promise<Record<string, string | null>> {
+  const rows = await db.select().from(contentSettings).all();
+  const out: Record<string, string | null> = {};
+  for (const r of rows) out[r.key] = r.value;
+  return out;
+}
+
+export async function setContentSetting(
+  db: DB,
+  key: string,
+  value: string | null,
+): Promise<void> {
+  await db
+    .insert(contentSettings)
+    .values({ key, value })
+    .onConflictDoUpdate({
+      target: contentSettings.key,
+      set: { value, updatedAt: sql`CURRENT_TIMESTAMP` },
+    })
+    .run();
 }
 
 // Re-export drizzle helpers other files in this folder might want

@@ -7,11 +7,13 @@ import type { Env } from "../../lib/auth";
 import { isResponse, requireTeamSession } from "../../lib/admin";
 import { getDb } from "../../db";
 import {
+  listContentSettings,
   listFunnelStages,
   listPillars,
   listPostsInRange,
 } from "../../db/content";
 import { listRecurringClients } from "../../db/finance";
+import { listAllUsers } from "../../db/admin";
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const session = await requireTeamSession(request, env);
@@ -28,18 +30,29 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const db = getDb(env.DB);
-  const [pillars, funnelStages, clients, posts] = await Promise.all([
-    listPillars(db),
-    listFunnelStages(db),
-    listRecurringClients(db),
-    listPostsInRange(db, start, end),
-  ]);
+  const [pillars, funnelStages, clients, posts, settings, allUsers] =
+    await Promise.all([
+      listPillars(db),
+      listFunnelStages(db),
+      listRecurringClients(db),
+      listPostsInRange(db, start, end),
+      listContentSettings(db),
+      listAllUsers(db),
+    ]);
+
+  const userOptions = allUsers.map((u) => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+  }));
 
   return Response.json({
     pillars,
     funnelStages,
     clients,
     posts,
+    settings,
+    userOptions,
     range: { start, end },
   });
 };
