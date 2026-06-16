@@ -475,10 +475,9 @@ function SummaryStrip({ items }: { items: WeekItem[] }) {
   const openTasks = tasksOnly.filter(
     (t) => t.status === "pending" || t.status === "in_progress",
   );
-  const totalEstimated = openTasks.reduce(
-    (sum, t) => sum + (t.estimatedMinutes ?? 0),
-    0,
-  );
+  const totalEstimated =
+    openTasks.reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0) +
+    postsOnly.reduce((sum, p) => sum + (p.estimatedMinutes ?? 0), 0);
   const urgent = openTasks.filter((t) => t.priority === "urgent").length;
   const inProgress = openTasks.filter((t) => t.status === "in_progress").length;
   const openCount = openTasks.length + postsOnly.length + placeholders.length;
@@ -775,6 +774,9 @@ function PostRow({
           </span>
           {client && <span>· {client.name}</span>}
           {post.platform && <span>· {post.platform}</span>}
+          {post.estimatedMinutes != null && (
+            <span>· est {formatMinutes(post.estimatedMinutes)}</span>
+          )}
           {post.status === "review" && reviewer ? (
             <span>
               · reviewer{" "}
@@ -876,6 +878,7 @@ function NewPostFromPlaceholderDialog({
         platform: platform.trim() || null,
         status: "idea",
         assignedTo: data.defaultPostAssigneeId ?? null,
+        estimatedMinutes: data.defaultPostEstimatedMinutes ?? null,
       });
       toast.success("Post added to the planner.");
       setOpen(false);

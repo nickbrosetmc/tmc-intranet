@@ -745,6 +745,11 @@ function PostDialog({
     defaultAssigneeRaw != null && defaultAssigneeRaw !== ""
       ? Number(defaultAssigneeRaw)
       : null;
+  const defaultEstRaw = d.settings?.default_post_estimated_minutes;
+  const defaultEstMinutes =
+    defaultEstRaw != null && defaultEstRaw !== ""
+      ? Number(defaultEstRaw)
+      : null;
 
   const [open, setOpen] = useState(false);
   // forceOpen comes from a /tasks deep link — flip open=true once, then
@@ -768,6 +773,7 @@ function PostDialog({
     status: PostStatus;
     assignedTo: number | null;
     reviewerId: number | null;
+    estimatedMinutes: number | null;
     notes: string;
   }>({
     clientId: post?.clientId ?? defaultClientId ?? tracked[0]?.id ?? 0,
@@ -779,6 +785,7 @@ function PostDialog({
     status: post?.status ?? "idea",
     assignedTo: post?.assignedTo ?? defaultAssigneeId,
     reviewerId: post?.reviewerId ?? null,
+    estimatedMinutes: post?.estimatedMinutes ?? defaultEstMinutes,
     notes: post?.notes ?? "",
   });
   const [saving, setSaving] = useState(false);
@@ -815,6 +822,7 @@ function PostDialog({
         status: form.status,
         assignedTo: form.assignedTo ?? null,
         reviewerId: form.reviewerId ?? null,
+        estimatedMinutes: form.estimatedMinutes,
         notes: form.notes || null,
       };
       if (mode === "create") {
@@ -1035,6 +1043,25 @@ function PostDialog({
             </p>
           </div>
           <div className="space-y-1.5 sm:col-span-2">
+            <Label>Estimated minutes</Label>
+            <Input
+              type="number"
+              min={0}
+              value={form.estimatedMinutes ?? ""}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  estimatedMinutes:
+                    e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+              placeholder={defaultEstMinutes ? String(defaultEstMinutes) : "—"}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Rolls into the assignee's "Est. time" stat on /tasks.
+            </p>
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
             <Label>Notes</Label>
             <Input
               value={form.notes}
@@ -1217,10 +1244,71 @@ function SettingsView({ d, onChanged }: { d: ContentDashboard; onChanged: () => 
   return (
     <div className="space-y-4">
       <DefaultAssigneeCard d={d} onChanged={onChanged} />
+      <DefaultEstMinutesCard d={d} onChanged={onChanged} />
       <PillarsCard pillars={d.pillars} onChanged={onChanged} />
       <FunnelStagesCard stages={d.funnelStages} onChanged={onChanged} />
       <ClientTargetsCard clients={d.clients} onChanged={onChanged} />
     </div>
+  );
+}
+
+function DefaultEstMinutesCard({
+  d,
+  onChanged,
+}: {
+  d: ContentDashboard;
+  onChanged: () => void;
+}) {
+  const current = d.settings?.default_post_estimated_minutes;
+  const [value, setValue] = useState<string>(
+    current != null && current !== "" ? String(current) : "",
+  );
+
+  async function save(next: string) {
+    const trimmed = next.trim();
+    if (trimmed !== "") {
+      const n = Number(trimmed);
+      if (!Number.isFinite(n) || n < 0) {
+        toast.error("Enter a non-negative number.");
+        return;
+      }
+    }
+    try {
+      await content.updateSetting(
+        "default_post_estimated_minutes",
+        trimmed === "" ? null : Number(trimmed),
+      );
+      toast.success("Default estimate updated.");
+      onChanged();
+    } catch (e) {
+      toast.error(`Save failed: ${(e as Error).message}`);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Default post time estimate</CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          Pre-fills the "Estimated minutes" field on new posts. Per-post
+          overrides are still respected — this is just the starting value.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-2 max-w-xs">
+          <Input
+            type="number"
+            min={0}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={() => save(value)}
+            placeholder="45"
+            className="w-24 tabular-nums"
+          />
+          <span className="text-sm text-muted-foreground">minutes</span>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

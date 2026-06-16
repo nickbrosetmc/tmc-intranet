@@ -35,6 +35,7 @@ export interface ContentPost {
   status: PostStatus;
   assignedTo: number | null;
   reviewerId: number | null;
+  estimatedMinutes: number | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -54,6 +55,7 @@ export interface ContentUserOption {
 
 export interface ContentSettings {
   default_post_assignee_id?: string | null;
+  default_post_estimated_minutes?: string | null;
   [key: string]: string | null | undefined;
 }
 

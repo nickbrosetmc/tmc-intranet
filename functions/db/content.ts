@@ -187,9 +187,10 @@ export async function seedBlankPostsForCurrentWeek(
     monday: Date;
     today: Date;
     defaultAssigneeId: number | null;
+    defaultEstimatedMinutes: number | null;
   },
 ): Promise<number> {
-  const { monday, today, defaultAssigneeId } = opts;
+  const { monday, today, defaultAssigneeId, defaultEstimatedMinutes } = opts;
   const todayIso = today.toISOString().slice(0, 10);
 
   // Find every active client that has a posting_days set.
@@ -240,6 +241,7 @@ export async function seedBlankPostsForCurrentWeek(
           scheduledDate: iso,
           status: "idea",
           assignedTo: defaultAssigneeId,
+          estimatedMinutes: defaultEstimatedMinutes,
         })
         .run();
       created++;
