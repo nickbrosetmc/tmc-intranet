@@ -130,7 +130,7 @@ function buildItemsForUser(
       done: t.status === "completed",
     }));
   for (const p of data.openPosts) {
-    if (effectiveAssigneeId(p) !== userId) continue;
+    if (effectiveAssigneeId(p, data.defaultPostAssigneeId) !== userId) continue;
     items.push({ kind: "post", post: p, dueDate: workDueDate(p.scheduledDate) });
   }
   // Placeholders only land on the default assignee's list.

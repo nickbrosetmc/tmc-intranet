@@ -41,10 +41,19 @@ export interface ContentPost {
   updatedAt: string;
 }
 
-/** Whose task list this post lives on. Reviewer takes over once status hits review. */
-export function effectiveAssigneeId(p: Pick<ContentPost, "status" | "assignedTo" | "reviewerId">): number | null {
+/**
+ * Whose task list this post lives on.
+ *  - status='review' + reviewer set → reviewer
+ *  - otherwise → explicit assignee
+ *  - if no explicit assignee, fall back to the optional default (Kit) so
+ *    legacy / one-off Unassigned posts still surface on someone's list.
+ */
+export function effectiveAssigneeId(
+  p: Pick<ContentPost, "status" | "assignedTo" | "reviewerId">,
+  fallback?: number | null,
+): number | null {
   if (p.status === "review" && p.reviewerId != null) return p.reviewerId;
-  return p.assignedTo;
+  return p.assignedTo ?? fallback ?? null;
 }
 
 /**
