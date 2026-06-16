@@ -1,4 +1,5 @@
 // Types, API wrappers, and helpers for the tasks system.
+import type { ContentPost } from "./content";
 
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
 export type TaskStatus =
@@ -46,11 +47,18 @@ export interface PostOption {
   clientId: number;
 }
 
+export interface ClientOption {
+  id: number;
+  name: string;
+}
+
 export interface TasksDashboard {
   user: { id: number; name: string | null; email: string };
   tasks: TaskWithRefs[];
+  openPosts: ContentPost[];
   userOptions: UserOption[];
   postOptions: PostOption[];
+  clientOptions: ClientOption[];
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────

@@ -48,7 +48,6 @@ import {
   formatMinutes,
   PRIORITY_LABELS,
   PRIORITY_TONE,
-  sortTasks,
   tasksApi,
   todayYmd,
   type PostOption,
@@ -59,6 +58,11 @@ import {
   type TaskWithRefs,
   type UserOption,
 } from "@/lib/tasks";
+import {
+  effectiveAssigneeId,
+  statusMeta,
+  type ContentPost,
+} from "@/lib/content";
 
 const VIEWS = [
   { id: "my-week", label: "My Week", adminOnly: false },
@@ -67,6 +71,60 @@ const VIEWS = [
   { id: "by-person", label: "By Person", adminOnly: true },
 ] as const;
 type View = (typeof VIEWS)[number]["id"];
+
+// A unified inbox item — either a manual task or an open content post
+// surfaced as work-to-do. Bucketing logic treats both the same.
+type WeekItem =
+  | { kind: "task"; task: TaskWithRefs; dueDate: string | null; done: boolean }
+  | { kind: "post"; post: ContentPost; dueDate: string };
+
+function buildItemsForUser(
+  data: TasksDashboard,
+  userId: number,
+): WeekItem[] {
+  const items: WeekItem[] = data.tasks
+    .filter((t) => t.assigneeId === userId)
+    .map((t) => ({
+      kind: "task" as const,
+      task: t,
+      dueDate: t.dueDate,
+      done: t.status === "completed",
+    }));
+  for (const p of data.openPosts) {
+    if (effectiveAssigneeId(p) !== userId) continue;
+    items.push({ kind: "post", post: p, dueDate: p.scheduledDate });
+  }
+  return items;
+}
+
+function buildAllItems(data: TasksDashboard): WeekItem[] {
+  const items: WeekItem[] = data.tasks.map((t) => ({
+    kind: "task" as const,
+    task: t,
+    dueDate: t.dueDate,
+    done: t.status === "completed",
+  }));
+  for (const p of data.openPosts) {
+    items.push({ kind: "post", post: p, dueDate: p.scheduledDate });
+  }
+  return items;
+}
+
+function itemKey(it: WeekItem): string {
+  return it.kind === "task" ? `t-${it.task.id}` : `p-${it.post.id}`;
+}
+
+/** Stable sort within a bucket. */
+function sortItems(items: WeekItem[]): WeekItem[] {
+  return [...items].sort((a, b) => {
+    const aDue = a.dueDate ?? "9999-12-31";
+    const bDue = b.dueDate ?? "9999-12-31";
+    if (aDue !== bDue) return aDue < bDue ? -1 : 1;
+    // Posts before tasks if same date (calendar-first).
+    if (a.kind !== b.kind) return a.kind === "post" ? -1 : 1;
+    return 0;
+  });
+}
 
 export function TasksPage() {
   const userState = useUser();
@@ -169,13 +227,17 @@ export function TasksPage() {
       )}
       {view === "mine" && (
         <TaskList
-          tasks={data.tasks.filter((t) => t.assigneeId === data.user.id)}
+          items={buildItemsForUser(data, data.user.id)}
           data={data}
           onChanged={refresh}
         />
       )}
       {view === "all" && (
-        <TaskList tasks={data.tasks} data={data} onChanged={refresh} />
+        <TaskList
+          items={buildAllItems(data)}
+          data={data}
+          onChanged={refresh}
+        />
       )}
       {view === "by-person" && isAdmin && (
         <ByPersonView
@@ -258,29 +320,29 @@ function MyWeekView({
   onChanged: () => void;
 }) {
   const mine = useMemo(
-    () => data.tasks.filter((t) => t.assigneeId === myUserId),
-    [data.tasks, myUserId],
+    () => buildItemsForUser(data, myUserId),
+    [data, myUserId],
   );
 
   // Bucket: overdue, today, this week (next 7d), later, no date, completed.
   const buckets = useMemo(() => {
-    const overdue: TaskWithRefs[] = [];
-    const today: TaskWithRefs[] = [];
-    const thisWeek: TaskWithRefs[] = [];
-    const later: TaskWithRefs[] = [];
-    const noDate: TaskWithRefs[] = [];
-    const done: TaskWithRefs[] = [];
-    for (const t of mine) {
-      if (t.status === "completed") {
-        done.push(t);
+    const overdue: WeekItem[] = [];
+    const today: WeekItem[] = [];
+    const thisWeek: WeekItem[] = [];
+    const later: WeekItem[] = [];
+    const noDate: WeekItem[] = [];
+    const done: WeekItem[] = [];
+    for (const it of mine) {
+      if (it.kind === "task" && it.done) {
+        done.push(it);
         continue;
       }
-      const diff = daysUntilDue(t.dueDate);
-      if (diff == null) noDate.push(t);
-      else if (diff < 0) overdue.push(t);
-      else if (diff === 0) today.push(t);
-      else if (diff <= 7) thisWeek.push(t);
-      else later.push(t);
+      const diff = daysUntilDue(it.dueDate);
+      if (diff == null) noDate.push(it);
+      else if (diff < 0) overdue.push(it);
+      else if (diff === 0) today.push(it);
+      else if (diff <= 7) thisWeek.push(it);
+      else later.push(it);
     }
     return { overdue, today, thisWeek, later, noDate, done };
   }, [mine]);
@@ -303,12 +365,12 @@ function MyWeekView({
 
   return (
     <div className="space-y-5">
-      <SummaryStrip tasks={mine} />
+      <SummaryStrip items={mine} />
       {buckets.overdue.length > 0 && (
         <WeekBucket
           title="Overdue"
           tone="bg-red-50 border-red-200"
-          tasks={buckets.overdue}
+          items={buckets.overdue}
           data={data}
           onChanged={onChanged}
         />
@@ -317,7 +379,7 @@ function MyWeekView({
         <WeekBucket
           title="Today"
           tone="bg-tmc-gold/10 border-tmc-gold/40"
-          tasks={buckets.today}
+          items={buckets.today}
           data={data}
           onChanged={onChanged}
         />
@@ -325,7 +387,7 @@ function MyWeekView({
       {buckets.thisWeek.length > 0 && (
         <WeekBucket
           title="This week"
-          tasks={buckets.thisWeek}
+          items={buckets.thisWeek}
           data={data}
           onChanged={onChanged}
         />
@@ -333,7 +395,7 @@ function MyWeekView({
       {buckets.later.length > 0 && (
         <WeekBucket
           title="Later"
-          tasks={buckets.later}
+          items={buckets.later}
           data={data}
           onChanged={onChanged}
         />
@@ -341,7 +403,7 @@ function MyWeekView({
       {buckets.noDate.length > 0 && (
         <WeekBucket
           title="No due date"
-          tasks={buckets.noDate}
+          items={buckets.noDate}
           data={data}
           onChanged={onChanged}
         />
@@ -350,7 +412,7 @@ function MyWeekView({
         <WeekBucket
           title="Done"
           tone="bg-muted border-transparent"
-          tasks={buckets.done}
+          items={buckets.done}
           data={data}
           onChanged={onChanged}
         />
@@ -359,20 +421,23 @@ function MyWeekView({
   );
 }
 
-function SummaryStrip({ tasks }: { tasks: TaskWithRefs[] }) {
-  const open = tasks.filter(
+function SummaryStrip({ items }: { items: WeekItem[] }) {
+  const tasksOnly = items.filter((it) => it.kind === "task").map((it) => it.task);
+  const postsOnly = items.filter((it) => it.kind === "post").map((it) => it.post);
+  const openTasks = tasksOnly.filter(
     (t) => t.status === "pending" || t.status === "in_progress",
   );
-  const totalEstimated = open.reduce(
+  const totalEstimated = openTasks.reduce(
     (sum, t) => sum + (t.estimatedMinutes ?? 0),
     0,
   );
-  const urgent = open.filter((t) => t.priority === "urgent").length;
-  const inProgress = open.filter((t) => t.status === "in_progress").length;
+  const urgent = openTasks.filter((t) => t.priority === "urgent").length;
+  const inProgress = openTasks.filter((t) => t.status === "in_progress").length;
+  const openCount = openTasks.length + postsOnly.length;
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-      <Stat label="Open" value={open.length} />
+      <Stat label="Open" value={openCount} />
       <Stat
         label="In progress"
         value={inProgress}
@@ -408,13 +473,13 @@ function Stat({
 function WeekBucket({
   title,
   tone,
-  tasks,
+  items,
   data,
   onChanged,
 }: {
   title: string;
   tone?: string;
-  tasks: TaskWithRefs[];
+  items: WeekItem[];
   data: TasksDashboard;
   onChanged: () => void;
 }) {
@@ -422,29 +487,38 @@ function WeekBucket({
     <section className={`rounded-lg border ${tone ?? "bg-card"}`}>
       <div className="px-4 py-2 border-b text-xs font-semibold uppercase tracking-widest text-tmc-slate flex items-center justify-between">
         <span>{title}</span>
-        <span className="text-muted-foreground">{tasks.length}</span>
+        <span className="text-muted-foreground">{items.length}</span>
       </div>
       <ul className="divide-y">
-        {sortTasks(tasks).map((t) => (
-          <TaskRow key={t.id} task={t} data={data} onChanged={onChanged} />
-        ))}
+        {sortItems(items).map((it) =>
+          it.kind === "task" ? (
+            <TaskRow
+              key={itemKey(it)}
+              task={it.task}
+              data={data}
+              onChanged={onChanged}
+            />
+          ) : (
+            <PostRow key={itemKey(it)} post={it.post} data={data} />
+          ),
+        )}
       </ul>
     </section>
   );
 }
 
-// ─── Generic task list (Mine / All views) ────────────────────────────────
+// ─── Generic list (Mine / All views) ─────────────────────────────────────
 
 function TaskList({
-  tasks,
+  items,
   data,
   onChanged,
 }: {
-  tasks: TaskWithRefs[];
+  items: WeekItem[];
   data: TasksDashboard;
   onChanged: () => void;
 }) {
-  if (tasks.length === 0) {
+  if (items.length === 0) {
     return (
       <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
         Nothing here yet.
@@ -454,9 +528,18 @@ function TaskList({
   return (
     <section className="rounded-lg border bg-card">
       <ul className="divide-y">
-        {sortTasks(tasks).map((t) => (
-          <TaskRow key={t.id} task={t} data={data} onChanged={onChanged} />
-        ))}
+        {sortItems(items).map((it) =>
+          it.kind === "task" ? (
+            <TaskRow
+              key={itemKey(it)}
+              task={it.task}
+              data={data}
+              onChanged={onChanged}
+            />
+          ) : (
+            <PostRow key={itemKey(it)} post={it.post} data={data} />
+          ),
+        )}
       </ul>
     </section>
   );
@@ -596,6 +679,73 @@ function PriorityPill({ priority }: { priority: TaskPriority }) {
     >
       {PRIORITY_LABELS[priority]}
     </span>
+  );
+}
+
+// ─── Post row (open content posts surfaced as tasks) ─────────────────────
+
+function PostRow({
+  post,
+  data,
+}: {
+  post: ContentPost;
+  data: TasksDashboard;
+}) {
+  const client = data.clientOptions.find((c) => c.id === post.clientId);
+  const status = statusMeta(post.status);
+  const assignee = data.userOptions.find((u) => u.id === post.assignedTo);
+  const reviewer = data.userOptions.find((u) => u.id === post.reviewerId);
+  const overdue = (daysUntilDue(post.scheduledDate) ?? 0) < 0;
+
+  return (
+    <li className="px-4 py-3 flex items-start gap-3">
+      <Link2
+        size={18}
+        className="mt-0.5 shrink-0 text-tmc-gold-dark"
+        aria-label="Content post"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start gap-2 flex-wrap">
+          <span className="text-sm font-medium text-tmc-dark">{post.title}</span>
+          <span
+            className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border"
+            style={{
+              backgroundColor: `${status.color}22`,
+              color: status.color,
+              borderColor: `${status.color}44`,
+            }}
+          >
+            {status.label}
+          </span>
+        </div>
+        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
+          <span
+            className={overdue ? "text-red-700 font-medium" : undefined}
+            title={post.scheduledDate}
+          >
+            {formatDueDate(post.scheduledDate)}
+          </span>
+          {client && <span>· {client.name}</span>}
+          {post.platform && <span>· {post.platform}</span>}
+          {post.status === "review" && reviewer ? (
+            <span>
+              · reviewer{" "}
+              <span className="font-medium">
+                {reviewer.name ?? reviewer.email}
+              </span>
+            </span>
+          ) : assignee ? (
+            <span>· {assignee.name ?? assignee.email}</span>
+          ) : null}
+        </div>
+      </div>
+      <a
+        href={`/content?focusPost=${post.id}`}
+        className="text-xs text-tmc-gold-dark hover:underline shrink-0 self-center"
+      >
+        Open
+      </a>
+    </li>
   );
 }
 

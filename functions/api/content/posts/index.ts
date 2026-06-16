@@ -44,6 +44,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     platform: body.platform ?? null,
     status,
     assignedTo: body.assignedTo ?? null,
+    reviewerId: body.reviewerId ?? null,
     notes: body.notes ?? null,
   });
   return Response.json({ post: created }, { status: 201 });

@@ -34,9 +34,16 @@ export interface ContentPost {
   platform: string | null;
   status: PostStatus;
   assignedTo: number | null;
+  reviewerId: number | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Whose task list this post lives on. Reviewer takes over once status hits review. */
+export function effectiveAssigneeId(p: Pick<ContentPost, "status" | "assignedTo" | "reviewerId">): number | null {
+  if (p.status === "review" && p.reviewerId != null) return p.reviewerId;
+  return p.assignedTo;
 }
 
 export interface ContentUserOption {
