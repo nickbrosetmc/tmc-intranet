@@ -24,7 +24,14 @@ import type { DB } from "./index";
 // ─── Users ───────────────────────────────────────────────────────────────
 
 export async function listAllUsers(db: DB): Promise<UserRow[]> {
-  return db.select().from(users).orderBy(users.id).all();
+  // Deactivated rows get their email rewritten to *@deactivated.local
+  // during merges; filter them out of pickers / admin views.
+  return db
+    .select()
+    .from(users)
+    .where(sql`${users.email} NOT LIKE '%@deactivated.local'`)
+    .orderBy(users.id)
+    .all();
 }
 
 export async function inviteUser(
