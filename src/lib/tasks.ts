@@ -50,6 +50,8 @@ export interface PostOption {
 export interface ClientOption {
   id: number;
   name: string;
+  isActive: boolean;
+  weeklyPostTarget: number | null;
 }
 
 export interface TasksDashboard {
@@ -59,6 +61,11 @@ export interface TasksDashboard {
   userOptions: UserOption[];
   postOptions: PostOption[];
   clientOptions: ClientOption[];
+  weeklyPostsByClient: Record<number, number>;
+  weekStart: string;        // YYYY-MM-DD, Monday
+  weekEnd: string;          // YYYY-MM-DD, Sunday
+  weekDueDate: string;      // YYYY-MM-DD, Friday — placeholder due date
+  defaultPostAssigneeId: number | null;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────
