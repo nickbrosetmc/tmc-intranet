@@ -19,6 +19,7 @@ import {
   listContentSettings,
   listOpenPosts,
   listPostsInRange,
+  seedBlankPostsForCurrentWeek,
 } from "../../db/content";
 import { listRecurringClients } from "../../db/finance";
 
@@ -57,6 +58,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const weekStart = startOfWeek(today);
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
+
+  // Seed any missing blank-post slots for the current week BEFORE we
+  // read posts, so weeklyPostsByClient reflects the seeded rows.
+  const preSeedSettings = await listContentSettings(db);
+  const preSeedDefaultAssigneeRaw =
+    preSeedSettings.default_post_assignee_id ?? null;
+  const preSeedDefaultAssigneeId =
+    preSeedDefaultAssigneeRaw != null && preSeedDefaultAssigneeRaw !== ""
+      ? Number(preSeedDefaultAssigneeRaw)
+      : null;
+  await seedBlankPostsForCurrentWeek(db, {
+    monday: weekStart,
+    today,
+    defaultAssigneeId: preSeedDefaultAssigneeId,
+  });
 
   const [allTasks, allUsers, postsInWindow, openPosts, clients, settings, weekPosts] =
     await Promise.all([

@@ -31,6 +31,8 @@ export interface RecurringClient {
   sortOrder: number;
   /** Posts/week target; null = not in content pipeline. */
   weeklyPostTarget: number | null;
+  /** Lowercase 3-letter day codes joined by commas, e.g. "tue,fri". */
+  postingDays: string | null;
   createdAt: string;
   updatedAt: string;
 }
