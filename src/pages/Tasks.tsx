@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
+  CalendarPlus,
   CheckCircle2,
   Circle,
   Link2,
@@ -59,6 +60,7 @@ import {
   type UserOption,
 } from "@/lib/tasks";
 import {
+  content,
   effectiveAssigneeId,
   statusMeta,
   type ContentPost,
@@ -72,11 +74,47 @@ const VIEWS = [
 ] as const;
 type View = (typeof VIEWS)[number]["id"];
 
-// A unified inbox item — either a manual task or an open content post
-// surfaced as work-to-do. Bucketing logic treats both the same.
+// A unified inbox item — either a manual task, an open content post
+// surfaced as work-to-do, or a placeholder slot for an unscheduled
+// weekly post. Bucketing logic treats all three the same.
 type WeekItem =
   | { kind: "task"; task: TaskWithRefs; dueDate: string | null; done: boolean }
-  | { kind: "post"; post: ContentPost; dueDate: string };
+  | { kind: "post"; post: ContentPost; dueDate: string }
+  | {
+      kind: "placeholder";
+      clientId: number;
+      clientName: string;
+      slotIndex: number;     // 1-based, used in title & key
+      slotsTotal: number;    // total needed for this client this week
+      dueDate: string;       // friday of current week
+    };
+
+/**
+ * For each tracked client with a weekly target, return one placeholder
+ * per missing post. They only show up if a default assignee is set and
+ * we're inside the current week's display window.
+ */
+function buildPlaceholders(data: TasksDashboard): WeekItem[] {
+  const out: WeekItem[] = [];
+  for (const c of data.clientOptions) {
+    if (!c.isActive) continue;
+    const target = c.weeklyPostTarget ?? 0;
+    if (target <= 0) continue;
+    const scheduled = data.weeklyPostsByClient[c.id] ?? 0;
+    const missing = Math.max(0, target - scheduled);
+    for (let i = 0; i < missing; i++) {
+      out.push({
+        kind: "placeholder",
+        clientId: c.id,
+        clientName: c.name,
+        slotIndex: i + 1,
+        slotsTotal: target,
+        dueDate: data.weekDueDate,
+      });
+    }
+  }
+  return out;
+}
 
 function buildItemsForUser(
   data: TasksDashboard,
@@ -94,6 +132,10 @@ function buildItemsForUser(
     if (effectiveAssigneeId(p) !== userId) continue;
     items.push({ kind: "post", post: p, dueDate: p.scheduledDate });
   }
+  // Placeholders only land on the default assignee's list.
+  if (data.defaultPostAssigneeId === userId) {
+    items.push(...buildPlaceholders(data));
+  }
   return items;
 }
 
@@ -107,21 +149,26 @@ function buildAllItems(data: TasksDashboard): WeekItem[] {
   for (const p of data.openPosts) {
     items.push({ kind: "post", post: p, dueDate: p.scheduledDate });
   }
+  items.push(...buildPlaceholders(data));
   return items;
 }
 
 function itemKey(it: WeekItem): string {
-  return it.kind === "task" ? `t-${it.task.id}` : `p-${it.post.id}`;
+  if (it.kind === "task") return `t-${it.task.id}`;
+  if (it.kind === "post") return `p-${it.post.id}`;
+  return `ph-${it.clientId}-${it.slotIndex}`;
 }
 
 /** Stable sort within a bucket. */
 function sortItems(items: WeekItem[]): WeekItem[] {
+  const kindRank = (k: WeekItem["kind"]) =>
+    k === "post" ? 0 : k === "placeholder" ? 1 : 2;
   return [...items].sort((a, b) => {
     const aDue = a.dueDate ?? "9999-12-31";
     const bDue = b.dueDate ?? "9999-12-31";
     if (aDue !== bDue) return aDue < bDue ? -1 : 1;
-    // Posts before tasks if same date (calendar-first).
-    if (a.kind !== b.kind) return a.kind === "post" ? -1 : 1;
+    const kr = kindRank(a.kind) - kindRank(b.kind);
+    if (kr !== 0) return kr;
     return 0;
   });
 }
@@ -424,6 +471,7 @@ function MyWeekView({
 function SummaryStrip({ items }: { items: WeekItem[] }) {
   const tasksOnly = items.filter((it) => it.kind === "task").map((it) => it.task);
   const postsOnly = items.filter((it) => it.kind === "post").map((it) => it.post);
+  const placeholders = items.filter((it) => it.kind === "placeholder");
   const openTasks = tasksOnly.filter(
     (t) => t.status === "pending" || t.status === "in_progress",
   );
@@ -433,7 +481,7 @@ function SummaryStrip({ items }: { items: WeekItem[] }) {
   );
   const urgent = openTasks.filter((t) => t.priority === "urgent").length;
   const inProgress = openTasks.filter((t) => t.status === "in_progress").length;
-  const openCount = openTasks.length + postsOnly.length;
+  const openCount = openTasks.length + postsOnly.length + placeholders.length;
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -490,21 +538,30 @@ function WeekBucket({
         <span className="text-muted-foreground">{items.length}</span>
       </div>
       <ul className="divide-y">
-        {sortItems(items).map((it) =>
-          it.kind === "task" ? (
-            <TaskRow
-              key={itemKey(it)}
-              task={it.task}
-              data={data}
-              onChanged={onChanged}
-            />
-          ) : (
-            <PostRow key={itemKey(it)} post={it.post} data={data} />
-          ),
-        )}
+        {sortItems(items).map((it) => (
+          <ItemRow key={itemKey(it)} it={it} data={data} onChanged={onChanged} />
+        ))}
       </ul>
     </section>
   );
+}
+
+function ItemRow({
+  it,
+  data,
+  onChanged,
+}: {
+  it: WeekItem;
+  data: TasksDashboard;
+  onChanged: () => void;
+}) {
+  if (it.kind === "task") {
+    return <TaskRow task={it.task} data={data} onChanged={onChanged} />;
+  }
+  if (it.kind === "post") {
+    return <PostRow post={it.post} data={data} />;
+  }
+  return <PlaceholderRow item={it} data={data} onChanged={onChanged} />;
 }
 
 // ─── Generic list (Mine / All views) ─────────────────────────────────────
@@ -528,18 +585,9 @@ function TaskList({
   return (
     <section className="rounded-lg border bg-card">
       <ul className="divide-y">
-        {sortItems(items).map((it) =>
-          it.kind === "task" ? (
-            <TaskRow
-              key={itemKey(it)}
-              task={it.task}
-              data={data}
-              onChanged={onChanged}
-            />
-          ) : (
-            <PostRow key={itemKey(it)} post={it.post} data={data} />
-          ),
-        )}
+        {sortItems(items).map((it) => (
+          <ItemRow key={itemKey(it)} it={it} data={data} onChanged={onChanged} />
+        ))}
       </ul>
     </section>
   );
@@ -746,6 +794,168 @@ function PostRow({
         Open
       </a>
     </li>
+  );
+}
+
+// ─── Placeholder row (virtual weekly post slots) ─────────────────────────
+
+function PlaceholderRow({
+  item,
+  data,
+  onChanged,
+}: {
+  item: Extract<WeekItem, { kind: "placeholder" }>;
+  data: TasksDashboard;
+  onChanged: () => void;
+}) {
+  const overdue = (daysUntilDue(item.dueDate) ?? 0) < 0;
+  return (
+    <li className="px-4 py-3 flex items-start gap-3">
+      <CalendarPlus
+        size={18}
+        className="mt-0.5 shrink-0 text-tmc-slate"
+        aria-label="Weekly post placeholder"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start gap-2 flex-wrap">
+          <span className="text-sm font-medium text-tmc-dark">
+            {item.clientName} post
+          </span>
+          <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border border-dashed border-tmc-slate/40 text-tmc-slate">
+            Slot {item.slotIndex}/{item.slotsTotal}
+          </span>
+        </div>
+        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
+          <span className={overdue ? "text-red-700 font-medium" : undefined}>
+            Due {formatDueDate(item.dueDate)}
+          </span>
+          <span>· Not yet scheduled</span>
+        </div>
+      </div>
+      <NewPostFromPlaceholderDialog
+        item={item}
+        data={data}
+        onCreated={onChanged}
+      />
+    </li>
+  );
+}
+
+function NewPostFromPlaceholderDialog({
+  item,
+  data,
+  onCreated,
+}: {
+  item: Extract<WeekItem, { kind: "placeholder" }>;
+  data: TasksDashboard;
+  onCreated: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [scheduledDate, setScheduledDate] = useState(item.dueDate);
+  const [platform, setPlatform] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function reset() {
+    setTitle("");
+    setScheduledDate(item.dueDate);
+    setPlatform("");
+  }
+
+  async function submit() {
+    if (!title.trim()) {
+      toast.error("Title required.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await content.createPost({
+        clientId: item.clientId,
+        title: title.trim(),
+        scheduledDate,
+        platform: platform.trim() || null,
+        status: "idea",
+        assignedTo: data.defaultPostAssigneeId ?? null,
+      });
+      toast.success("Post added to the planner.");
+      setOpen(false);
+      reset();
+      onCreated();
+    } catch (e) {
+      toast.error(`Save failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          className="gap-1 bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
+        >
+          <Plus size={14} /> Add post
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>New post for {item.clientName}</DialogTitle>
+          <DialogDescription>
+            Lands on the content planner as an Idea — refine pillar /
+            funnel / status there.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="ph-title">Title *</Label>
+            <Input
+              id="ph-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              autoFocus
+              placeholder="What's the post about?"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="ph-date">Scheduled date</Label>
+              <Input
+                id="ph-date"
+                type="date"
+                min={data.weekStart}
+                max={data.weekEnd}
+                value={scheduledDate}
+                onChange={(e) => setScheduledDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="ph-platform">Platform</Label>
+              <Input
+                id="ph-platform"
+                value={platform}
+                onChange={(e) => setPlatform(e.target.value)}
+                placeholder="Instagram, LinkedIn…"
+              />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={busy}>
+            {busy ? "Adding…" : "Add to planner"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
