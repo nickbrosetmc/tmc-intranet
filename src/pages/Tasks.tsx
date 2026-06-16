@@ -61,16 +61,22 @@ import {
 } from "@/lib/tasks";
 
 const VIEWS = [
-  { id: "my-week", label: "My Week" },
-  { id: "mine", label: "My Tasks" },
-  { id: "all", label: "All Tasks" },
+  { id: "my-week", label: "My Week", adminOnly: false },
+  { id: "mine", label: "My Tasks", adminOnly: false },
+  { id: "all", label: "All Tasks", adminOnly: false },
+  { id: "by-person", label: "By Person", adminOnly: true },
 ] as const;
 type View = (typeof VIEWS)[number]["id"];
 
 export function TasksPage() {
   const userState = useUser();
+  const isAdmin =
+    userState.status === "authenticated" &&
+    userState.user.type === "team" &&
+    userState.user.role === "admin";
   const [data, setData] = useState<TasksDashboard | null>(null);
   const [view, setView] = useState<View>("my-week");
+  const [focusedUserId, setFocusedUserId] = useState<number | null>(null);
   const [includeCompleted, setIncludeCompleted] = useState(false);
   const [tick, setTick] = useState(0);
 
@@ -131,7 +137,7 @@ export function TasksPage() {
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex gap-1 border-b w-full sm:w-auto">
-          {VIEWS.map((v) => {
+          {VIEWS.filter((v) => isAdmin || !v.adminOnly).map((v) => {
             const active = view === v.id;
             return (
               <button
@@ -171,8 +177,71 @@ export function TasksPage() {
       {view === "all" && (
         <TaskList tasks={data.tasks} data={data} onChanged={refresh} />
       )}
+      {view === "by-person" && isAdmin && (
+        <ByPersonView
+          data={data}
+          focusedUserId={focusedUserId ?? data.user.id}
+          onPickUser={setFocusedUserId}
+          onChanged={refresh}
+        />
+      )}
 
       <Toaster />
+    </div>
+  );
+}
+
+// ─── By Person view (admin) ──────────────────────────────────────────────
+
+function ByPersonView({
+  data,
+  focusedUserId,
+  onPickUser,
+  onChanged,
+}: {
+  data: TasksDashboard;
+  focusedUserId: number;
+  onPickUser: (id: number) => void;
+  onChanged: () => void;
+}) {
+  const focused =
+    data.userOptions.find((u) => u.id === focusedUserId) ?? data.userOptions[0];
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border bg-card p-3 flex items-center gap-3 flex-wrap">
+        <Label htmlFor="by-person-picker" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground shrink-0">
+          Viewing
+        </Label>
+        <div className="min-w-[220px]">
+          <Select
+            value={String(focusedUserId)}
+            onValueChange={(v) => onPickUser(Number(v))}
+          >
+            <SelectTrigger id="by-person-picker">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {data.userOptions.map((u) => (
+                <SelectItem key={u.id} value={String(u.id)}>
+                  {u.name ?? u.email}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {focused && (
+          <span className="text-xs text-muted-foreground">
+            Tasks assigned to {focused.name ?? focused.email}
+          </span>
+        )}
+      </div>
+
+      <MyWeekView
+        data={data}
+        myUserId={focusedUserId}
+        onChanged={onChanged}
+      />
     </div>
   );
 }
