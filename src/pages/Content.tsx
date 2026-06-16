@@ -65,6 +65,7 @@ import {
   type PostStatus,
 } from "@/lib/content";
 import type { RecurringClient } from "@/lib/finance";
+import { tasksApi, type TaskWithRefs } from "@/lib/tasks";
 
 const ALL_TABS = [
   { id: "week", label: "This Week", adminOnly: false },
@@ -112,11 +113,28 @@ export function ContentPage() {
   }, [anchorIso]);
 
   const [d, setD] = useState<ContentDashboard | null>(null);
+  const [tasksByPost, setTasksByPost] = useState<Map<number, TaskWithRefs[]>>(
+    new Map(),
+  );
 
   async function refresh() {
     try {
       const data = await content.dashboard(range.start, range.end);
       setD(data);
+      const postIds = data.posts.map((p) => p.id);
+      if (postIds.length > 0) {
+        const { tasks } = await tasksApi.forPosts(postIds);
+        const map = new Map<number, TaskWithRefs[]>();
+        for (const t of tasks) {
+          if (t.contentPostId == null) continue;
+          const list = map.get(t.contentPostId) ?? [];
+          list.push(t);
+          map.set(t.contentPostId, list);
+        }
+        setTasksByPost(map);
+      } else {
+        setTasksByPost(new Map());
+      }
     } catch (e) {
       toast.error(`Failed to load content: ${(e as Error).message}`);
     }
@@ -165,6 +183,7 @@ export function ContentPage() {
           anchorIso={anchorIso}
           setAnchorIso={setAnchorIso}
           onChanged={refresh}
+          tasksByPost={tasksByPost}
         />
       )}
       {tab === "coverage" && <CoverageView d={d} />}
@@ -180,11 +199,13 @@ function WeekView({
   anchorIso,
   setAnchorIso,
   onChanged,
+  tasksByPost,
 }: {
   d: ContentDashboard;
   anchorIso: string;
   setAnchorIso: (v: string) => void;
   onChanged: () => void;
+  tasksByPost: Map<number, TaskWithRefs[]>;
 }) {
   const dates = weekDates(anchorIso);
   const weekStart = dates[0];
@@ -304,6 +325,7 @@ function WeekView({
                         posts={clientPosts}
                         d={d}
                         onChanged={onChanged}
+                        tasksByPost={tasksByPost}
                       />
                     );
                   })}
@@ -337,12 +359,14 @@ function ClientRow({
   posts,
   d,
   onChanged,
+  tasksByPost,
 }: {
   client: RecurringClient;
   dates: string[];
   posts: ContentPost[];
   d: ContentDashboard;
   onChanged: () => void;
+  tasksByPost: Map<number, TaskWithRefs[]>;
 }) {
   const total = posts.length;
   const target = client.weeklyPostTarget ?? 0;
@@ -362,7 +386,13 @@ function ClientRow({
           <td key={iso} className="px-2 py-2 align-top min-w-32">
             <div className="space-y-1">
               {postsForDay.map((p) => (
-                <PostChip key={p.id} post={p} d={d} onChanged={onChanged} />
+                <PostChip
+                  key={p.id}
+                  post={p}
+                  d={d}
+                  onChanged={onChanged}
+                  tasks={tasksByPost.get(p.id) ?? []}
+                />
               ))}
               <PostDialog
                 mode="create"
@@ -387,14 +417,19 @@ function PostChip({
   post,
   d,
   onChanged,
+  tasks,
 }: {
   post: ContentPost;
   d: ContentDashboard;
   onChanged: () => void;
+  tasks: TaskWithRefs[];
 }) {
   const status = statusMeta(post.status);
   const pillar = d.pillars.find((p) => p.id === post.pillarId);
   const stage = d.funnelStages.find((s) => s.id === post.funnelStageId);
+  const openTasks = tasks.filter(
+    (t) => t.status === "pending" || t.status === "in_progress",
+  );
 
   return (
     <PostDialog
@@ -413,8 +448,19 @@ function PostChip({
             {pillar && <Pill bg={pillar.color}>{pillar.name}</Pill>}
             {stage && <Pill bg={stage.color}>{stage.name}</Pill>}
           </div>
-          <div className="text-[10px] uppercase tracking-wide mt-0.5" style={{ color: status.color }}>
-            {status.label}
+          <div
+            className="text-[10px] uppercase tracking-wide mt-0.5 flex items-center justify-between gap-1"
+            style={{ color: status.color }}
+          >
+            <span>{status.label}</span>
+            {openTasks.length > 0 && (
+              <span
+                className="text-[10px] font-semibold bg-tmc-gold/30 text-tmc-dark px-1.5 py-0.5 rounded normal-case tracking-normal"
+                title={`${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`}
+              >
+                {openTasks.length} task{openTasks.length === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
         </button>
       }
