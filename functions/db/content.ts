@@ -211,15 +211,13 @@ export async function seedBlankPostsForCurrentWeek(
   for (const c of clients) {
     const days = parseDayCodes(c.postingDays);
     if (days.size === 0) continue;
-    // Targets for this week, today onward.
-    const targetIsos = week
-      .filter((d) => days.has(d.code) && d.iso >= todayIso)
-      .map((d) => d.iso);
-    if (targetIsos.length === 0) continue;
 
-    // What already exists for this client in this week?
+    // Hands-off rule: once ANY post exists for this client in the
+    // production week we stop seeding. Moving Tue → Mon should not
+    // spawn a fresh Tue slot, and a deliberate delete should stay
+    // deleted. First-time seeding (fresh week, zero posts) only.
     const existing = await db
-      .select({ scheduledDate: contentPosts.scheduledDate })
+      .select({ id: contentPosts.id })
       .from(contentPosts)
       .where(
         and(
@@ -229,10 +227,13 @@ export async function seedBlankPostsForCurrentWeek(
         ),
       )
       .all();
-    const existingDates = new Set(existing.map((e) => e.scheduledDate));
+    if (existing.length > 0) continue;
 
+    // Posting days in this week, today onward.
+    const targetIsos = week
+      .filter((d) => days.has(d.code) && d.iso >= todayIso)
+      .map((d) => d.iso);
     for (const iso of targetIsos) {
-      if (existingDates.has(iso)) continue;
       await db
         .insert(contentPosts)
         .values({
