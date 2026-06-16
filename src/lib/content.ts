@@ -47,6 +47,28 @@ export function effectiveAssigneeId(p: Pick<ContentPost, "status" | "assignedTo"
   return p.assignedTo;
 }
 
+/**
+ * The work to produce a post is due on the Friday BEFORE its publish week —
+ * TMC produces a week ahead. So a post scheduled Mon Jun 22 (publish week
+ * Jun 22-28) has its work due Fri Jun 19.
+ */
+export function workDueDate(scheduledDate: string): string {
+  const [y, m, d] = scheduledDate.split("-").map(Number);
+  const publish = new Date(y, m - 1, d);
+  const day = publish.getDay(); // 0=Sun..6=Sat
+  // Mon of publish week
+  const diff = day === 0 ? -6 : 1 - day;
+  const publishMon = new Date(publish);
+  publishMon.setDate(publishMon.getDate() + diff);
+  // Fri before that = Mon − 3 days
+  const fri = new Date(publishMon);
+  fri.setDate(fri.getDate() - 3);
+  const yy = fri.getFullYear();
+  const mm = String(fri.getMonth() + 1).padStart(2, "0");
+  const dd = String(fri.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
 export interface ContentUserOption {
   id: number;
   name: string | null;

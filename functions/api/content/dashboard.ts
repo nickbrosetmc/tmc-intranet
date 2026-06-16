@@ -32,13 +32,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   const db = getDb(env.DB);
 
-  // Seed blank slots for the current week if any clients have
-  // posting_days set. Cheap no-op when nothing's missing.
+  // Seed blank slots for the PRODUCTION week (next calendar week) — TMC
+  // produces a week ahead, so the slots that should auto-fill are next
+  // week's, not this week's. Cheap no-op when nothing's missing.
   const today = new Date();
-  const monday = new Date(today);
-  monday.setHours(0, 0, 0, 0);
-  const dayIdx = monday.getDay();
-  monday.setDate(monday.getDate() + (dayIdx === 0 ? -6 : 1 - dayIdx));
+  const calendarMonday = new Date(today);
+  calendarMonday.setHours(0, 0, 0, 0);
+  const dayIdx = calendarMonday.getDay();
+  calendarMonday.setDate(calendarMonday.getDate() + (dayIdx === 0 ? -6 : 1 - dayIdx));
+  const monday = new Date(calendarMonday);
+  monday.setDate(monday.getDate() + 7);
   const seedSettings = await listContentSettings(db);
   const seedDefaultAssigneeRaw = seedSettings.default_post_assignee_id ?? null;
   const seedDefaultAssigneeId =
