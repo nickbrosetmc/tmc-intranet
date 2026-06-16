@@ -326,3 +326,36 @@ export const timeOffRequests = sqliteTable("time_off_requests", {
 });
 export type TimeOffRequestRow = typeof timeOffRequests.$inferSelect;
 export type NewTimeOffRequestRow = typeof timeOffRequests.$inferInsert;
+
+// ─── Tasks ───────────────────────────────────────────────────────────────
+
+export const tasks = sqliteTable("tasks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  description: text("description"),
+  assigneeId: integer("assignee_id").notNull().references(() => users.id),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  priority: text("priority", {
+    enum: ["low", "medium", "high", "urgent"],
+  })
+    .notNull()
+    .default("medium"),
+  dueDate: text("due_date"),
+  estimatedMinutes: integer("estimated_minutes"),
+  actualMinutes: integer("actual_minutes"),
+  status: text("status", {
+    enum: ["pending", "in_progress", "completed", "cancelled"],
+  })
+    .notNull()
+    .default("pending"),
+  startedAt: text("started_at"),
+  completedAt: text("completed_at"),
+  contentPostId: integer("content_post_id").references(() => contentPosts.id, {
+    onDelete: "set null",
+  }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type TaskRow = typeof tasks.$inferSelect;
+export type NewTaskRow = typeof tasks.$inferInsert;

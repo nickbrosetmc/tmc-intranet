@@ -15,6 +15,7 @@ import { AdminTimeClock } from "@/pages/admin/AdminTimeClock";
 import { AdminTimeOff } from "@/pages/admin/AdminTimeOff";
 import { CalculatorPage } from "@/pages/Calculator";
 import { ContentPage } from "@/pages/Content";
+import { TasksPage } from "@/pages/Tasks";
 import { TimeClockPage } from "@/pages/TimeClock";
 import { TimeOffPage } from "@/pages/TimeOff";
 import { VideoCalculatorPage } from "@/pages/VideoCalculator";
@@ -34,6 +35,7 @@ function App() {
           <Route path="/calculator" component={CalculatorPage} />
           <Route path="/video-calculator" component={VideoCalculatorPage} />
           <Route path="/content" component={ContentPage} />
+          <Route path="/tasks" component={TasksPage} />
           <Route path="/time-clock" component={TimeClockPage} />
           <Route path="/time-off" component={TimeOffPage} />
           <Route path="/admin">
