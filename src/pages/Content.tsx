@@ -427,6 +427,7 @@ function PostChip({
   const status = statusMeta(post.status);
   const pillar = d.pillars.find((p) => p.id === post.pillarId);
   const stage = d.funnelStages.find((s) => s.id === post.funnelStageId);
+  const assignee = d.userOptions.find((u) => u.id === post.assignedTo);
   const openTasks = tasks.filter(
     (t) => t.status === "pending" || t.status === "in_progress",
   );
@@ -443,7 +444,17 @@ function PostChip({
           className="block w-full text-left rounded-md border bg-card hover:shadow-sm transition-shadow px-2 py-1.5 text-xs"
           style={{ borderLeft: `3px solid ${status.color}` }}
         >
-          <div className="font-medium truncate">{post.title}</div>
+          <div className="flex items-start gap-1 justify-between">
+            <div className="font-medium truncate min-w-0">{post.title}</div>
+            {assignee && (
+              <span
+                className="shrink-0 text-[9px] font-bold uppercase bg-tmc-slate/15 text-tmc-slate rounded-full px-1.5 py-0.5 leading-none"
+                title={`Assigned to ${assignee.name ?? assignee.email}`}
+              >
+                {initials(assignee.name ?? assignee.email)}
+              </span>
+            )}
+          </div>
           <div className="flex flex-wrap gap-1 mt-0.5">
             {pillar && <Pill bg={pillar.color}>{pillar.name}</Pill>}
             {stage && <Pill bg={stage.color}>{stage.name}</Pill>}
@@ -477,6 +488,16 @@ function Pill({ bg, children }: { bg: string; children: React.ReactNode }) {
       {children}
     </span>
   );
+}
+
+function initials(nameOrEmail: string): string {
+  const base = nameOrEmail.includes("@")
+    ? nameOrEmail.split("@")[0]
+    : nameOrEmail;
+  const parts = base.split(/[\s._-]+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 function ProgressCard({
@@ -677,6 +698,12 @@ function PostDialog({
     (c) => c.isActive && c.weeklyPostTarget && c.weeklyPostTarget > 0,
   );
 
+  const defaultAssigneeRaw = d.settings?.default_post_assignee_id;
+  const defaultAssigneeId =
+    defaultAssigneeRaw != null && defaultAssigneeRaw !== ""
+      ? Number(defaultAssigneeRaw)
+      : null;
+
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<{
     clientId: number;
@@ -686,6 +713,7 @@ function PostDialog({
     scheduledDate: string;
     platform: string;
     status: PostStatus;
+    assignedTo: number | null;
     notes: string;
   }>({
     clientId: post?.clientId ?? defaultClientId ?? tracked[0]?.id ?? 0,
@@ -695,6 +723,7 @@ function PostDialog({
     scheduledDate: post?.scheduledDate ?? defaultDate ?? toIsoDate(new Date()),
     platform: post?.platform ?? "",
     status: post?.status ?? "idea",
+    assignedTo: post?.assignedTo ?? defaultAssigneeId,
     notes: post?.notes ?? "",
   });
   const [saving, setSaving] = useState(false);
@@ -724,6 +753,7 @@ function PostDialog({
         scheduledDate: form.scheduledDate,
         platform: form.platform || null,
         status: form.status,
+        assignedTo: form.assignedTo ?? null,
         notes: form.notes || null,
       };
       if (mode === "create") {
@@ -885,6 +915,28 @@ function PostDialog({
               onChange={(e) => setForm({ ...form, platform: e.target.value })}
               placeholder="Instagram, LinkedIn, Blog…"
             />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Assigned to</Label>
+            <Select
+              value={form.assignedTo == null ? "__none__" : String(form.assignedTo)}
+              onValueChange={(v) =>
+                setForm({
+                  ...form,
+                  assignedTo: v === "__none__" ? null : Number(v),
+                })
+              }
+            >
+              <SelectTrigger className="w-full"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Unassigned</SelectItem>
+                {d.userOptions.map((u) => (
+                  <SelectItem key={u.id} value={String(u.id)}>
+                    {u.name ?? u.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Notes</Label>
@@ -1068,10 +1120,61 @@ function CoverageBlock({
 function SettingsView({ d, onChanged }: { d: ContentDashboard; onChanged: () => void }) {
   return (
     <div className="space-y-4">
+      <DefaultAssigneeCard d={d} onChanged={onChanged} />
       <PillarsCard pillars={d.pillars} onChanged={onChanged} />
       <FunnelStagesCard stages={d.funnelStages} onChanged={onChanged} />
       <ClientTargetsCard clients={d.clients} onChanged={onChanged} />
     </div>
+  );
+}
+
+function DefaultAssigneeCard({
+  d,
+  onChanged,
+}: {
+  d: ContentDashboard;
+  onChanged: () => void;
+}) {
+  const current = d.settings?.default_post_assignee_id;
+  const value =
+    current != null && current !== "" ? current : "__none__";
+
+  async function save(next: string) {
+    try {
+      await content.updateSetting(
+        "default_post_assignee_id",
+        next === "__none__" ? null : Number(next),
+      );
+      toast.success("Default assignee updated.");
+      onChanged();
+    } catch (e) {
+      toast.error(`Save failed: ${(e as Error).message}`);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Default post assignee</CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          New social posts get assigned to this person automatically — you
+          can reassign individual posts from the post dialog.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <Select value={value} onValueChange={save}>
+          <SelectTrigger className="w-full max-w-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">Unassigned</SelectItem>
+            {d.userOptions.map((u) => (
+              <SelectItem key={u.id} value={String(u.id)}>
+                {u.name ?? u.email}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </CardContent>
+    </Card>
   );
 }
 

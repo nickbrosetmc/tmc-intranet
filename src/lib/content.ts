@@ -39,11 +39,24 @@ export interface ContentPost {
   updatedAt: string;
 }
 
+export interface ContentUserOption {
+  id: number;
+  name: string | null;
+  email: string;
+}
+
+export interface ContentSettings {
+  default_post_assignee_id?: string | null;
+  [key: string]: string | null | undefined;
+}
+
 export interface ContentDashboard {
   pillars: Pillar[];
   funnelStages: FunnelStage[];
   clients: RecurringClient[];
   posts: ContentPost[];
+  settings: ContentSettings;
+  userOptions: ContentUserOption[];
   range: { start: string; end: string };
 }
 
@@ -258,6 +271,13 @@ export const content = {
     }),
   deletePost: (id: number) =>
     jsonReq<{ ok: true }>(`/api/content/posts/${id}`, { method: "DELETE" }),
+
+  // Settings (admin)
+  updateSetting: (key: string, value: string | number | null) =>
+    jsonReq<{ ok: true }>("/api/admin/content/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ key, value }),
+    }),
 
   // Pillars
   createPillar: (data: Partial<Pillar>) =>
