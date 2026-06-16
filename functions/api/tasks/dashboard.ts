@@ -54,8 +54,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const winEnd = new Date(today);
   winEnd.setDate(winEnd.getDate() + 56);
 
-  // Current Mon..Sun for the weekly-post-quota placeholder math.
-  const weekStart = startOfWeek(today);
+  // TMC produces content a week ahead — "this week's work" is the
+  // PRODUCTION week (next calendar week). All the placeholder math,
+  // post counting, and posting_days seeding target that week. The
+  // placeholder due date stays on THIS Friday (the production deadline).
+  const calendarWeekStart = startOfWeek(today);
+  const weekStart = new Date(calendarWeekStart);
+  weekStart.setDate(weekStart.getDate() + 7);
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
 
@@ -123,10 +128,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ? Number(defaultPostAssigneeRaw)
       : null;
 
-  // Placeholder slots are "due by Friday" — Mon + 4 days. Used as the
-  // dueDate for the virtual placeholder items so they bucket sensibly
-  // (overdue if today is Sat/Sun and the slots weren't filled).
-  const friday = new Date(weekStart);
+  // Placeholder due date = THIS Friday (production deadline for next
+  // week's content). Mon of the calendar week + 4 days.
+  const friday = new Date(calendarWeekStart);
   friday.setDate(friday.getDate() + 4);
 
   return Response.json({

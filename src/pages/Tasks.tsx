@@ -63,6 +63,7 @@ import {
   content,
   effectiveAssigneeId,
   statusMeta,
+  workDueDate,
   type ContentPost,
 } from "@/lib/content";
 
@@ -130,7 +131,7 @@ function buildItemsForUser(
     }));
   for (const p of data.openPosts) {
     if (effectiveAssigneeId(p) !== userId) continue;
-    items.push({ kind: "post", post: p, dueDate: p.scheduledDate });
+    items.push({ kind: "post", post: p, dueDate: workDueDate(p.scheduledDate) });
   }
   // Placeholders only land on the default assignee's list.
   if (data.defaultPostAssigneeId === userId) {
@@ -147,7 +148,7 @@ function buildAllItems(data: TasksDashboard): WeekItem[] {
     done: t.status === "completed",
   }));
   for (const p of data.openPosts) {
-    items.push({ kind: "post", post: p, dueDate: p.scheduledDate });
+    items.push({ kind: "post", post: p, dueDate: workDueDate(p.scheduledDate) });
   }
   items.push(...buildPlaceholders(data));
   return items;
@@ -742,7 +743,8 @@ function PostRow({
   const status = statusMeta(post.status);
   const assignee = data.userOptions.find((u) => u.id === post.assignedTo);
   const reviewer = data.userOptions.find((u) => u.id === post.reviewerId);
-  const overdue = (daysUntilDue(post.scheduledDate) ?? 0) < 0;
+  const workDue = workDueDate(post.scheduledDate);
+  const overdue = (daysUntilDue(workDue) ?? 0) < 0;
 
   return (
     <li className="px-4 py-3 flex items-start gap-3">
@@ -768,9 +770,12 @@ function PostRow({
         <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
           <span
             className={overdue ? "text-red-700 font-medium" : undefined}
-            title={post.scheduledDate}
+            title={`Work due ${workDue}; publishes ${post.scheduledDate}`}
           >
-            {formatDueDate(post.scheduledDate)}
+            Due {formatDueDate(workDue)}
+          </span>
+          <span title={`Publishes ${post.scheduledDate}`}>
+            · publishes {formatDueDate(post.scheduledDate)}
           </span>
           {client && <span>· {client.name}</span>}
           {post.platform && <span>· {post.platform}</span>}
