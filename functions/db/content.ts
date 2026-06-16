@@ -130,6 +130,22 @@ export async function deleteContentPost(db: DB, id: number): Promise<void> {
   await db.delete(contentPosts).where(eq(contentPosts.id, id)).run();
 }
 
+/**
+ * Open posts (status != completed) for the tasks dashboard. Returns the
+ * raw rows — assignee/reviewer/client lookups happen client-side from
+ * the userOptions / clients lists that already ship with the payload.
+ */
+export async function listOpenPosts(
+  db: DB,
+): Promise<ContentPostRow[]> {
+  return db
+    .select()
+    .from(contentPosts)
+    .where(sql`${contentPosts.status} != 'completed'`)
+    .orderBy(asc(contentPosts.scheduledDate))
+    .all();
+}
+
 // ─── Settings (key/value) ────────────────────────────────────────────────
 
 export async function listContentSettings(

@@ -91,6 +91,16 @@ export function ContentPage() {
     return toIsoDate(addDays(startOfWeek(today), 7));
   });
 
+  // /tasks deep-links to a specific post via ?focusPost=N. We re-anchor
+  // the week to the post's date once the dashboard arrives and pass the
+  // id down so the matching PostChip opens its dialog on mount.
+  const [focusPostId, setFocusPostId] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const raw = new URLSearchParams(window.location.search).get("focusPost");
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  });
+
   // Fetch a wide range — 90 days back (for rolling Coverage windows) +
   // 5 weeks around the anchor so This Week is covered even if user is
   // browsing a future week.
@@ -144,6 +154,14 @@ export function ContentPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range.start, range.end]);
 
+  // Once we have data, jump the anchor to the focused post's week.
+  useEffect(() => {
+    if (!focusPostId || !d) return;
+    const p = d.posts.find((p) => p.id === focusPostId);
+    if (!p) return;
+    setAnchorIso(toIsoDate(startOfWeek(parseIsoDate(p.scheduledDate))));
+  }, [focusPostId, d]);
+
   if (!d) {
     return <div className="text-muted-foreground text-sm">Loading content pipeline…</div>;
   }
@@ -184,6 +202,8 @@ export function ContentPage() {
           setAnchorIso={setAnchorIso}
           onChanged={refresh}
           tasksByPost={tasksByPost}
+          focusPostId={focusPostId}
+          onFocusConsumed={() => setFocusPostId(null)}
         />
       )}
       {tab === "coverage" && <CoverageView d={d} />}
@@ -200,12 +220,16 @@ function WeekView({
   setAnchorIso,
   onChanged,
   tasksByPost,
+  focusPostId,
+  onFocusConsumed,
 }: {
   d: ContentDashboard;
   anchorIso: string;
   setAnchorIso: (v: string) => void;
   onChanged: () => void;
   tasksByPost: Map<number, TaskWithRefs[]>;
+  focusPostId: number | null;
+  onFocusConsumed: () => void;
 }) {
   const dates = weekDates(anchorIso);
   const weekStart = dates[0];
@@ -326,6 +350,8 @@ function WeekView({
                         d={d}
                         onChanged={onChanged}
                         tasksByPost={tasksByPost}
+                        focusPostId={focusPostId}
+                        onFocusConsumed={onFocusConsumed}
                       />
                     );
                   })}
@@ -360,6 +386,8 @@ function ClientRow({
   d,
   onChanged,
   tasksByPost,
+  focusPostId,
+  onFocusConsumed,
 }: {
   client: RecurringClient;
   dates: string[];
@@ -367,6 +395,8 @@ function ClientRow({
   d: ContentDashboard;
   onChanged: () => void;
   tasksByPost: Map<number, TaskWithRefs[]>;
+  focusPostId: number | null;
+  onFocusConsumed: () => void;
 }) {
   const total = posts.length;
   const target = client.weeklyPostTarget ?? 0;
@@ -392,6 +422,8 @@ function ClientRow({
                   d={d}
                   onChanged={onChanged}
                   tasks={tasksByPost.get(p.id) ?? []}
+                  forceOpen={p.id === focusPostId}
+                  onFocusConsumed={onFocusConsumed}
                 />
               ))}
               <PostDialog
@@ -418,11 +450,15 @@ function PostChip({
   d,
   onChanged,
   tasks,
+  forceOpen,
+  onFocusConsumed,
 }: {
   post: ContentPost;
   d: ContentDashboard;
   onChanged: () => void;
   tasks: TaskWithRefs[];
+  forceOpen?: boolean;
+  onFocusConsumed?: () => void;
 }) {
   const status = statusMeta(post.status);
   const pillar = d.pillars.find((p) => p.id === post.pillarId);
@@ -438,6 +474,8 @@ function PostChip({
       post={post}
       d={d}
       onSaved={onChanged}
+      forceOpen={forceOpen}
+      onFocusConsumed={onFocusConsumed}
       trigger={
         <button
           type="button"
@@ -684,6 +722,8 @@ function PostDialog({
   defaultClientId,
   compact,
   trigger,
+  forceOpen,
+  onFocusConsumed,
 }: {
   mode: "create" | "edit";
   post?: ContentPost;
@@ -693,6 +733,8 @@ function PostDialog({
   defaultClientId?: number;
   compact?: boolean;
   trigger?: React.ReactNode;
+  forceOpen?: boolean;
+  onFocusConsumed?: () => void;
 }) {
   const tracked = d.clients.filter(
     (c) => c.isActive && c.weeklyPostTarget && c.weeklyPostTarget > 0,
@@ -705,6 +747,17 @@ function PostDialog({
       : null;
 
   const [open, setOpen] = useState(false);
+  // forceOpen comes from a /tasks deep link — flip open=true once, then
+  // tell the parent to clear the focused id so re-renders don't keep
+  // re-opening it after the user closes the dialog.
+  useEffect(() => {
+    if (forceOpen) {
+      setOpen(true);
+      onFocusConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceOpen]);
+
   const [form, setForm] = useState<{
     clientId: number;
     title: string;
@@ -714,6 +767,7 @@ function PostDialog({
     platform: string;
     status: PostStatus;
     assignedTo: number | null;
+    reviewerId: number | null;
     notes: string;
   }>({
     clientId: post?.clientId ?? defaultClientId ?? tracked[0]?.id ?? 0,
@@ -724,6 +778,7 @@ function PostDialog({
     platform: post?.platform ?? "",
     status: post?.status ?? "idea",
     assignedTo: post?.assignedTo ?? defaultAssigneeId,
+    reviewerId: post?.reviewerId ?? null,
     notes: post?.notes ?? "",
   });
   const [saving, setSaving] = useState(false);
@@ -731,6 +786,7 @@ function PostDialog({
   const tagsRequired = form.status === "completed";
   const missingPillar = tagsRequired && form.pillarId == null;
   const missingFunnel = tagsRequired && form.funnelStageId == null;
+  const missingReviewer = form.status === "review" && form.reviewerId == null;
 
   async function submit() {
     if (!form.clientId || !form.title.trim() || !form.scheduledDate) {
@@ -741,6 +797,10 @@ function PostDialog({
       toast.error(
         "Pillar and funnel stage are required to mark a post completed.",
       );
+      return;
+    }
+    if (missingReviewer) {
+      toast.error("Pick a reviewer to move this post to Review.");
       return;
     }
     setSaving(true);
@@ -754,6 +814,7 @@ function PostDialog({
         platform: form.platform || null,
         status: form.status,
         assignedTo: form.assignedTo ?? null,
+        reviewerId: form.reviewerId ?? null,
         notes: form.notes || null,
       };
       if (mode === "create") {
@@ -916,7 +977,7 @@ function PostDialog({
               placeholder="Instagram, LinkedIn, Blog…"
             />
           </div>
-          <div className="space-y-1.5 sm:col-span-2">
+          <div className="space-y-1.5">
             <Label>Assigned to</Label>
             <Select
               value={form.assignedTo == null ? "__none__" : String(form.assignedTo)}
@@ -937,6 +998,41 @@ function PostDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>
+              Reviewer{" "}
+              {form.status === "review" && (
+                <span className="text-red-600">*</span>
+              )}
+            </Label>
+            <Select
+              value={form.reviewerId == null ? "__none__" : String(form.reviewerId)}
+              onValueChange={(v) =>
+                setForm({
+                  ...form,
+                  reviewerId: v === "__none__" ? null : Number(v),
+                })
+              }
+            >
+              <SelectTrigger
+                className={`w-full ${missingReviewer ? "border-red-400" : ""}`}
+              >
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None</SelectItem>
+                {d.userOptions.map((u) => (
+                  <SelectItem key={u.id} value={String(u.id)}>
+                    {u.name ?? u.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              When status is Review, this post moves to the reviewer's task
+              list.
+            </p>
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Notes</Label>

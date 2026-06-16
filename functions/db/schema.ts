@@ -93,6 +93,7 @@ export const contentPosts = sqliteTable("content_posts", {
     enum: ["idea", "drafting", "review", "completed"],
   }).notNull().default("idea"),
   assignedTo: integer("assigned_to").references(() => users.id),
+  reviewerId: integer("reviewer_id").references(() => users.id),
   notes: text("notes"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
