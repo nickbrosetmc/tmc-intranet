@@ -17,6 +17,9 @@ interface PatchBody {
   clientCount?: number;
   marginFloor?: number;
   billableRate?: number;
+  rateDayHalf?: number;
+  rateDayFull?: number;
+  rateDayExtra?: number;
 }
 
 const NUMERIC_FIELDS: (keyof PatchBody)[] = [
@@ -28,6 +31,9 @@ const NUMERIC_FIELDS: (keyof PatchBody)[] = [
   "clientCount",
   "marginFloor",
   "billableRate",
+  "rateDayHalf",
+  "rateDayFull",
+  "rateDayExtra",
 ];
 
 const VALID_TIERS = new Set(["admin", "ft", "pt", "none"]);
