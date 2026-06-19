@@ -195,11 +195,41 @@ export function applyPackageDiscount(
   return { final: price - off, off };
 }
 
+/**
+ * Allocate a monthly sell price across the service groups, weighted by each
+ * group's cost. Gives a client-facing per-service breakdown that sums back
+ * to the price. The last group absorbs any rounding remainder.
+ */
+export function allocatePackagePrice(
+  results: PackageResults,
+  price: number,
+): { label: string; amount: number }[] {
+  if (results.totalCost <= 0 || price <= 0) return [];
+  const byService = new Map<string, number>();
+  for (const l of results.lines) {
+    byService.set(l.service, (byService.get(l.service) ?? 0) + l.cost);
+  }
+  const entries = [...byService.entries()];
+  const out: { label: string; amount: number }[] = [];
+  let allocated = 0;
+  entries.forEach(([label, cost], i) => {
+    const amount =
+      i === entries.length - 1
+        ? price - allocated
+        : Math.round((price * cost) / results.totalCost);
+    allocated += amount;
+    out.push({ label, amount });
+  });
+  return out;
+}
+
 export interface BreakdownLine {
   item: string;
   tier: string;
   hours: number | "—";
   cost: number;
+  /** Client-facing service group this line rolls up to (for quote breakdown). */
+  service: string;
 }
 
 export interface PackageResults {
@@ -229,6 +259,7 @@ export function computePackage(
       tier: tierLabel(contentTier),
       hours: contentHrs,
       cost: Math.round(contentHrs * tierRate(s, contentTier)),
+      service: "Social media management",
     });
     if (strategyHours > 0) {
       lines.push({
@@ -236,6 +267,7 @@ export function computePackage(
         tier: tierLabel(strategyTier),
         hours: strategyHours,
         cost: Math.round(strategyHours * tierRate(s, strategyTier)),
+        service: "Social media management",
       });
     }
     if (s.reviewTier !== "none" && s.reviewMins > 0) {
@@ -245,6 +277,7 @@ export function computePackage(
         tier: tierLabel(s.reviewTier),
         hours: revHrs,
         cost: Math.round(revHrs * reviewRate),
+        service: "Social media management",
       });
     }
   }
@@ -257,6 +290,7 @@ export function computePackage(
       tier: tierLabel(tier),
       hours,
       cost: Math.round(hours * tierRate(s, tier)),
+      service: "Search engine optimization",
     });
   }
 
@@ -267,6 +301,7 @@ export function computePackage(
       tier: tierLabel(tier),
       hours: hoursPerMonth,
       cost: Math.round(hoursPerMonth * tierRate(s, tier)),
+      service: "Paid advertising",
     });
   }
 
@@ -277,6 +312,7 @@ export function computePackage(
       tier: tierLabel(tier),
       hours: hoursPerMonth,
       cost: Math.round(hoursPerMonth * tierRate(s, tier)),
+      service: "Website",
     });
   }
 
@@ -288,6 +324,7 @@ export function computePackage(
       tier: tierLabel(tier),
       hours,
       cost: Math.round(hours * tierRate(s, tier)),
+      service: "Email marketing",
     });
   }
 
@@ -298,6 +335,7 @@ export function computePackage(
       tier: tierLabel(tier),
       hours: hoursPerMonth,
       cost: Math.round(hoursPerMonth * tierRate(s, tier)),
+      service: "Video production",
     });
   }
 
@@ -308,6 +346,7 @@ export function computePackage(
       tier: tierLabel(tier),
       hours: hoursPerMonth,
       cost: Math.round(hoursPerMonth * tierRate(s, tier)),
+      service: description || "Custom service",
     });
   }
 
@@ -317,6 +356,7 @@ export function computePackage(
       tier: "—",
       hours: "—",
       cost: Math.round(pkg.softwareAllocation),
+      service: "Tools & software",
     });
   }
 

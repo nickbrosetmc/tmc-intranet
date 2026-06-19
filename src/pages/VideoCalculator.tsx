@@ -22,15 +22,28 @@ import {
   type VideoState,
 } from "@/lib/video-calculator";
 import {
-  openQuotePdf,
+  downloadQuotePdf,
   type QuoteDiscount,
   type QuoteSection,
 } from "@/lib/quote-pdf";
 
+const VIDEO_STORAGE_KEY = "tmc.calculator.video.v1";
+
+function loadVideoState(): VideoState {
+  try {
+    const raw = localStorage.getItem(VIDEO_STORAGE_KEY);
+    if (raw) return { ...DEFAULT_VIDEO_STATE, ...JSON.parse(raw) };
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_VIDEO_STATE;
+}
+
 export function VideoCalculatorPage() {
   const userState = useUser();
   const [settings, setSettings] = useState<CalculatorSettings | null>(null);
-  const [s, setS] = useState<VideoState>(DEFAULT_VIDEO_STATE);
+  const [s, setS] = useState<VideoState>(loadVideoState);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   useEffect(() => {
     if (userState.status !== "authenticated") return;
@@ -42,6 +55,15 @@ export function VideoCalculatorPage() {
       })
       .catch((e: Error) => toast.error(`Failed to load settings: ${e.message}`));
   }, [userState.status]);
+
+  // Persist inputs across reloads until the user hits Reset.
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIDEO_STORAGE_KEY, JSON.stringify(s));
+    } catch {
+      /* ignore */
+    }
+  }, [s]);
 
   const r = useMemo(() => computeVideo(s), [s]);
 
@@ -76,7 +98,13 @@ export function VideoCalculatorPage() {
     setS((prev) => ({ ...prev, [key]: v }));
   }
   function reset() {
+    try {
+      localStorage.removeItem(VIDEO_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
     setS({ ...applySharedRates(DEFAULT_VIDEO_STATE, settings!) });
+    toast.success("Calculator reset");
   }
 
   function copyQuote() {
@@ -128,46 +156,50 @@ export function VideoCalculatorPage() {
       .catch((e) => toast.error(`Copy failed: ${(e as Error).message}`));
   }
 
-  function downloadPdf() {
-    // Client-facing scope as bullets (production pricing layers multipliers
-    // + buffers, so per-line dollar figures wouldn't reconcile to the total).
-    const scope: QuoteSection["items"] = [
-      ...r.shootLines.map(([label]) => ({ label, amount: 0 })),
-      ...r.editLines.map(([label]) => ({ label, amount: 0 })),
+  async function downloadPdf() {
+    // Itemized cost breakdown: shoot + edit + add-on lines at their base
+    // price, then one "Production & creative direction" line for the value
+    // multipliers + buffers so the items reconcile to the standard total.
+    const items: QuoteSection["items"] = [
+      ...r.shootLines.map(([label, v]) => ({ label, amount: v })),
+      ...r.editLines.map(([label, v]) => ({ label, amount: v })),
+      ...r.modLines.map(([label, v]) => ({ label, amount: v })),
     ];
-    const sections: QuoteSection[] = [];
-    if (scope.length)
-      sections.push({ heading: "Production scope", items: scope, bulletsOnly: true });
-    if (r.modLines.length)
-      sections.push({
-        heading: "Add-ons",
-        items: r.modLines.map(([label]) => ({ label, amount: 0 })),
-        bulletsOnly: true,
-      });
+    const production = Math.round(r.standardRounded - r.baseSubtotal);
+    if (production > 0) {
+      items.push({ label: "Production & creative direction", amount: production });
+    }
 
     const discounts: QuoteDiscount[] = r.discountLines.map(([label, v]) => ({
       label,
       amount: Math.abs(v),
     }));
 
-    const ok = openQuotePdf({
-      docTitle: "Video Production Quote",
-      clientName: s.clientName.trim() || undefined,
-      dateLabel: new Date().toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      }),
-      sections,
-      standardTotal: r.standardRounded,
-      discounts,
-      finalTotal: r.grandRounded,
-      priceUnit: "",
-      priceNote: `Estimated project range: ${fmt$(r.rangeLow)} – ${fmt$(r.rangeHigh)}`,
-      footnote:
-        "Quote valid for 30 days. Final scope and deliverables confirmed in the production agreement.",
-    });
-    if (!ok) toast.error("Allow pop-ups for this site to download the PDF.");
+    setPdfBusy(true);
+    try {
+      await downloadQuotePdf({
+        docTitle: "Video Production Quote",
+        clientName: s.clientName.trim() || undefined,
+        dateLabel: new Date().toLocaleDateString("en-US", {
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        }),
+        sections: [{ heading: "Investment breakdown", items }],
+        standardTotal: r.standardRounded,
+        discounts,
+        finalTotal: r.grandRounded,
+        priceUnit: "",
+        priceNote: `Estimated project range: ${fmt$(r.rangeLow)} – ${fmt$(r.rangeHigh)}`,
+        footnote:
+          "Quote valid for 30 days. Final scope and deliverables confirmed in the production agreement.",
+      });
+      toast.success("Quote PDF downloaded");
+    } catch {
+      toast.error("Couldn't generate the PDF. Try again.");
+    } finally {
+      setPdfBusy(false);
+    }
   }
 
   return (
@@ -203,9 +235,10 @@ export function VideoCalculatorPage() {
           <Button
             size="sm"
             onClick={downloadPdf}
+            disabled={pdfBusy}
             className="gap-1 bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
           >
-            <FileText size={14} /> PDF quote
+            <FileText size={14} /> {pdfBusy ? "Generating…" : "Download PDF"}
           </Button>
         </div>
       </header>

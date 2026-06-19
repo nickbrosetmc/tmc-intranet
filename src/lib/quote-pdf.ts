@@ -1,7 +1,7 @@
-// Branded, client-ready quote document. Opens a self-contained print
-// window styled in TMC's house brand (navy + gold, Montserrat / Libre
-// Franklin) and triggers the browser's print dialog so the user can
-// "Save as PDF". Used by both the video and package calculators.
+// Branded, client-ready quote document. Renders a self-contained quote in
+// TMC's house brand (navy + gold, Montserrat / Libre Franklin) inside an
+// isolated off-screen iframe, rasterizes it, and downloads a real PDF file.
+// Used by both the video and package calculators.
 //
 // The real TMC logo file (src/assets/tmc-logo.png) is passed in and placed
 // unaltered — never recreated as text.
@@ -62,16 +62,106 @@ function esc(s: string): string {
   );
 }
 
-export function openQuotePdf(doc: QuoteDoc): boolean {
+function fileName(doc: QuoteDoc): string {
+  const who = (doc.clientName || doc.docTitle).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
+  return `TMC-Quote-${who}.pdf`;
+}
+
+/**
+ * Render the branded quote in an off-screen iframe, rasterize it, and
+ * trigger a real PDF download. Falls back to a print window if the PDF
+ * libraries fail to load. Heavy libs are dynamically imported so they
+ * only load when a quote is actually generated.
+ */
+export async function downloadQuotePdf(doc: QuoteDoc): Promise<void> {
   const logoUrl = new URL(tmcLogo, window.location.origin).href;
   const html = buildHtml(doc, logoUrl);
 
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.cssText =
+    "position:fixed; left:-10000px; top:0; width:800px; height:1200px; border:0;";
+  document.body.appendChild(iframe);
+
+  try {
+    const idoc = iframe.contentDocument;
+    if (!idoc) throw new Error("no iframe document");
+    idoc.open();
+    idoc.write(html);
+    idoc.close();
+
+    await waitForReady(iframe);
+
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+      import("html2canvas-pro"),
+      import("jspdf"),
+    ]);
+
+    const target = (idoc.querySelector(".page") as HTMLElement) ?? idoc.body;
+    const canvas = await html2canvas(target, {
+      scale: 2,
+      backgroundColor: "#ffffff",
+      useCORS: true,
+      logging: false,
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF({ unit: "pt", format: "letter" });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const imgH = (canvas.height / canvas.width) * pageW;
+
+    if (imgH <= pageH) {
+      pdf.addImage(imgData, "PNG", 0, 0, pageW, imgH);
+    } else {
+      // Slice across pages: place the full image shifted up each page;
+      // off-page content is clipped by the page boundary.
+      let position = 0;
+      let remaining = imgH;
+      while (remaining > 0) {
+        pdf.addImage(imgData, "PNG", 0, position, pageW, imgH);
+        remaining -= pageH;
+        if (remaining > 0) {
+          pdf.addPage();
+          position -= pageH;
+        }
+      }
+    }
+    pdf.save(fileName(doc));
+  } catch {
+    // Fallback: open a print window the user can "Save as PDF" from.
+    printFallback(html);
+  } finally {
+    document.body.removeChild(iframe);
+  }
+}
+
+function waitForReady(iframe: HTMLIFrameElement): Promise<void> {
+  return new Promise((resolve) => {
+    const idoc = iframe.contentDocument;
+    const finish = () => {
+      const fonts = (idoc as Document & { fonts?: FontFaceSet }).fonts;
+      const ready = fonts?.ready ?? Promise.resolve();
+      ready.finally(() => setTimeout(resolve, 200));
+    };
+    if (idoc && idoc.readyState === "complete") finish();
+    else iframe.contentWindow?.addEventListener("load", finish, { once: true });
+    // Hard timeout so a slow font/image can't hang the download.
+    setTimeout(resolve, 4000);
+  });
+}
+
+function printFallback(html: string): void {
   const w = window.open("", "_blank");
-  if (!w) return false; // popup blocked
+  if (!w) return;
   w.document.open();
-  w.document.write(html);
+  w.document.write(
+    html.replace(
+      "</body>",
+      `<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},300);});</script></body>`,
+    ),
+  );
   w.document.close();
-  return true;
 }
 
 function buildHtml(doc: QuoteDoc, logoUrl: string): string {
@@ -371,14 +461,6 @@ function buildHtml(doc: QuoteDoc, logoUrl: string): string {
       <div class="contact">info@marketingtmc.com</div>
     </div>
   </div>
-
-  <script>
-    // Wait for the logo + fonts, then open the print dialog.
-    function go() { setTimeout(function () { window.focus(); window.print(); }, 350); }
-    if (document.readyState === "complete") go();
-    else window.addEventListener("load", go);
-    window.addEventListener("afterprint", function () { window.close(); });
-  </script>
 </body>
 </html>`;
 }

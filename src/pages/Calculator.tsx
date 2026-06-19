@@ -22,10 +22,10 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { useUser } from "@/lib/useUser";
 import {
+  allocatePackagePrice,
   applyPackageDiscount,
   computePackage,
   DEFAULT_PACKAGE,
-  enabledServiceLabels,
   fetchSettings,
   PACKAGE_PRESETS,
   patchSettings,
@@ -34,13 +34,50 @@ import {
   type PackageState,
   type Tier,
 } from "@/lib/calculator";
-import { openQuotePdf, type QuoteDiscount } from "@/lib/quote-pdf";
+import { downloadQuotePdf, type QuoteDiscount } from "@/lib/quote-pdf";
+
+const PKG_STORAGE_KEY = "tmc.calculator.package.v1";
+
+function loadPackage(): PackageState {
+  try {
+    const raw = localStorage.getItem(PKG_STORAGE_KEY);
+    if (raw) return { ...DEFAULT_PACKAGE, ...JSON.parse(raw) };
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_PACKAGE;
+}
 
 export function CalculatorPage() {
   const userState = useUser();
   const [settings, setSettings] = useState<CalculatorSettings | null>(null);
-  const [pkg, setPkg] = useState<PackageState>(DEFAULT_PACKAGE);
+  const [pkg, setPkg] = useState<PackageState>(loadPackage);
   const [adminOpen, setAdminOpen] = useState(false);
+
+  // Persist inputs across reloads until the user hits Reset.
+  useEffect(() => {
+    try {
+      localStorage.setItem(PKG_STORAGE_KEY, JSON.stringify(pkg));
+    } catch {
+      /* ignore */
+    }
+  }, [pkg]);
+
+  function resetPackage() {
+    try {
+      localStorage.removeItem(PKG_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    setPkg({
+      ...DEFAULT_PACKAGE,
+      softwareAllocation:
+        settings && settings.clientCount > 0
+          ? Math.round(settings.softwareTotal / settings.clientCount)
+          : DEFAULT_PACKAGE.softwareAllocation,
+    });
+    toast.success("Calculator reset");
+  }
 
   // Load settings on mount, but only once we know the user is authenticated.
   useEffect(() => {
@@ -116,16 +153,21 @@ export function CalculatorPage() {
             Build packages, validate margins, generate quotes.
           </p>
         </div>
-        {isAdmin && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setAdminOpen(true)}
-            title="Calculator settings"
-          >
-            <Gear size={18} />
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={resetPackage}>
+            Reset
           </Button>
-        )}
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setAdminOpen(true)}
+              title="Calculator settings"
+            >
+              <Gear size={18} />
+            </Button>
+          )}
+        </div>
       </header>
 
       <BuildPackagePanel pkg={pkg} setPkg={setPkg} settings={settings} />
@@ -665,9 +707,11 @@ function ResultsPanel({
     pkg.discountValue,
   );
 
-  function downloadPackagePdf() {
-    const labels = enabledServiceLabels(pkg);
-    if (labels.length === 0) {
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  async function downloadPackagePdf() {
+    const breakdown = allocatePackagePrice(results, results.targetPrice);
+    if (breakdown.length === 0) {
       toast.error("Toggle on at least one service first.");
       return;
     }
@@ -675,29 +719,35 @@ function ResultsPanel({
       disc.off > 0
         ? [{ label: pkg.discountName || "Custom discount", amount: disc.off }]
         : [];
-    const ok = openQuotePdf({
-      docTitle: "Marketing Package Proposal",
-      clientName: pkg.clientName.trim() || undefined,
-      dateLabel: new Date().toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      }),
-      sections: [
-        {
-          heading: "Included services",
-          items: labels.map((label) => ({ label, amount: 0 })),
-          bulletsOnly: true,
-        },
-      ],
-      standardTotal: results.targetPrice,
-      discounts,
-      finalTotal: disc.final,
-      priceUnit: "/mo",
-      footnote:
-        "Proposed monthly retainer. 30-day terms. Final scope confirmed in the service agreement.",
-    });
-    if (!ok) toast.error("Allow pop-ups for this site to download the PDF.");
+    setPdfBusy(true);
+    try {
+      await downloadQuotePdf({
+        docTitle: "Marketing Package Proposal",
+        clientName: pkg.clientName.trim() || undefined,
+        dateLabel: new Date().toLocaleDateString("en-US", {
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        }),
+        sections: [
+          {
+            heading: "Monthly investment breakdown",
+            items: breakdown.map((b) => ({ label: b.label, amount: b.amount })),
+          },
+        ],
+        standardTotal: results.targetPrice,
+        discounts,
+        finalTotal: disc.final,
+        priceUnit: "/mo",
+        footnote:
+          "Proposed monthly retainer. 30-day terms. Final scope confirmed in the service agreement.",
+      });
+      toast.success("Quote PDF downloaded");
+    } catch {
+      toast.error("Couldn't generate the PDF. Try again.");
+    } finally {
+      setPdfBusy(false);
+    }
   }
 
   return (
@@ -788,9 +838,10 @@ function ResultsPanel({
           <Button
             size="sm"
             onClick={downloadPackagePdf}
+            disabled={pdfBusy}
             className="gap-1 bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
           >
-            <FileText size={14} /> PDF quote
+            <FileText size={14} /> {pdfBusy ? "Generating…" : "Download PDF"}
           </Button>
         </div>
 
