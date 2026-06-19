@@ -37,7 +37,9 @@ export function isClientSession(s: SessionUser): s is ClientSessionUser {
 
 const SESSION_COOKIE = "tmc_session";
 const STATE_COOKIE = "tmc_oauth_state";
-const SESSION_TTL_DAYS = 7;
+// 30-day lifetime, but the cookie is re-issued on every /api/me load
+// (sliding window), so an actively-used session effectively never expires.
+const SESSION_TTL_DAYS = 30;
 
 const GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
