@@ -574,32 +574,59 @@ function ShortFormDeliverablesCard({
   per: ReturnType<typeof computeVideo>["perDeliverable"];
 }) {
   const items = [
-    { id: "d_heroStd" as const, label: "Short brand video — Standard", hint: "60–180 sec, polished single piece", unit: 1400, total: per.heroStd },
-    { id: "d_heroCine" as const, label: "Short brand video — Cinematic + motion graphics", hint: "60–180 sec, animated graphics", unit: 2200, total: per.heroCine },
-    { id: "d_cutdown" as const, label: "Social cutdown", hint: "≤ 60 sec, vertical/square, from existing footage", unit: 275, total: per.cutdown },
-    { id: "d_eventRecap" as const, label: "Event recap", hint: "2–4 min event-day highlights", unit: 1800, total: per.eventRecap },
-    { id: "d_droneReel" as const, label: "Drone reel", hint: "up to 90 sec, aerial only", unit: 650, total: per.droneReel },
-    { id: "d_testimonial" as const, label: "Interview testimonial", hint: "up to 90 sec individual story", unit: 950, total: per.testimonial },
+    { id: "d_heroStd" as const, waiveKey: "waiveHeroStd" as const, label: "Short brand video — Standard", hint: "60–180 sec, polished single piece", unit: 1400, total: per.heroStd },
+    { id: "d_heroCine" as const, waiveKey: "waiveHeroCine" as const, label: "Short brand video — Cinematic + motion graphics", hint: "60–180 sec, animated graphics", unit: 2200, total: per.heroCine },
+    { id: "d_cutdown" as const, waiveKey: "waiveCutdown" as const, label: "Social cutdown", hint: "≤ 60 sec, vertical/square, from existing footage", unit: 275, total: per.cutdown },
+    { id: "d_eventRecap" as const, waiveKey: "waiveEventRecap" as const, label: "Event recap", hint: "2–4 min event-day highlights", unit: 1800, total: per.eventRecap },
+    { id: "d_droneReel" as const, waiveKey: "waiveDroneReel" as const, label: "Drone reel", hint: "up to 90 sec, aerial only", unit: 650, total: per.droneReel },
+    { id: "d_testimonial" as const, waiveKey: "waiveTestimonial" as const, label: "Interview testimonial", hint: "up to 90 sec individual story", unit: 950, total: per.testimonial },
   ];
   return (
-    <Card title="Short-form deliverables (under 3 min)">
-      <div className="grid grid-cols-[1fr_70px_70px_90px] gap-2 text-[10px] uppercase tracking-wider font-semibold text-tmc-slate border-b-2 border-tmc-gold pb-1">
+    <Card
+      title="Short-form deliverables (under 3 min)"
+      subtitle="Tick Waive to comp a deliverable's fee. It shows on the quote as a $0 line so the client sees the savings."
+    >
+      <div className="grid grid-cols-[1fr_56px_64px_84px_48px] gap-2 text-[10px] uppercase tracking-wider font-semibold text-tmc-slate border-b-2 border-tmc-gold pb-1">
         <div>Deliverable</div>
         <div className="text-right">Qty</div>
         <div className="text-right">Unit</div>
         <div className="text-right">Total</div>
+        <div className="text-center">Waive</div>
       </div>
-      {items.map((it) => (
-        <div key={it.id} className="grid grid-cols-[1fr_70px_70px_90px] gap-2 items-center py-1.5 text-xs border-b last:border-b-0">
-          <div>
-            <div className="font-medium">{it.label}</div>
-            <div className="text-[11px] text-muted-foreground">{it.hint}</div>
+      {items.map((it) => {
+        const qty = s[it.id] as number;
+        const waived = (s[it.waiveKey] as boolean) && qty > 0;
+        return (
+          <div key={it.id} className="grid grid-cols-[1fr_56px_64px_84px_48px] gap-2 items-center py-1.5 text-xs border-b last:border-b-0">
+            <div>
+              <div className="font-medium">{it.label}</div>
+              <div className="text-[11px] text-muted-foreground">{it.hint}</div>
+            </div>
+            <NumberInput value={qty} onChange={(v) => set(it.id, v)} className="w-14" />
+            <div className="text-right text-muted-foreground">${it.unit.toLocaleString()}</div>
+            <div className="text-right tabular-nums">
+              {waived ? (
+                <span>
+                  <span className="line-through text-muted-foreground">{fmt$(it.total)}</span>{" "}
+                  <span className="text-green-700 font-semibold">$0</span>
+                </span>
+              ) : (
+                <span className="font-semibold">{fmt$(it.total)}</span>
+              )}
+            </div>
+            <div className="flex justify-center">
+              <input
+                type="checkbox"
+                checked={s[it.waiveKey] as boolean}
+                disabled={qty <= 0}
+                onChange={(e) => set(it.waiveKey, e.target.checked)}
+                className="accent-tmc-gold-dark w-4 h-4 disabled:opacity-30"
+                title={qty <= 0 ? "Set a quantity first" : "Waive this fee"}
+              />
+            </div>
           </div>
-          <NumberInput value={s[it.id] as number} onChange={(v) => set(it.id, v)} className="w-16" />
-          <div className="text-right text-muted-foreground">${it.unit.toLocaleString()}</div>
-          <div className="text-right font-semibold tabular-nums">{fmt$(it.total)}</div>
-        </div>
-      ))}
+        );
+      })}
     </Card>
   );
 }
