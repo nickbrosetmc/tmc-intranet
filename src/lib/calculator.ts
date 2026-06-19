@@ -11,6 +11,9 @@ export interface CalculatorSettings {
   clientCount: number;
   marginFloor: number;
   billableRate: number;
+  rateDayHalf: number;
+  rateDayFull: number;
+  rateDayExtra: number;
   updatedBy: number | null;
   updatedAt: string;
 }

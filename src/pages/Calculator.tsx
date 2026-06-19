@@ -951,7 +951,7 @@ function ResultCard({
 
 // ─── Admin settings dialog ───────────────────────────────────────────────
 
-function AdminSettingsDialog({
+export function AdminSettingsDialog({
   open,
   onOpenChange,
   settings,
@@ -983,6 +983,9 @@ function AdminSettingsDialog({
         clientCount: draft.clientCount,
         marginFloor: draft.marginFloor,
         billableRate: draft.billableRate,
+        rateDayHalf: draft.rateDayHalf,
+        rateDayFull: draft.rateDayFull,
+        rateDayExtra: draft.rateDayExtra,
       });
       onSaved(fresh);
       onOpenChange(false);
@@ -1041,6 +1044,20 @@ function AdminSettingsDialog({
                 value={draft.reviewMins}
                 onChange={(e) => set("reviewMins", Number(e.target.value) || 0)} />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold">Video Day Rates ($)</h3>
+            <p className="text-[11px] text-muted-foreground -mt-1">
+              Standard shoot rates used by the video calculator. Per-quote
+              tweaks are still possible in the advanced override card.
+            </p>
+            <NumRow label="Half-day rate:" value={draft.rateDayHalf}
+              onChange={(v) => set("rateDayHalf", v)} />
+            <NumRow label="Full-day rate:" value={draft.rateDayFull}
+              onChange={(v) => set("rateDayFull", v)} />
+            <NumRow label="Each extra day:" value={draft.rateDayExtra}
+              onChange={(v) => set("rateDayExtra", v)} />
           </div>
 
           <div className="space-y-2">

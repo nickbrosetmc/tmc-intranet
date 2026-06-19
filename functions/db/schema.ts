@@ -287,6 +287,9 @@ export const calculatorSettings = sqliteTable("calculator_settings", {
   clientCount: integer("client_count").notNull().default(12),
   marginFloor: integer("margin_floor").notNull().default(30),
   billableRate: integer("billable_rate").notNull().default(150),
+  rateDayHalf: integer("rate_day_half").notNull().default(1800),
+  rateDayFull: integer("rate_day_full").notNull().default(2800),
+  rateDayExtra: integer("rate_day_extra").notNull().default(2500),
   updatedBy: integer("updated_by").references(() => users.id),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

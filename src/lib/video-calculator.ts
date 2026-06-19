@@ -229,6 +229,11 @@ export function applySharedRates(
     rateAdmin: s.rateAdmin,
     rateFT: s.rateFt,
     ratePT: s.ratePt,
+    // Team day rates flow in as the anchor base; the advanced override card
+    // can still tweak them for a single quote.
+    halfDayOverride: s.rateDayHalf,
+    fullDayOverride: s.rateDayFull,
+    extraDayOverride: s.rateDayExtra,
     softwareAlloc:
       s.clientCount > 0
         ? Math.round(s.softwareTotal / s.clientCount / 12) // rough per-project alloc; user can tweak

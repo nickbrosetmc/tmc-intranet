@@ -10,10 +10,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FileText } from "lucide-react";
+import { FileText, Settings as Gear } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { useUser } from "@/lib/useUser";
 import { fetchSettings, type CalculatorSettings } from "@/lib/calculator";
+import { AdminSettingsDialog } from "@/pages/Calculator";
 import {
   applySharedRates,
   computeVideo,
@@ -44,6 +45,11 @@ export function VideoCalculatorPage() {
   const [settings, setSettings] = useState<CalculatorSettings | null>(null);
   const [s, setS] = useState<VideoState>(loadVideoState);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const isAdmin =
+    userState.status === "authenticated" &&
+    userState.user.type === "team" &&
+    userState.user.role === "admin";
 
   useEffect(() => {
     if (userState.status !== "authenticated") return;
@@ -240,8 +246,31 @@ export function VideoCalculatorPage() {
           >
             <FileText size={14} /> {pdfBusy ? "Generating…" : "Download PDF"}
           </Button>
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setAdminOpen(true)}
+              title="Day rates & calculator settings"
+            >
+              <Gear size={18} />
+            </Button>
+          )}
         </div>
       </header>
+
+      {isAdmin && settings && (
+        <AdminSettingsDialog
+          open={adminOpen}
+          onOpenChange={setAdminOpen}
+          settings={settings}
+          onSaved={(fresh) => {
+            setSettings(fresh);
+            setS((prev) => applySharedRates(prev, fresh));
+            toast.success("Settings saved");
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_1fr] gap-5">
         {/* LEFT: input columns */}
@@ -1002,7 +1031,7 @@ function AnchorOverridesCard({ s, set }: { s: VideoState; set: Setter }) {
   return (
     <Card
       title="Anchor rate overrides (advanced)"
-      subtitle="Override Layer 2 anchor rates for this quote only. Update master spec doc for permanent changes."
+      subtitle="Override day rates for THIS quote only. To change the team's standard day rates, use the ⚙ settings up top."
       internal
     >
       <Row label="Half-day base">
