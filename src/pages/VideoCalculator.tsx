@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FileText } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { useUser } from "@/lib/useUser";
 import { fetchSettings, type CalculatorSettings } from "@/lib/calculator";
@@ -20,6 +21,11 @@ import {
   fmt$,
   type VideoState,
 } from "@/lib/video-calculator";
+import {
+  openQuotePdf,
+  type QuoteDiscount,
+  type QuoteSection,
+} from "@/lib/quote-pdf";
 
 export function VideoCalculatorPage() {
   const userState = useUser();
@@ -122,9 +128,51 @@ export function VideoCalculatorPage() {
       .catch((e) => toast.error(`Copy failed: ${(e as Error).message}`));
   }
 
+  function downloadPdf() {
+    // Client-facing scope as bullets (production pricing layers multipliers
+    // + buffers, so per-line dollar figures wouldn't reconcile to the total).
+    const scope: QuoteSection["items"] = [
+      ...r.shootLines.map(([label]) => ({ label, amount: 0 })),
+      ...r.editLines.map(([label]) => ({ label, amount: 0 })),
+    ];
+    const sections: QuoteSection[] = [];
+    if (scope.length)
+      sections.push({ heading: "Production scope", items: scope, bulletsOnly: true });
+    if (r.modLines.length)
+      sections.push({
+        heading: "Add-ons",
+        items: r.modLines.map(([label]) => ({ label, amount: 0 })),
+        bulletsOnly: true,
+      });
+
+    const discounts: QuoteDiscount[] = r.discountLines.map(([label, v]) => ({
+      label,
+      amount: Math.abs(v),
+    }));
+
+    const ok = openQuotePdf({
+      docTitle: "Video Production Quote",
+      clientName: s.clientName.trim() || undefined,
+      dateLabel: new Date().toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      }),
+      sections,
+      standardTotal: r.standardRounded,
+      discounts,
+      finalTotal: r.grandRounded,
+      priceUnit: "",
+      priceNote: `Estimated project range: ${fmt$(r.rangeLow)} – ${fmt$(r.rangeHigh)}`,
+      footnote:
+        "Quote valid for 30 days. Final scope and deliverables confirmed in the production agreement.",
+    });
+    if (!ok) toast.error("Allow pop-ups for this site to download the PDF.");
+  }
+
   return (
     <div className="w-full max-w-7xl space-y-4">
-      <header className="flex items-start justify-between border-b border-tmc-gold/40 pb-4">
+      <header className="flex items-start justify-between border-b border-tmc-gold/40 pb-4 gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-tmc-dark">
             Video Production Calculator{" "}
@@ -136,16 +184,28 @@ export function VideoCalculatorPage() {
             Per-project quote builder with cost foundation, multipliers, and margin guardrails.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-end gap-2 flex-wrap">
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground">Client name (for quote)</Label>
+            <Input
+              value={s.clientName}
+              onChange={(e) => set("clientName", e.target.value)}
+              placeholder="Client / project"
+              className="h-8 w-44 text-sm"
+            />
+          </div>
           <Button variant="outline" size="sm" onClick={reset}>
             Reset
           </Button>
+          <Button variant="outline" size="sm" onClick={copyQuote}>
+            Copy quote
+          </Button>
           <Button
             size="sm"
-            onClick={copyQuote}
-            className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
+            onClick={downloadPdf}
+            className="gap-1 bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
           >
-            Copy quote
+            <FileText size={14} /> PDF quote
           </Button>
         </div>
       </header>

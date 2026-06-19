@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Settings as Gear } from "lucide-react";
+import { Settings as Gear, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,15 +22,19 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { useUser } from "@/lib/useUser";
 import {
+  applyPackageDiscount,
   computePackage,
   DEFAULT_PACKAGE,
+  enabledServiceLabels,
   fetchSettings,
+  PACKAGE_PRESETS,
   patchSettings,
   TIERS,
   type CalculatorSettings,
   type PackageState,
   type Tier,
 } from "@/lib/calculator";
+import { openQuotePdf, type QuoteDiscount } from "@/lib/quote-pdf";
 
 export function CalculatorPage() {
   const userState = useUser();
@@ -176,13 +180,38 @@ function BuildPackagePanel({
         Build Package
       </h2>
 
-      <div className="flex items-center gap-3 pb-3 border-b">
-        <Label className="whitespace-nowrap">Client / Prospect:</Label>
-        <Input
-          value={pkg.clientName}
-          onChange={(e) => setPkg((p) => ({ ...p, clientName: e.target.value }))}
-          placeholder="Enter client name for this quote…"
-        />
+      <div className="flex flex-col sm:flex-row gap-3 pb-3 border-b">
+        <div className="flex items-center gap-3 flex-1">
+          <Label className="whitespace-nowrap">Client / Prospect:</Label>
+          <Input
+            value={pkg.clientName}
+            onChange={(e) => setPkg((p) => ({ ...p, clientName: e.target.value }))}
+            placeholder="Enter client name for this quote…"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="whitespace-nowrap text-muted-foreground">Start from:</Label>
+          <Select
+            value="__none__"
+            onValueChange={(id) => {
+              const preset = PACKAGE_PRESETS.find((p) => p.id === id);
+              if (!preset) return;
+              setPkg((p) => ({ ...p, ...preset.build() }));
+              toast.success(`Applied "${preset.name}" package`);
+            }}
+          >
+            <SelectTrigger className="w-48 h-9">
+              <SelectValue placeholder="Pre-made package…" />
+            </SelectTrigger>
+            <SelectContent>
+              {PACKAGE_PRESETS.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name} — {p.blurb}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <ServiceSocial pkg={pkg} setPkg={setPkg} reviewRate={reviewRate} settings={settings} />
@@ -630,6 +659,47 @@ function ResultsPanel({
     empty: "bg-muted text-muted-foreground border",
   }[results.verdict];
 
+  const disc = applyPackageDiscount(
+    results.targetPrice,
+    pkg.discountType,
+    pkg.discountValue,
+  );
+
+  function downloadPackagePdf() {
+    const labels = enabledServiceLabels(pkg);
+    if (labels.length === 0) {
+      toast.error("Toggle on at least one service first.");
+      return;
+    }
+    const discounts: QuoteDiscount[] =
+      disc.off > 0
+        ? [{ label: pkg.discountName || "Custom discount", amount: disc.off }]
+        : [];
+    const ok = openQuotePdf({
+      docTitle: "Marketing Package Proposal",
+      clientName: pkg.clientName.trim() || undefined,
+      dateLabel: new Date().toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      }),
+      sections: [
+        {
+          heading: "Included services",
+          items: labels.map((label) => ({ label, amount: 0 })),
+          bulletsOnly: true,
+        },
+      ],
+      standardTotal: results.targetPrice,
+      discounts,
+      finalTotal: disc.final,
+      priceUnit: "/mo",
+      footnote:
+        "Proposed monthly retainer. 30-day terms. Final scope confirmed in the service agreement.",
+    });
+    if (!ok) toast.error("Allow pop-ups for this site to download the PDF.");
+  }
+
   return (
     <div className="rounded-lg border bg-card p-5 space-y-4">
       <h2 className="text-sm font-semibold uppercase tracking-widest text-tmc-slate flex items-center gap-2">
@@ -708,6 +778,99 @@ function ResultsPanel({
           )}
         </tbody>
       </table>
+
+      {/* ── Client quote: custom discount + standard vs your price ── */}
+      <div className="rounded-lg border-2 border-tmc-gold/50 p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-tmc-slate">
+            Client quote
+          </h3>
+          <Button
+            size="sm"
+            onClick={downloadPackagePdf}
+            className="gap-1 bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
+          >
+            <FileText size={14} /> PDF quote
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground">Discount label</Label>
+            <Input
+              value={pkg.discountName}
+              onChange={(e) => setPkg((p) => ({ ...p, discountName: e.target.value }))}
+              placeholder="e.g. New client offer"
+              className="h-8 text-sm"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground">Type</Label>
+            <Select
+              value={pkg.discountType}
+              onValueChange={(v) =>
+                setPkg((p) => ({ ...p, discountType: v as "flat" | "pct" }))
+              }
+            >
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="flat">Flat ($/mo)</SelectItem>
+                <SelectItem value="pct">Percent (%)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground">
+              {pkg.discountType === "pct" ? "Amount (%)" : "Amount ($/mo)"}
+            </Label>
+            <Input
+              type="number"
+              min={0}
+              value={pkg.discountValue || ""}
+              onChange={(e) =>
+                setPkg((p) => ({ ...p, discountValue: Number(e.target.value) || 0 }))
+              }
+              className="h-8 text-sm tabular-nums"
+            />
+          </div>
+        </div>
+
+        {disc.off > 0 ? (
+          <div className="space-y-1 pt-1">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Standard rate</span>
+              <span className="line-through text-muted-foreground tabular-nums">
+                ${results.targetPrice.toLocaleString()}/mo
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-tmc-gold-dark font-medium">
+                {pkg.discountName || "Discount"}
+              </span>
+              <span className="text-tmc-gold-dark font-medium tabular-nums">
+                −${disc.off.toLocaleString()}/mo
+              </span>
+            </div>
+            <div className="flex items-center justify-between pt-1 border-t">
+              <span className="font-bold text-tmc-dark">Your price</span>
+              <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
+                ${disc.final.toLocaleString()}
+                <span className="text-sm text-muted-foreground font-medium">/mo</span>
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between pt-1 border-t">
+            <span className="font-bold text-tmc-dark">Quote</span>
+            <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
+              ${results.targetPrice.toLocaleString()}
+              <span className="text-sm text-muted-foreground font-medium">/mo</span>
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
