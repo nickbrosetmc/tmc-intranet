@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, integer, real, text } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  integer,
+  primaryKey,
+  real,
+  text,
+} from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -108,6 +114,25 @@ export const contentSettings = sqliteTable("content_settings", {
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 export type ContentSettingRow = typeof contentSettings.$inferSelect;
+
+// One row per (client, production-week) that has been auto-seeded. The
+// composite primary key is the atomic claim: the first dashboard load to
+// INSERT it wins and seeds; concurrent loads hit the PK conflict and skip,
+// so a fresh week can't be double-seeded into duplicate blank posts.
+export const contentSeedLog = sqliteTable(
+  "content_seed_log",
+  {
+    clientId: integer("client_id")
+      .notNull()
+      .references(() => recurringClients.id),
+    weekStart: text("week_start").notNull(), // YYYY-MM-DD, Monday of the seeded week
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.clientId, t.weekStart] }),
+  }),
+);
+export type ContentSeedLogRow = typeof contentSeedLog.$inferSelect;
 
 export const announcements = sqliteTable("announcements", {
   id: integer("id").primaryKey({ autoIncrement: true }),
