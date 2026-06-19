@@ -100,14 +100,21 @@ export function VideoCalculatorPage() {
       else lines.push(pad(`${m.label} (${m.mult.toFixed(2)}×)`, "+" + fmt$(m.after - m.before)));
     });
     lines.push(pad("After multipliers", fmt$(r.adjustedSubtotal)));
-    if (r.discountLines.length) {
-      lines.push("");
-      lines.push("DISCOUNTS");
-      r.discountLines.forEach(([n, v]) => lines.push(pad(n, "−" + fmt$(Math.abs(v)))));
-    }
     lines.push("");
     lines.push("==========================================");
-    lines.push("FINAL QUOTE: " + fmt$(r.grandRounded));
+    if (r.discountTotal > 0) {
+      lines.push(pad("STANDARD INVESTMENT", fmt$(r.standardRounded)));
+      lines.push("");
+      lines.push("DISCOUNTS APPLIED");
+      r.discountLines.forEach(([n, v]) =>
+        lines.push(pad("  " + n, "−" + fmt$(Math.abs(v)))),
+      );
+      lines.push(pad("  Total savings", "−" + fmt$(r.standardRounded - r.grandRounded)));
+      lines.push("");
+      lines.push(pad("YOUR PRICE", fmt$(r.grandRounded)));
+    } else {
+      lines.push(pad("FINAL QUOTE", fmt$(r.grandRounded)));
+    }
     lines.push("==========================================");
     navigator.clipboard
       .writeText(lines.join("\n"))
@@ -825,6 +832,48 @@ function DiscountsCard({
           <span>not active{bundleNeed > 0 ? ` (need ${bundleNeed} more)` : ""}</span>
         )}
       </div>
+
+      <div className="mt-2 pt-2 border-t space-y-1">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-tmc-slate">
+          Custom discount
+        </div>
+        <Row label="Label (shown on quote)">
+          <Input
+            value={s.customDiscName}
+            onChange={(e) => set("customDiscName", e.target.value)}
+            placeholder="e.g. Loyalty discount"
+            className="w-44 text-left text-xs"
+          />
+        </Row>
+        <Row label="Type">
+          <Select
+            value={s.customDiscType}
+            onValueChange={(v) => set("customDiscType", v as "flat" | "pct")}
+          >
+            <SelectTrigger className="w-32 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="flat">Flat ($)</SelectItem>
+              <SelectItem value="pct">Percent (%)</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
+        <Row
+          label={s.customDiscType === "pct" ? "Amount (%)" : "Amount ($)"}
+          hint={
+            s.customDiscType === "pct"
+              ? "Percent off the post-edit subtotal"
+              : "Dollars off"
+          }
+        >
+          <NumberInput
+            value={s.customDiscValue}
+            onChange={(v) => set("customDiscValue", v)}
+            step={s.customDiscType === "pct" ? 1 : 50}
+          />
+        </Row>
+      </div>
     </Card>
   );
 }
@@ -910,8 +959,30 @@ function QuoteBreakdown({
       </Section>
 
       <div className="bg-tmc-dark text-white rounded-md p-4 mt-3 text-center">
-        <div className="text-[10px] uppercase tracking-widest text-tmc-gold">Final quote (rounded)</div>
-        <div className="text-3xl font-bold text-tmc-gold mt-1">{fmt$(r.grandRounded)}</div>
+        {r.discountTotal > 0 ? (
+          <>
+            <div className="text-[10px] uppercase tracking-widest text-white/60">
+              Standard investment
+            </div>
+            <div className="text-lg font-semibold text-white/70 line-through tabular-nums">
+              {fmt$(r.standardRounded)}
+            </div>
+            <div className="text-[10px] uppercase tracking-widest text-tmc-gold mt-2">
+              Your price
+            </div>
+            <div className="text-3xl font-bold text-tmc-gold mt-0.5">
+              {fmt$(r.grandRounded)}
+            </div>
+            <div className="text-[11px] font-medium text-green-300 mt-1">
+              You save {fmt$(r.standardRounded - r.grandRounded)}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-[10px] uppercase tracking-widest text-tmc-gold">Final quote (rounded)</div>
+            <div className="text-3xl font-bold text-tmc-gold mt-1">{fmt$(r.grandRounded)}</div>
+          </>
+        )}
         <div className="text-[11px] text-white/70 mt-1">
           Range: {fmt$(r.rangeLow)} – {fmt$(r.rangeHigh)}
         </div>
