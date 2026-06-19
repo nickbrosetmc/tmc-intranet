@@ -175,6 +175,8 @@ export interface WeekProgress {
   total: number;
   completed: number;
   pctCompleted: number;            // 0–100
+  /** Count of posts in each status (idea/drafting/review/completed). */
+  byStatus: Record<PostStatus, number>;
   targetPctToday: number;          // expected based on day of week + 85% Thursday target
   onTrack: boolean;
   fridayDeadline: string;          // ISO date of Friday EOD before the week
@@ -193,6 +195,14 @@ export function computeProgress(
   const total = postsForWeek.length;
   const completed = postsForWeek.filter((p) => isCompleted(p.status)).length;
   const pctCompleted = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  const byStatus: Record<PostStatus, number> = {
+    idea: 0,
+    drafting: 0,
+    review: 0,
+    completed: 0,
+  };
+  for (const p of postsForWeek) byStatus[p.status]++;
 
   // Deadline = Friday of the week BEFORE the target week
   const targetWeekStart = parseIsoDate(weekStartIso);
@@ -225,6 +235,7 @@ export function computeProgress(
     total,
     completed,
     pctCompleted,
+    byStatus,
     targetPctToday,
     onTrack: pctCompleted >= targetPctToday,
     fridayDeadline: deadlineIso,

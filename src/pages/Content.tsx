@@ -594,11 +594,13 @@ function ProgressCard({
               )}
             </div>
           </div>
-          <div className="w-full sm:flex-1 sm:min-w-44 sm:max-w-md">
-            <ProgressBar
-              actual={progress.pctCompleted}
+          <div className="w-full sm:flex-1 sm:min-w-44 sm:max-w-md space-y-2">
+            <SegmentedProgressBar
+              byStatus={progress.byStatus}
+              total={progress.total}
               target={progress.targetPctToday}
             />
+            <StatusLegend byStatus={progress.byStatus} />
           </div>
         </div>
       </CardContent>
@@ -606,18 +608,76 @@ function ProgressCard({
   );
 }
 
-function ProgressBar({ actual, target }: { actual: number; target: number }) {
-  const fillColor = actual >= target ? "bg-green-600" : actual >= target * 0.7 ? "bg-yellow-500" : "bg-red-600";
+// Segments fill left→right by pipeline maturity: completed first (the
+// "done" green), then review, drafting, and finally still-idea. The
+// target marker shows where the COMPLETED edge should reach today.
+const PROGRESS_ORDER: PostStatus[] = ["completed", "review", "drafting", "idea"];
+
+function SegmentedProgressBar({
+  byStatus,
+  total,
+  target,
+}: {
+  byStatus: Record<PostStatus, number>;
+  total: number;
+  target: number;
+}) {
+  if (total === 0) {
+    return <div className="h-4 bg-muted rounded-full" />;
+  }
   return (
-    <div className="relative h-4 bg-muted rounded-full overflow-hidden">
-      <div className={`${fillColor} h-full transition-all`} style={{ width: `${Math.min(actual, 100)}%` }} />
+    <div className="relative h-4 bg-muted rounded-full overflow-hidden flex">
+      {PROGRESS_ORDER.map((status) => {
+        const count = byStatus[status];
+        if (count === 0) return null;
+        const meta = statusMeta(status);
+        const pct = (count / total) * 100;
+        return (
+          <div
+            key={status}
+            className="h-full transition-all"
+            style={{ width: `${pct}%`, backgroundColor: meta.color }}
+            title={`${meta.label}: ${count}`}
+          />
+        );
+      })}
       {target > 0 && target < 100 && (
         <div
           className="absolute top-0 bottom-0 w-0.5 bg-tmc-dark"
           style={{ left: `${target}%` }}
-          title={`Target: ${target}%`}
+          title={`Completed target today: ${target}%`}
         />
       )}
+    </div>
+  );
+}
+
+function StatusLegend({
+  byStatus,
+}: {
+  byStatus: Record<PostStatus, number>;
+}) {
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1">
+      {PROGRESS_ORDER.map((status) => {
+        const meta = statusMeta(status);
+        const count = byStatus[status];
+        return (
+          <span
+            key={status}
+            className={`inline-flex items-center gap-1 text-[11px] ${
+              count === 0 ? "text-muted-foreground/50" : "text-muted-foreground"
+            }`}
+          >
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: meta.color }}
+            />
+            <span className="tabular-nums font-medium">{count}</span>
+            {meta.label}
+          </span>
+        );
+      })}
     </div>
   );
 }
