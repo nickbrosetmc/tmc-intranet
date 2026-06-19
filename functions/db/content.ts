@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
 import {
   contentPosts,
+  contentSeedLog,
   contentSettings,
   funnelStages,
   pillars,
@@ -206,16 +207,31 @@ export async function seedBlankPostsForCurrentWeek(
   if (clients.length === 0) return 0;
 
   const week = weekDays(monday);
+  const weekStartIso = week[0].iso;
   let created = 0;
 
   for (const c of clients) {
     const days = parseDayCodes(c.postingDays);
     if (days.size === 0) continue;
 
-    // Hands-off rule: once ANY post exists for this client in the
-    // production week we stop seeding. Moving Tue → Mon should not
-    // spawn a fresh Tue slot, and a deliberate delete should stay
-    // deleted. First-time seeding (fresh week, zero posts) only.
+    // Atomic claim: try to insert the (client, week) marker. The composite
+    // primary key means only ONE concurrent caller succeeds; the rest hit
+    // the conflict, get back an empty array, and skip. This is the lock
+    // that prevents two simultaneous dashboard loads from both seeding a
+    // fresh week into duplicate posts. It also enforces seed-once-per-week:
+    // once the marker exists we never re-seed, so moved/deleted slots stay
+    // as the user left them.
+    const claimed = await db
+      .insert(contentSeedLog)
+      .values({ clientId: c.id, weekStart: weekStartIso })
+      .onConflictDoNothing()
+      .returning({ clientId: contentSeedLog.clientId })
+      .all();
+    if (claimed.length === 0) continue;
+
+    // We own the seed for this client-week. Still respect any posts that
+    // already exist (e.g. posting_days enabled mid-week after manual posts)
+    // so we never double up on real content.
     const existing = await db
       .select({ id: contentPosts.id })
       .from(contentPosts)

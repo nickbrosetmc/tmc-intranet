@@ -4,9 +4,17 @@ import {
   type Env,
   type TeamSessionUser,
 } from "./auth";
+import { getDb, getUserByEmail } from "../db";
 
 /**
  * Team-only gate (any team member, user or admin).
+ *
+ * The session JWT lives 7 days, so we re-check the user against the DB on
+ * every request rather than trusting the token's `role`/existence claims.
+ * This makes role changes and deactivations (a user removed from the
+ * invite list, or whose email was rewritten during a merge) take effect
+ * immediately instead of lingering until the cookie expires. One indexed
+ * lookup per request — negligible at our scale.
  */
 export async function requireTeamSession(
   request: Request,
@@ -19,7 +27,19 @@ export async function requireTeamSession(
   if (session.type !== "team") {
     return Response.json({ error: "Team access required" }, { status: 403 });
   }
-  return session;
+
+  const db = getDb(env.DB);
+  const row = await getUserByEmail(db, session.email);
+  if (!row) {
+    // Deactivated / removed since the token was minted.
+    return Response.json(
+      { error: "Account not found or deactivated" },
+      { status: 401 },
+    );
+  }
+
+  // Trust the live DB role, not the (possibly stale) token claim.
+  return { ...session, role: row.role };
 }
 
 /**
