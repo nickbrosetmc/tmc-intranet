@@ -125,6 +125,7 @@ export interface VideoState {
   extraRevs: number;
   musicCount: number;
   captionCount: number;
+  clientName: string;
   customName: string;
   customAmt: number;
   // Custom discount — a named markdown the client sees on the quote.
@@ -186,6 +187,7 @@ export const DEFAULT_VIDEO_STATE: VideoState = {
   extraRevs: 0,
   musicCount: 0,
   captionCount: 0,
+  clientName: "",
   customName: "",
   customAmt: 0,
   customDiscName: "",

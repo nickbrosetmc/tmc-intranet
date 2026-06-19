@@ -51,6 +51,10 @@ export interface PackageState {
   custom: { enabled: boolean; description: string; hoursPerMonth: number; tier: Tier };
   softwareAllocation: number;
   targetMargin: number; // 0–100
+  // Custom discount shown on the client quote.
+  discountName: string;
+  discountType: "flat" | "pct";
+  discountValue: number; // dollars when flat, percent (0–100) when pct
 }
 
 export const DEFAULT_PACKAGE: PackageState = {
@@ -71,7 +75,125 @@ export const DEFAULT_PACKAGE: PackageState = {
   custom: { enabled: false, description: "", hoursPerMonth: 4, tier: "ft" },
   softwareAllocation: 167,
   targetMargin: 40,
+  discountName: "",
+  discountType: "flat",
+  discountValue: 0,
 };
+
+// ─── Pre-made packages ───────────────────────────────────────────────────
+// Starting points the team can apply then fine-tune. Numbers are sensible
+// defaults; adjust the master definitions here as TMC's real packages firm
+// up. Applying a preset preserves the current client name + any discount.
+
+export interface PackagePreset {
+  id: string;
+  name: string;
+  blurb: string;
+  build: () => Pick<
+    PackageState,
+    | "social"
+    | "seo"
+    | "ppc"
+    | "web"
+    | "email"
+    | "video"
+    | "custom"
+    | "targetMargin"
+  >;
+}
+
+export const PACKAGE_PRESETS: PackagePreset[] = [
+  {
+    id: "social-starter",
+    name: "Social Starter",
+    blurb: "Social content + light strategy",
+    build: () => ({
+      ...servicesOff(),
+      social: { enabled: true, postsPerWeek: 3, minsPerPost: 45, strategyHours: 2, contentTier: "ft", strategyTier: "admin" },
+      targetMargin: 45,
+    }),
+  },
+  {
+    id: "social-seo-growth",
+    name: "Growth",
+    blurb: "Social + SEO + email",
+    build: () => ({
+      ...servicesOff(),
+      social: { enabled: true, postsPerWeek: 5, minsPerPost: 45, strategyHours: 3, contentTier: "ft", strategyTier: "admin" },
+      seo: { enabled: true, pagesPerMonth: 2, hoursPerPage: 2.5, tier: "admin" },
+      email: { enabled: true, campaignsPerMonth: 2, hoursPerCampaign: 2, tier: "ft" },
+      targetMargin: 45,
+    }),
+  },
+  {
+    id: "full-service",
+    name: "Full-Service",
+    blurb: "Social, SEO, PPC, email, web",
+    build: () => ({
+      ...servicesOff(),
+      social: { enabled: true, postsPerWeek: 5, minsPerPost: 45, strategyHours: 4, contentTier: "ft", strategyTier: "admin" },
+      seo: { enabled: true, pagesPerMonth: 4, hoursPerPage: 2.5, tier: "admin" },
+      ppc: { enabled: true, platform: "both", hoursPerMonth: 6, tier: "admin" },
+      email: { enabled: true, campaignsPerMonth: 4, hoursPerCampaign: 2, tier: "ft" },
+      web: { enabled: true, scope: "manage", hoursPerMonth: 2, tier: "admin" },
+      targetMargin: 45,
+    }),
+  },
+  {
+    id: "video-retainer",
+    name: "Video Retainer",
+    blurb: "Monthly video production",
+    build: () => ({
+      ...servicesOff(),
+      video: { enabled: true, hoursPerMonth: 12, tier: "admin" },
+      targetMargin: 50,
+    }),
+  },
+];
+
+/** All services toggled off — the base every preset starts from. */
+function servicesOff(): Pick<
+  PackageState,
+  "social" | "seo" | "ppc" | "web" | "email" | "video" | "custom" | "targetMargin"
+> {
+  return {
+    social: { enabled: false, postsPerWeek: 3, minsPerPost: 45, strategyHours: 2, contentTier: "ft", strategyTier: "admin" },
+    seo: { enabled: false, pagesPerMonth: 2, hoursPerPage: 2.5, tier: "admin" },
+    ppc: { enabled: false, platform: "one", hoursPerMonth: 4, tier: "admin" },
+    web: { enabled: false, scope: "manage", hoursPerMonth: 1, tier: "admin" },
+    email: { enabled: false, campaignsPerMonth: 2, hoursPerCampaign: 2, tier: "ft" },
+    video: { enabled: false, hoursPerMonth: 8, tier: "admin" },
+    custom: { enabled: false, description: "", hoursPerMonth: 4, tier: "ft" },
+    targetMargin: 40,
+  };
+}
+
+/** Service labels for the client-facing quote (enabled services only). */
+export function enabledServiceLabels(pkg: PackageState): string[] {
+  const out: string[] = [];
+  if (pkg.social.enabled) out.push(`Social media management (${pkg.social.postsPerWeek} posts/week)`);
+  if (pkg.seo.enabled) out.push(`Search engine optimization (${pkg.seo.pagesPerMonth} pages/month)`);
+  if (pkg.ppc.enabled) out.push(pkg.ppc.platform === "both" ? "Paid ads management (Google + Meta)" : "Paid ads management");
+  if (pkg.web.enabled) out.push(pkg.web.scope === "build" ? "Website build + management" : "Website management");
+  if (pkg.email.enabled) out.push(`Email marketing (${pkg.email.campaignsPerMonth} campaigns/month)`);
+  if (pkg.video.enabled) out.push("Video production");
+  if (pkg.custom.enabled) out.push(pkg.custom.description || "Custom service");
+  return out;
+}
+
+/** Apply a custom discount to a monthly price; returns the post-discount price + the amount off. */
+export function applyPackageDiscount(
+  price: number,
+  type: "flat" | "pct",
+  value: number,
+): { final: number; off: number } {
+  if (value <= 0 || price <= 0) return { final: price, off: 0 };
+  const off =
+    type === "pct"
+      ? Math.round(price * (Math.min(value, 100) / 100))
+      : Math.min(Math.round(value), price);
+  return { final: price - off, off };
+}
 
 export interface BreakdownLine {
   item: string;
