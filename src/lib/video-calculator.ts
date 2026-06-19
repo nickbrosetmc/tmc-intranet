@@ -117,6 +117,15 @@ export interface VideoState {
   d_eventRecap: number;
   d_droneReel: number;
   d_testimonial: number;
+  // Per-deliverable fee waivers (short-form). When true, the deliverable's
+  // fee is comped: full price stays in the subtotal, then a matching
+  // discount line zeroes it so the client sees exactly what we gave them.
+  waiveHeroStd: boolean;
+  waiveHeroCine: boolean;
+  waiveCutdown: boolean;
+  waiveEventRecap: boolean;
+  waiveDroneReel: boolean;
+  waiveTestimonial: boolean;
   // Long-form deliverables
   d_featureQty: number; d_featureMin: number;
   d_trainingQty: number; d_trainingMin: number;
@@ -181,6 +190,12 @@ export const DEFAULT_VIDEO_STATE: VideoState = {
   d_eventRecap: 0,
   d_droneReel: 0,
   d_testimonial: 0,
+  waiveHeroStd: false,
+  waiveHeroCine: false,
+  waiveCutdown: false,
+  waiveEventRecap: false,
+  waiveDroneReel: false,
+  waiveTestimonial: false,
   d_featureQty: 0, d_featureMin: 8,
   d_trainingQty: 0, d_trainingMin: 15,
   d_recordingQty: 0, d_recordingMin: 60,
@@ -491,8 +506,29 @@ export function computeVideo(s: VideoState): VideoResult {
     withSafety += x;
   }
 
+  // ---- Waived deliverable fees ----
+  // Each waived short-form deliverable keeps its full price in the subtotal
+  // above, then gets zeroed here as a discount so the client sees the comp.
+  const waiveMap: [boolean, string, number][] = [
+    [s.waiveHeroStd, "Short brand video — Standard", heroStdTotal],
+    [s.waiveHeroCine, "Short brand video — Cinematic", heroCineTotal],
+    [s.waiveCutdown, "Social cutdown", cutdownTotal],
+    [s.waiveEventRecap, "Event recap", eventRecapTotal],
+    [s.waiveDroneReel, "Drone reel", droneReelTotal],
+    [s.waiveTestimonial, "Interview testimonial", testimonialTotal],
+  ];
+  let waivedTotal = 0;
+  const waivedLines: Line[] = [];
+  for (const [waived, label, total] of waiveMap) {
+    if (waived && total > 0) {
+      waivedTotal += total;
+      waivedLines.push([`${label} — waived`, -total]);
+    }
+  }
+
   // ---- Discounts ----
   const discountLines: Line[] = [];
+  for (const wl of waivedLines) discountLines.push(wl);
   if (bundleDisc > 0) {
     discountLines.push(["Cutdown bundle (−10%)", -bundleDisc]);
   }
@@ -503,7 +539,7 @@ export function computeVideo(s: VideoState): VideoResult {
     ]);
   }
   let recurringDisc = 0;
-  const subBeforeRec = withSafety - bundleDisc - seriesDisc;
+  const subBeforeRec = withSafety - waivedTotal - bundleDisc - seriesDisc;
   if (s.recurring) {
     recurringDisc = subBeforeRec * 0.12;
     discountLines.push(["Recurring monthly (−12%)", -recurringDisc]);
@@ -526,7 +562,8 @@ export function computeVideo(s: VideoState): VideoResult {
     }
   }
 
-  const discountTotal = bundleDisc + seriesDisc + recurringDisc + customDisc;
+  const discountTotal =
+    waivedTotal + bundleDisc + seriesDisc + recurringDisc + customDisc;
   const grand = subBeforeCustom - customDisc;
   const grandRounded = roundFinal(grand, s.roundInc);
   // The "standard" rate is the same basis without any discount.
