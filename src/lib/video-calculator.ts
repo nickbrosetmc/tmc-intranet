@@ -127,6 +127,10 @@ export interface VideoState {
   captionCount: number;
   customName: string;
   customAmt: number;
+  // Custom discount — a named markdown the client sees on the quote.
+  customDiscName: string;
+  customDiscType: "flat" | "pct";
+  customDiscValue: number; // dollars when flat, percent (0–100) when pct
   // Multipliers
   impact: Multiplier;
   risk: Multiplier;
@@ -184,6 +188,9 @@ export const DEFAULT_VIDEO_STATE: VideoState = {
   captionCount: 0,
   customName: "",
   customAmt: 0,
+  customDiscName: "",
+  customDiscType: "flat",
+  customDiscValue: 0,
   impact: 1.1,
   risk: 1.1,
   usage: 1.0,
@@ -226,6 +233,10 @@ export interface VideoResult {
   baseSubtotal: number;
   adjustedSubtotal: number;
   withSafety: number;
+  /** Client-facing price BEFORE any discount (the "standard rate"). */
+  standardRounded: number;
+  /** Sum of every discount applied (positive number). */
+  discountTotal: number;
   grandRounded: number;
   rangeLow: number;
   rangeHigh: number;
@@ -495,8 +506,29 @@ export function computeVideo(s: VideoState): VideoResult {
     recurringDisc = subBeforeRec * 0.12;
     discountLines.push(["Recurring monthly (−12%)", -recurringDisc]);
   }
-  const grand = subBeforeRec - recurringDisc;
+  const subBeforeCustom = subBeforeRec - recurringDisc;
+
+  // Custom discount — flat dollars or a percent of the running subtotal.
+  let customDisc = 0;
+  if (s.customDiscValue > 0) {
+    if (s.customDiscType === "pct") {
+      const pct = Math.min(s.customDiscValue, 100);
+      customDisc = subBeforeCustom * (pct / 100);
+      discountLines.push([
+        `${s.customDiscName || "Custom discount"} (−${fmtN(pct)}%)`,
+        -customDisc,
+      ]);
+    } else {
+      customDisc = Math.min(s.customDiscValue, subBeforeCustom);
+      discountLines.push([s.customDiscName || "Custom discount", -customDisc]);
+    }
+  }
+
+  const discountTotal = bundleDisc + seriesDisc + recurringDisc + customDisc;
+  const grand = subBeforeCustom - customDisc;
   const grandRounded = roundFinal(grand, s.roundInc);
+  // The "standard" rate is the same basis without any discount.
+  const standardRounded = roundFinal(withSafety, s.roundInc);
 
   // ---- COGS ----
   const totalShootHours = s.halfDays * s.halfHrs + s.fullDays * s.fullHrs;
@@ -551,6 +583,8 @@ export function computeVideo(s: VideoState): VideoResult {
     baseSubtotal,
     adjustedSubtotal,
     withSafety,
+    standardRounded,
+    discountTotal,
     grandRounded,
     rangeLow,
     rangeHigh,
