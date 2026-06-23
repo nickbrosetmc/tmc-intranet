@@ -63,8 +63,10 @@ import {
   content,
   effectiveAssigneeId,
   statusMeta,
+  STATUSES,
   workDueDate,
   type ContentPost,
+  type PostStatus,
 } from "@/lib/content";
 
 const VIEWS = [
@@ -570,7 +572,7 @@ function ItemRow({
     return <TaskRow task={it.task} data={data} onChanged={onChanged} />;
   }
   if (it.kind === "post") {
-    return <PostRow post={it.post} data={data} />;
+    return <PostRow post={it.post} data={data} onChanged={onChanged} />;
   }
   return <PlaceholderRow item={it} data={data} onChanged={onChanged} />;
 }
@@ -746,16 +748,45 @@ function PriorityPill({ priority }: { priority: TaskPriority }) {
 function PostRow({
   post,
   data,
+  onChanged,
 }: {
   post: ContentPost;
   data: TasksDashboard;
+  onChanged: () => void;
 }) {
   const client = data.clientOptions.find((c) => c.id === post.clientId);
-  const status = statusMeta(post.status);
   const assignee = data.userOptions.find((u) => u.id === post.assignedTo);
   const reviewer = data.userOptions.find((u) => u.id === post.reviewerId);
   const workDue = workDueDate(post.scheduledDate);
   const overdue = (daysUntilDue(workDue) ?? 0) < 0;
+  const [editOpen, setEditOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Change status inline. Completing requires pillar + funnel; if they're
+  // missing we pop the editor instead of failing.
+  async function setStatus(next: PostStatus) {
+    if (next === post.status) return;
+    if (next === "completed" && (!post.pillarId || !post.funnelStageId)) {
+      toast.info("Set a pillar and funnel stage to mark complete.");
+      setEditOpen(true);
+      return;
+    }
+    if (next === "review" && !post.reviewerId) {
+      toast.info("Pick a reviewer to move this to Review.");
+      setEditOpen(true);
+      return;
+    }
+    setSaving(true);
+    try {
+      await content.updatePost(post.id, { status: next });
+      toast.success(`Moved to ${statusMeta(next).label}`);
+      onChanged();
+    } catch (e) {
+      toast.error(`Update failed: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <li className="px-4 py-3 flex items-start gap-3">
@@ -767,16 +798,6 @@ function PostRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-2 flex-wrap">
           <span className="text-sm font-medium text-tmc-dark">{post.title}</span>
-          <span
-            className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border"
-            style={{
-              backgroundColor: `${status.color}22`,
-              color: status.color,
-              borderColor: `${status.color}44`,
-            }}
-          >
-            {status.label}
-          </span>
         </div>
         <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
           <span
@@ -810,13 +831,254 @@ function PostRow({
           ) : null}
         </div>
       </div>
-      <a
-        href={`/content?focusPost=${post.id}`}
-        className="text-xs text-tmc-gold-dark hover:underline shrink-0 self-center"
-      >
-        Open
-      </a>
+      <div className="flex items-center gap-2 shrink-0 self-center">
+        <Select
+          value={post.status}
+          onValueChange={(v) => setStatus(v as PostStatus)}
+        >
+          <SelectTrigger
+            className="h-8 w-32 text-xs"
+            disabled={saving}
+            style={{ color: statusMeta(post.status).color }}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {STATUSES.map((st) => (
+              <SelectItem key={st.id} value={st.id}>
+                {st.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 px-2 text-muted-foreground hover:text-tmc-dark"
+          onClick={() => setEditOpen(true)}
+          title="Edit details"
+        >
+          <Pencil size={14} />
+        </Button>
+      </div>
+      {editOpen && (
+        <PostEditDialog
+          post={post}
+          data={data}
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          onSaved={onChanged}
+        />
+      )}
     </li>
+  );
+}
+
+// Edit a content post's status + details inline from the Tasks page, so
+// e.g. a reviewer can approve (mark complete) or adjust without leaving.
+function PostEditDialog({
+  post,
+  data,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  post: ContentPost;
+  data: TasksDashboard;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(post.title);
+  const [status, setStatus] = useState<PostStatus>(post.status);
+  const [pillarId, setPillarId] = useState<number | null>(post.pillarId);
+  const [funnelStageId, setFunnelStageId] = useState<number | null>(
+    post.funnelStageId,
+  );
+  const [platform, setPlatform] = useState(post.platform ?? "");
+  const [assignedTo, setAssignedTo] = useState<number | null>(post.assignedTo);
+  const [reviewerId, setReviewerId] = useState<number | null>(post.reviewerId);
+  const [notes, setNotes] = useState(post.notes ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const needsTags = status === "completed";
+  const missingTags = needsTags && (pillarId == null || funnelStageId == null);
+  const missingReviewer = status === "review" && reviewerId == null;
+
+  async function save() {
+    if (!title.trim()) {
+      toast.error("Title is required.");
+      return;
+    }
+    if (missingTags) {
+      toast.error("Pillar and funnel stage are required to mark complete.");
+      return;
+    }
+    if (missingReviewer) {
+      toast.error("Pick a reviewer to move this to Review.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await content.updatePost(post.id, {
+        title: title.trim(),
+        status,
+        pillarId,
+        funnelStageId,
+        platform: platform.trim() || null,
+        assignedTo,
+        reviewerId,
+        notes: notes.trim() || null,
+      });
+      toast.success("Post updated");
+      onOpenChange(false);
+      onSaved();
+    } catch (e) {
+      toast.error(`Save failed: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const userSelect = (
+    value: number | null,
+    onChange: (v: number | null) => void,
+    placeholder: string,
+  ) => (
+    <Select
+      value={value == null ? "__none__" : String(value)}
+      onValueChange={(v) => onChange(v === "__none__" ? null : Number(v))}
+    >
+      <SelectTrigger>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__none__">{placeholder}</SelectItem>
+        {data.userOptions.map((u) => (
+          <SelectItem key={u.id} value={String(u.id)}>
+            {u.name ?? u.email}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit content post</DialogTitle>
+          <DialogDescription>
+            Update status and details without leaving your task list.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label>Title</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Status</Label>
+              <Select
+                value={status}
+                onValueChange={(v) => setStatus(v as PostStatus)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {STATUSES.map((st) => (
+                    <SelectItem key={st.id} value={st.id}>
+                      {st.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Platform</Label>
+              <Input
+                value={platform}
+                onChange={(e) => setPlatform(e.target.value)}
+                placeholder="Instagram, LinkedIn…"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>
+                Pillar {needsTags && <span className="text-red-600">*</span>}
+              </Label>
+              <Select
+                value={pillarId == null ? "__none__" : String(pillarId)}
+                onValueChange={(v) =>
+                  setPillarId(v === "__none__" ? null : Number(v))
+                }
+              >
+                <SelectTrigger className={missingTags && pillarId == null ? "border-red-400" : ""}>
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None</SelectItem>
+                  {data.pillars.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>
+                Funnel stage {needsTags && <span className="text-red-600">*</span>}
+              </Label>
+              <Select
+                value={funnelStageId == null ? "__none__" : String(funnelStageId)}
+                onValueChange={(v) =>
+                  setFunnelStageId(v === "__none__" ? null : Number(v))
+                }
+              >
+                <SelectTrigger className={missingTags && funnelStageId == null ? "border-red-400" : ""}>
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None</SelectItem>
+                  {data.funnelStages.map((f) => (
+                    <SelectItem key={f.id} value={String(f.id)}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Assigned to</Label>
+              {userSelect(assignedTo, setAssignedTo, "Unassigned")}
+            </div>
+            <div className="space-y-1">
+              <Label>
+                Reviewer{" "}
+                {status === "review" && <span className="text-red-600">*</span>}
+              </Label>
+              {userSelect(reviewerId, setReviewerId, "None")}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>Notes</Label>
+            <textarea
+              className="w-full min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
