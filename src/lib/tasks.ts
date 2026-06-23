@@ -1,5 +1,5 @@
 // Types, API wrappers, and helpers for the tasks system.
-import type { ContentPost } from "./content";
+import type { ContentPost, FunnelStage, Pillar } from "./content";
 
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
 export type TaskStatus =
@@ -67,6 +67,8 @@ export interface TasksDashboard {
   weekDueDate: string;      // YYYY-MM-DD, Friday — placeholder due date
   defaultPostAssigneeId: number | null;
   defaultPostEstimatedMinutes: number | null;
+  pillars: Pillar[];
+  funnelStages: FunnelStage[];
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────

@@ -17,7 +17,9 @@ import { listAllTasks } from "../../db/tasks";
 import { listAllUsers } from "../../db/admin";
 import {
   listContentSettings,
+  listFunnelStages,
   listOpenPosts,
+  listPillars,
   listPostsInRange,
   seedBlankPostsForCurrentWeek,
 } from "../../db/content";
@@ -86,16 +88,27 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     defaultEstimatedMinutes: preSeedDefaultEstMinutes,
   });
 
-  const [allTasks, allUsers, postsInWindow, openPosts, clients, settings, weekPosts] =
-    await Promise.all([
-      listAllTasks(db, { includeCompleted, limit: 500 }),
-      listAllUsers(db),
-      listPostsInRange(db, ymd(winStart), ymd(winEnd)),
-      listOpenPosts(db),
-      listRecurringClients(db),
-      listContentSettings(db),
-      listPostsInRange(db, ymd(weekStart), ymd(new Date(weekEnd.getTime() + 86_400_000))),
-    ]);
+  const [
+    allTasks,
+    allUsers,
+    postsInWindow,
+    openPosts,
+    clients,
+    settings,
+    weekPosts,
+    pillars,
+    funnelStages,
+  ] = await Promise.all([
+    listAllTasks(db, { includeCompleted, limit: 500 }),
+    listAllUsers(db),
+    listPostsInRange(db, ymd(winStart), ymd(winEnd)),
+    listOpenPosts(db),
+    listRecurringClients(db),
+    listContentSettings(db),
+    listPostsInRange(db, ymd(weekStart), ymd(new Date(weekEnd.getTime() + 86_400_000))),
+    listPillars(db),
+    listFunnelStages(db),
+  ]);
 
   const userOptions = allUsers.map((u) => ({
     id: u.id,
@@ -146,5 +159,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     weekDueDate: ymd(friday),
     defaultPostAssigneeId,
     defaultPostEstimatedMinutes: preSeedDefaultEstMinutes,
+    pillars,
+    funnelStages,
   });
 };
