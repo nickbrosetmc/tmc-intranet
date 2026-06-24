@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useUser } from "@/lib/useUser";
+import { usePollingRefresh } from "@/lib/usePollingRefresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -161,6 +162,9 @@ export function ContentPage() {
     if (!p) return;
     setAnchorIso(toIsoDate(startOfWeek(parseIsoDate(p.scheduledDate))));
   }, [focusPostId, d]);
+
+  // Live-refresh so the grid reflects teammates' edits without a reload.
+  usePollingRefresh(refresh, { intervalMs: 45_000 });
 
   if (!d) {
     return <div className="text-muted-foreground text-sm">Loading content pipeline…</div>;

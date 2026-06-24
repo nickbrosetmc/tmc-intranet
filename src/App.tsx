@@ -1,7 +1,9 @@
 import { Route, Switch } from "wouter";
+import { RefreshCw } from "lucide-react";
 import { Header } from "@/components/Header";
 import { TeamNav } from "@/components/TeamNav";
 import { useUser } from "@/lib/useUser";
+import { useAppVersion } from "@/lib/useAppVersion";
 import { HomePage } from "@/pages/Home";
 import { AdminLayout } from "@/pages/admin/AdminLayout";
 import { AdminUsers } from "@/pages/admin/AdminUsers";
@@ -23,9 +25,11 @@ import { VideoCalculatorPage } from "@/pages/VideoCalculator";
 function App() {
   const state = useUser();
   const user = state.status === "authenticated" ? state.user : null;
+  const updateReady = useAppVersion();
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      {updateReady && <UpdateBanner />}
       <Header user={user} />
       <TeamNav user={user} />
 
@@ -106,6 +110,20 @@ function App() {
           © {new Date().getFullYear()} TMC Marketing
         </p>
       </footer>
+    </div>
+  );
+}
+
+function UpdateBanner() {
+  return (
+    <div className="bg-tmc-dark text-tmc-gold text-sm px-4 py-2 flex items-center justify-center gap-3">
+      <span>A new version of the portal is available.</span>
+      <button
+        onClick={() => window.location.reload()}
+        className="inline-flex items-center gap-1.5 bg-tmc-gold text-tmc-dark font-medium rounded-md px-3 py-1 hover:bg-tmc-gold-dark transition-colors"
+      >
+        <RefreshCw size={13} /> Update
+      </button>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { usePollingRefresh } from "@/lib/usePollingRefresh";
 import { Check, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,6 +78,9 @@ export function AdminTimeClock() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  // Live-refresh who's on the clock / pending shifts without a reload.
+  usePollingRefresh(refresh, { intervalMs: 45_000 });
 
   // Keep live elapsed times updating
   useEffect(() => {

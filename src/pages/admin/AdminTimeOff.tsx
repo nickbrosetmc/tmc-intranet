@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { usePollingRefresh } from "@/lib/usePollingRefresh";
 import { Check, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -61,6 +62,9 @@ export function AdminTimeOff() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  // Live-refresh so new requests appear without a reload.
+  usePollingRefresh(refresh, { intervalMs: 45_000 });
 
   if (!data) {
     return <div className="text-muted-foreground text-sm">Loading…</div>;
