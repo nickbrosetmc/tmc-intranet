@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useUser } from "@/lib/useUser";
+import { usePollingRefresh } from "@/lib/usePollingRefresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -210,6 +211,15 @@ export function TasksPage() {
     return () => clearInterval(id);
   }, [data?.tasks]);
   void tick;
+
+  // Live-refresh so teammates' changes (a post moved to Review, a new task)
+  // appear without a manual reload.
+  usePollingRefresh(refresh, {
+    intervalMs: 45_000,
+    enabled:
+      userState.status === "authenticated" &&
+      userState.user.type === "team",
+  });
 
   if (userState.status !== "authenticated" || userState.user.type !== "team") {
     return (
