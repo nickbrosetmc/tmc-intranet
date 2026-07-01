@@ -16,8 +16,10 @@ import { AdminFinance } from "@/pages/admin/AdminFinance";
 import { AdminTimeClock } from "@/pages/admin/AdminTimeClock";
 import { AdminTimeOff } from "@/pages/admin/AdminTimeOff";
 import { RequestsPage } from "@/pages/Requests";
+import { AdminWebsites } from "@/pages/admin/AdminWebsites";
 import { CalculatorPage } from "@/pages/Calculator";
 import { ContentPage } from "@/pages/Content";
+import { WebsitePage } from "@/pages/Website";
 import { TasksPage } from "@/pages/Tasks";
 import { TimeClockPage } from "@/pages/TimeClock";
 import { TimeOffPage } from "@/pages/TimeOff";
@@ -37,6 +39,7 @@ function App() {
       <main className="flex-1 flex flex-col items-center px-3 sm:px-6 py-6 sm:py-12">
         <Switch>
           <Route path="/" component={HomePage} />
+          <Route path="/website" component={WebsitePage} />
           <Route path="/calculator" component={CalculatorPage} />
           <Route path="/video-calculator" component={VideoCalculatorPage} />
           <Route path="/content" component={ContentPage} />
@@ -57,6 +60,11 @@ function App() {
           <Route path="/admin/clients">
             <AdminLayout>
               <AdminClients />
+            </AdminLayout>
+          </Route>
+          <Route path="/admin/websites">
+            <AdminLayout>
+              <AdminWebsites />
             </AdminLayout>
           </Route>
           <Route path="/admin/finance">

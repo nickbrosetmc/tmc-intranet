@@ -419,3 +419,84 @@ export const tasks = sqliteTable("tasks", {
 });
 export type TaskRow = typeof tasks.$inferSelect;
 export type NewTaskRow = typeof tasks.$inferInsert;
+
+// ─── Website editor ──────────────────────────────────────────────────────
+
+export const siteProjects = sqliteTable("site_projects", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  clientId: integer("client_id").notNull().references(() => clients.id),
+  name: text("name").notNull(),
+  domain: text("domain"),
+  headerHtml: text("header_html").notNull().default(""),
+  footerHtml: text("footer_html").notNull().default(""),
+  themeJson: text("theme_json"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type SiteProjectRow = typeof siteProjects.$inferSelect;
+export type NewSiteProjectRow = typeof siteProjects.$inferInsert;
+
+export const sitePages = sqliteTable("site_pages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: integer("project_id").notNull().references(() => siteProjects.id),
+  title: text("title").notNull(),
+  slug: text("slug").notNull(),
+  bodyHtml: text("body_html").notNull().default(""),
+  navOrder: integer("nav_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type SitePageRow = typeof sitePages.$inferSelect;
+export type NewSitePageRow = typeof sitePages.$inferInsert;
+
+export const siteSubmissions = sqliteTable("site_submissions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: integer("project_id").notNull().references(() => siteProjects.id),
+  clientUserId: integer("client_user_id").references(() => clientUsers.id),
+  submittedByName: text("submitted_by_name").notNull(),
+  status: text("status", { enum: ["pending", "published", "dismissed"] })
+    .notNull()
+    .default("pending"),
+  changesJson: text("changes_json").notNull().default("[]"),
+  blocksJson: text("blocks_json").notNull().default("[]"),
+  doneJson: text("done_json").notNull().default("[]"),
+  publishedBy: integer("published_by").references(() => users.id),
+  publishedAt: text("published_at"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type SiteSubmissionRow = typeof siteSubmissions.$inferSelect;
+export type NewSiteSubmissionRow = typeof siteSubmissions.$inferInsert;
+
+export const siteRequests = sqliteTable("site_requests", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: integer("project_id").notNull().references(() => siteProjects.id),
+  clientUserId: integer("client_user_id").references(() => clientUsers.id),
+  submittedByName: text("submitted_by_name").notNull(),
+  body: text("body").notNull(),
+  assetKey: text("asset_key"),
+  assetName: text("asset_name"),
+  status: text("status", { enum: ["pending", "handled"] })
+    .notNull()
+    .default("pending"),
+  handledBy: integer("handled_by").references(() => users.id),
+  handledAt: text("handled_at"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type SiteRequestRow = typeof siteRequests.$inferSelect;
+export type NewSiteRequestRow = typeof siteRequests.$inferInsert;
+
+export const siteAssets = sqliteTable("site_assets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: integer("project_id").notNull().references(() => siteProjects.id),
+  r2Key: text("r2_key").notNull().unique(),
+  filename: text("filename").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull().default(0),
+  uploadedByClientUserId: integer("uploaded_by_client_user_id").references(
+    () => clientUsers.id,
+  ),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type SiteAssetRow = typeof siteAssets.$inferSelect;
+export type NewSiteAssetRow = typeof siteAssets.$inferInsert;

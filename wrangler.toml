@@ -24,3 +24,10 @@ binding = "DB"
 database_name = "tmc-intranet-db"
 database_id = "540c98da-59bc-463a-b8f1-e3e684a8d099"
 migrations_dir = "migrations"
+
+# R2 bucket for website-editor image uploads (hero swaps, request attachments).
+# Create it once with:
+#   npx wrangler r2 bucket create tmc-intranet-site-assets
+[[r2_buckets]]
+binding = "SITE_ASSETS"
+bucket_name = "tmc-intranet-site-assets"

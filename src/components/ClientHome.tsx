@@ -5,8 +5,10 @@ import {
   FolderOpen,
   KeyRound,
   MessageSquarePlus,
+  Pencil,
   Zap,
 } from "lucide-react";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,6 +63,15 @@ export function ClientHome({ user }: { user: ClientUser }) {
   }
 
   const tiles: Tile[] = [
+    {
+      label: "Update My Website",
+      description: "Edit your site's text & images",
+      url: "/website",
+      internal: true,
+      icon: <Pencil size={32} strokeWidth={1.75} />,
+      bg: "bg-tmc-gold-dark",
+      placeholder: null,
+    },
     {
       label: "Files",
       description: "Your shared drive with TMC",
@@ -314,6 +325,7 @@ interface Tile {
   label: string;
   description: string;
   url: string | null;
+  internal?: boolean;
   icon: React.ReactNode;
   bg: string;
   placeholder: string | null;
@@ -371,6 +383,13 @@ function TileCard({ tile }: { tile: Tile }) {
   if (!tile.url) {
     return (
       <div className={`${baseClass} opacity-70 cursor-not-allowed`}>{content}</div>
+    );
+  }
+  if (tile.internal) {
+    return (
+      <Link href={tile.url} className={`${baseClass} hover:shadow-md`}>
+        {content}
+      </Link>
     );
   }
   return (

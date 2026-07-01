@@ -8,6 +8,7 @@ export interface Env {
   // Resend transactional email (optional until configured).
   RESEND_API_KEY?: string;
   RESEND_FROM?: string;
+  SITE_ASSETS: R2Bucket;
 }
 
 export type Role = "user" | "admin";
