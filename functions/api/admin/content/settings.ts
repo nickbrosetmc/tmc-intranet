@@ -9,6 +9,7 @@ import { setContentSetting } from "../../../db/content";
 const ALLOWED_KEYS = new Set([
   "default_post_assignee_id",
   "default_post_estimated_minutes",
+  "client_notify_emails",
 ]);
 
 interface PatchBody {
