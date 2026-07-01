@@ -1,14 +1,17 @@
 // Constrained website-editing engine. Renders a client's stitched site
-// (header + a page body + footer) inside an iframe document and lets the
-// client edit ONLY the marked zones (data-edit). Tracks every change with an
-// undo, and regenerates the COMPLETE header/footer/body blocks for GHL — the
-// whole block, even if one line changed, with all data-edit markers intact.
+// (header + one "view" + footer) inside an iframe document and lets the client
+// edit ONLY the marked zones (data-edit). A "view" is either a page body or a
+// standalone content block. Tracks every change with an undo, and regenerates
+// the COMPLETE header/footer/body/content blocks for GHL — the whole block,
+// even if one line changed, with all data-edit markers intact.
 //
 // Framework-agnostic on purpose: React just hands it the iframe document.
 
 import type { ProjectWithPages, SubmissionBlock, SubmissionChange } from "./website";
 
-type Scope = "header" | "footer" | number; // number = pageId
+// Scope of a change → which GHL block it belongs to.
+//   "header" | "footer" | "page:<id>" | "block:<id>"
+type Scope = string;
 
 interface ChangeRec {
   label: string;
@@ -16,6 +19,19 @@ interface ChangeRec {
   to: string;
   scope: Scope;
   revert: () => void;
+}
+
+interface ViewMeta {
+  kind: "page" | "block";
+  label: string; // page title or block name
+  slug?: string; // pages only
+}
+
+export interface EditorView {
+  key: string;
+  kind: "page" | "block";
+  label: string;
+  slug?: string;
 }
 
 const AFFORDANCE_CSS = `
@@ -54,8 +70,10 @@ export class SiteEditor {
   private headerHost!: HTMLElement;
   private footerHost!: HTMLElement;
   private bodyHost!: HTMLElement;
-  private bodyEls = new Map<number, HTMLElement>();
-  private activeId = 0;
+  private viewEls = new Map<string, HTMLElement>();
+  private viewMeta = new Map<string, ViewMeta>();
+  private viewOrder: string[] = [];
+  private activeKey = "";
 
   private changes = new Map<string, ChangeRec>();
   private originals = new Map<string, string>();
@@ -89,35 +107,50 @@ export class SiteEditor {
     this.wire(this.headerHost, "Header", "header");
 
     for (const page of this.project.pages) {
-      const wrap = doc.createElement("div");
-      wrap.className = "__page";
-      wrap.innerHTML = page.bodyHtml;
-      this.bodyHost.appendChild(wrap);
-      this.bodyEls.set(page.id, wrap);
-      this.wire(wrap, page.title, page.id);
+      const key = `page:${page.id}`;
+      this.addView(key, page.bodyHtml, { kind: "page", label: page.title, slug: page.slug });
+    }
+    for (const block of this.project.contentBlocks) {
+      const key = `block:${block.id}`;
+      this.addView(key, block.html, { kind: "block", label: block.name });
     }
 
     this.footerHost.innerHTML = this.project.project.footerHtml;
     this.wire(this.footerHost, "Footer", "footer");
 
-    if (this.project.pages[0]) this.showPage(this.project.pages[0].id);
+    if (this.viewOrder[0]) this.showView(this.viewOrder[0]);
   }
 
-  showPage(pageId: number) {
-    this.activeId = pageId;
-    for (const [id, el] of this.bodyEls) el.style.display = id === pageId ? "" : "none";
+  private addView(key: string, html: string, meta: ViewMeta) {
+    const wrap = this.doc.createElement("div");
+    wrap.className = "__view";
+    wrap.innerHTML = html.trim();
+    this.bodyHost.appendChild(wrap);
+    this.viewEls.set(key, wrap);
+    this.viewMeta.set(key, meta);
+    this.viewOrder.push(key);
+    this.wire(wrap, meta.kind === "page" ? meta.label : meta.label, key);
   }
-  getActivePageId() {
-    return this.activeId;
+
+  views(): EditorView[] {
+    return this.viewOrder.map((key) => {
+      const m = this.viewMeta.get(key)!;
+      return { key, kind: m.kind, label: m.label, slug: m.slug };
+    });
+  }
+
+  showView(key: string) {
+    this.activeKey = key;
+    for (const [k, el] of this.viewEls) el.style.display = k === key ? "" : "none";
+  }
+  getActiveKey() {
+    return this.activeKey;
   }
 
   reset() {
-    // After a submit: keep the edits on screen but re-baseline so new edits
-    // track fresh.
     this.changes.clear();
     this.originals.clear();
     this.uid = 0;
-    // Re-snapshot originals for currently-wired text/image nodes.
     for (const el of this.doc.querySelectorAll<HTMLElement>("[data-ed-id]")) {
       const id = el.getAttribute("data-ed-id")!;
       this.originals.set(
@@ -167,12 +200,20 @@ export class SiteEditor {
         note: "complete footer — paste over the existing universal footer in GHL",
         code: this.clean(this.footerHost),
       });
-    for (const page of this.project.pages) {
-      if (scopes.has(page.id)) {
-        const el = this.bodyEls.get(page.id)!;
+    for (const key of this.viewOrder) {
+      if (!scopes.has(key)) continue;
+      const meta = this.viewMeta.get(key)!;
+      const el = this.viewEls.get(key)!;
+      if (meta.kind === "page") {
         blocks.push({
-          title: `Page ${page.slug} — body block`,
+          title: `Page ${meta.slug} — body block`,
           note: "complete body — paste over this page’s body in GHL",
+          code: this.clean(el),
+        });
+      } else {
+        blocks.push({
+          title: `Content block: ${meta.label}`,
+          note: "complete block — paste over this content block in GHL",
           code: this.clean(el),
         });
       }
@@ -185,8 +226,10 @@ export class SiteEditor {
   private groupTitle(scope: Scope): string {
     if (scope === "header") return "Universal header block";
     if (scope === "footer") return "Universal footer block";
-    const page = this.project.pages.find((p) => p.id === scope);
-    return `Page ${page?.slug ?? "?"} — body block`;
+    const meta = this.viewMeta.get(scope);
+    if (meta?.kind === "page") return `Page ${meta.slug} — body block`;
+    if (meta?.kind === "block") return `Content block: ${meta.label}`;
+    return "Block";
   }
 
   private clean(host: HTMLElement): string {
@@ -281,8 +324,7 @@ export class SiteEditor {
       input.onchange = async () => {
         const file = input.files?.[0];
         if (!file) return;
-        const preview = URL.createObjectURL(file);
-        el.src = preview;
+        el.src = URL.createObjectURL(file);
         this.record(id, this.labelFor(el, ctx), "(original image)", `📷 ${file.name}`, scope, () => {
           el.src = origSrc;
         });
@@ -307,7 +349,7 @@ export class SiteEditor {
     list.querySelectorAll<HTMLElement>(":scope > [data-edit-item]").forEach((item) =>
       this.decorateItem(item, list, ctx, scope),
     );
-    this.wire(list, ctx, scope); // wire text/images inside items
+    this.wire(list, ctx, scope);
 
     const addRow = this.doc.createElement("div");
     addRow.className = "__ed-add";
@@ -333,7 +375,6 @@ export class SiteEditor {
     addRow.appendChild(btn);
     list.after(addRow);
 
-    // stash for reorder revert
     (list as unknown as { __order?: HTMLElement[] }).__order = originalOrder;
   }
 
@@ -387,7 +428,7 @@ export class SiteEditor {
     if (this.reorderTimer) clearTimeout(this.reorderTimer);
     this.reorderTimer = setTimeout(() => {
       const order = (list as unknown as { __order?: HTMLElement[] }).__order ?? [];
-      this.record(`reorder-${scope}-${(list.dataset.edId ?? list.className)}`, `${ctx} · reordered list`, "original order", "new order", scope, () => {
+      this.record(`reorder-${scope}-${list.dataset.edId ?? list.className}`, `${ctx} · reordered list`, "original order", "new order", scope, () => {
         order.forEach((n) => {
           if (n.isConnected) list.appendChild(n);
         });

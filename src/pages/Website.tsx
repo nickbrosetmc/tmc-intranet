@@ -54,7 +54,7 @@ function ClientEditor({ user }: { user: ClientUser }) {
   const [data, setData] = useState<ProjectWithPages | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [noSite, setNoSite] = useState(false);
-  const [activeId, setActiveId] = useState(0);
+  const [activeKey, setActiveKey] = useState("");
   const [editor, setEditor] = useState<SiteEditor | null>(null);
   const [changes, setChanges] = useState<
     { key: string; label: string; from: string; to: string; global: boolean }[]
@@ -96,7 +96,7 @@ function ClientEditor({ user }: { user: ClientUser }) {
     });
     ed.mount();
     setEditor(ed);
-    setActiveId(ed.getActivePageId());
+    setActiveKey(ed.getActiveKey());
     setChanges(ed.changeList());
     return () => {
       setEditor(null);
@@ -104,9 +104,9 @@ function ClientEditor({ user }: { user: ClientUser }) {
     };
   }, [data]);
 
-  function selectPage(id: number) {
-    editor?.showPage(id);
-    setActiveId(id);
+  function selectView(key: string) {
+    editor?.showView(key);
+    setActiveKey(key);
   }
 
   async function doSubmit() {
@@ -140,7 +140,8 @@ function ClientEditor({ user }: { user: ClientUser }) {
     );
   if (!data) return <Centered>Loading your site…</Centered>;
 
-  const activePage = data.pages.find((p) => p.id === activeId);
+  const activePage = data.pages.find((p) => `page:${p.id}` === activeKey);
+  const activeBlock = data.contentBlocks.find((b) => `block:${b.id}` === activeKey);
   const domain = data.project.domain ?? "";
 
   return (
@@ -167,23 +168,47 @@ function ClientEditor({ user }: { user: ClientUser }) {
       </div>
 
       <div className="flex gap-4 items-start">
-        {/* page rail */}
+        {/* page + content-block rail */}
         <aside className="w-44 shrink-0 space-y-1">
           <p className="text-xs font-semibold uppercase tracking-widest text-tmc-slate mb-2">Pages</p>
-          {data.pages.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => selectPage(p.id)}
-              className={`block w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                p.id === activeId
-                  ? "bg-tmc-gold/25 text-tmc-dark font-medium"
-                  : "text-muted-foreground hover:bg-muted hover:text-tmc-dark"
-              }`}
-            >
-              {p.title}
-              <span className="block text-xs opacity-70">{p.slug}</span>
-            </button>
-          ))}
+          {data.pages.map((p) => {
+            const key = `page:${p.id}`;
+            return (
+              <button
+                key={key}
+                onClick={() => selectView(key)}
+                className={`block w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                  key === activeKey
+                    ? "bg-tmc-gold/25 text-tmc-dark font-medium"
+                    : "text-muted-foreground hover:bg-muted hover:text-tmc-dark"
+                }`}
+              >
+                {p.title}
+                <span className="block text-xs opacity-70">{p.slug}</span>
+              </button>
+            );
+          })}
+          {data.contentBlocks.length > 0 && (
+            <p className="text-xs font-semibold uppercase tracking-widest text-tmc-slate mb-2 mt-4">
+              Content blocks
+            </p>
+          )}
+          {data.contentBlocks.map((b) => {
+            const key = `block:${b.id}`;
+            return (
+              <button
+                key={key}
+                onClick={() => selectView(key)}
+                className={`block w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                  key === activeKey
+                    ? "bg-tmc-gold/25 text-tmc-dark font-medium"
+                    : "text-muted-foreground hover:bg-muted hover:text-tmc-dark"
+                }`}
+              >
+                {b.name}
+              </button>
+            );
+          })}
         </aside>
 
         {/* preview */}
@@ -194,8 +219,9 @@ function ClientEditor({ user }: { user: ClientUser }) {
               <span className="w-2.5 h-2.5 rounded-full bg-tmc-silver" />
               <span className="w-2.5 h-2.5 rounded-full bg-tmc-silver" />
               <span className="ml-2">
-                {domain}
-                {activePage ? (activePage.slug === "/" ? "/" : activePage.slug) : ""}
+                {activeBlock
+                  ? `Content block · ${activeBlock.name}`
+                  : `${domain}${activePage ? (activePage.slug === "/" ? "/" : activePage.slug) : ""}`}
               </span>
             </div>
             <iframe ref={iframeRef} title="Site preview" className="w-full h-[70vh] border-0" />

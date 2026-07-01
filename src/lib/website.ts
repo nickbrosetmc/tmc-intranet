@@ -20,10 +20,26 @@ export interface SiteProject {
   isActive: boolean;
 }
 
+export interface SiteContentBlock {
+  id: number;
+  projectId: number;
+  name: string;
+  html: string;
+  sortOrder: number;
+}
+
 export interface ProjectWithPages {
   project: SiteProject;
   pages: SitePage[];
+  contentBlocks: SiteContentBlock[];
 }
+
+// A normalized file from the bulk importer, ready to send to the server.
+export type ImportItem =
+  | { kind: "header"; html: string }
+  | { kind: "footer"; html: string }
+  | { kind: "page"; title: string; slug: string; html: string }
+  | { kind: "block"; name: string; html: string };
 
 export interface SubmissionBlock {
   title: string;
@@ -176,6 +192,25 @@ export const adminSite = {
     }),
   deletePage: (id: number) =>
     json<{ ok: true }>(`/api/admin/website/pages/${id}`, { method: "DELETE" }),
+
+  createContentBlock: (projectId: number, data: { name: string; html?: string }) =>
+    json<{ block: SiteContentBlock }>(`/api/admin/website/projects/${projectId}/content-blocks`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateContentBlock: (id: number, data: Partial<Pick<SiteContentBlock, "name" | "html" | "sortOrder">>) =>
+    json<{ block: SiteContentBlock }>(`/api/admin/website/content-blocks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  deleteContentBlock: (id: number) =>
+    json<{ ok: true }>(`/api/admin/website/content-blocks/${id}`, { method: "DELETE" }),
+
+  importItems: (projectId: number, items: ImportItem[]) =>
+    json<{ result: { header: boolean; footer: boolean; pages: number; blocks: number } }>(
+      `/api/admin/website/projects/${projectId}/import`,
+      { method: "POST", body: JSON.stringify({ items }) },
+    ),
 
   listSubmissions: () => json<{ submissions: PendingSubmission[] }>("/api/admin/website/submissions"),
   getSubmission: (id: number) =>

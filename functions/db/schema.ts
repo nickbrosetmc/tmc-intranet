@@ -500,3 +500,15 @@ export const siteAssets = sqliteTable("site_assets", {
 });
 export type SiteAssetRow = typeof siteAssets.$inferSelect;
 export type NewSiteAssetRow = typeof siteAssets.$inferInsert;
+
+export const siteContentBlocks = sqliteTable("site_content_blocks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  projectId: integer("project_id").notNull().references(() => siteProjects.id),
+  name: text("name").notNull(),
+  html: text("html").notNull().default(""),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type SiteContentBlockRow = typeof siteContentBlocks.$inferSelect;
+export type NewSiteContentBlockRow = typeof siteContentBlocks.$inferInsert;

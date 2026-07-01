@@ -12,17 +12,20 @@ import {
   siteSubmissions,
   siteRequests,
   siteAssets,
+  siteContentBlocks,
   type SiteProjectRow,
   type SitePageRow,
   type SiteSubmissionRow,
   type SiteRequestRow,
+  type SiteContentBlockRow,
 } from "./schema";
 
-// ─── Projects & pages ──────────────────────────────────────────────────────
+// ─── Projects, pages & content blocks ───────────────────────────────────────
 
 export interface ProjectWithPages {
   project: SiteProjectRow;
   pages: SitePageRow[];
+  contentBlocks: SiteContentBlockRow[];
 }
 
 async function pagesFor(db: DB, projectId: number): Promise<SitePageRow[]> {
@@ -31,6 +34,15 @@ async function pagesFor(db: DB, projectId: number): Promise<SitePageRow[]> {
     .from(sitePages)
     .where(eq(sitePages.projectId, projectId))
     .orderBy(asc(sitePages.navOrder), asc(sitePages.id))
+    .all();
+}
+
+async function blocksFor(db: DB, projectId: number): Promise<SiteContentBlockRow[]> {
+  return db
+    .select()
+    .from(siteContentBlocks)
+    .where(eq(siteContentBlocks.projectId, projectId))
+    .orderBy(asc(siteContentBlocks.sortOrder), asc(siteContentBlocks.id))
     .all();
 }
 
@@ -46,7 +58,11 @@ export async function getActiveProjectForClient(
     .orderBy(asc(siteProjects.id))
     .get();
   if (!project) return null;
-  return { project, pages: await pagesFor(db, project.id) };
+  return {
+    project,
+    pages: await pagesFor(db, project.id),
+    contentBlocks: await blocksFor(db, project.id),
+  };
 }
 
 export async function getProjectById(
@@ -67,7 +83,11 @@ export async function getProjectWithPages(
 ): Promise<ProjectWithPages | null> {
   const project = await getProjectById(db, id);
   if (!project) return null;
-  return { project, pages: await pagesFor(db, id) };
+  return {
+    project,
+    pages: await pagesFor(db, id),
+    contentBlocks: await blocksFor(db, id),
+  };
 }
 
 export interface ProjectSummary {
@@ -293,6 +313,114 @@ export async function recordAsset(
   },
 ): Promise<void> {
   await db.insert(siteAssets).values(input).run();
+}
+
+// ─── Content blocks ──────────────────────────────────────────────────────────
+
+export async function createContentBlock(
+  db: DB,
+  input: { projectId: number; name: string; html?: string; sortOrder?: number },
+): Promise<SiteContentBlockRow> {
+  return db
+    .insert(siteContentBlocks)
+    .values({
+      projectId: input.projectId,
+      name: input.name,
+      html: input.html ?? "",
+      sortOrder: input.sortOrder ?? 0,
+    })
+    .returning()
+    .get();
+}
+
+export async function getContentBlockById(
+  db: DB,
+  id: number,
+): Promise<SiteContentBlockRow | null> {
+  const row = await db
+    .select()
+    .from(siteContentBlocks)
+    .where(eq(siteContentBlocks.id, id))
+    .get();
+  return row ?? null;
+}
+
+export async function updateContentBlock(
+  db: DB,
+  id: number,
+  updates: Partial<Pick<SiteContentBlockRow, "name" | "html" | "sortOrder">>,
+): Promise<void> {
+  await db
+    .update(siteContentBlocks)
+    .set({ ...updates, updatedAt: nowSql() })
+    .where(eq(siteContentBlocks.id, id))
+    .run();
+}
+
+export async function deleteContentBlock(db: DB, id: number): Promise<void> {
+  await db.delete(siteContentBlocks).where(eq(siteContentBlocks.id, id)).run();
+}
+
+// ─── Bulk import ─────────────────────────────────────────────────────────────
+
+export type ImportItem =
+  | { kind: "header"; html: string }
+  | { kind: "footer"; html: string }
+  | { kind: "page"; title: string; slug: string; html: string }
+  | { kind: "block"; name: string; html: string };
+
+export interface ImportResult {
+  header: boolean;
+  footer: boolean;
+  pages: number;
+  blocks: number;
+}
+
+/**
+ * Apply a batch of uploaded files to a project in one call. Header/footer
+ * overwrite the project's universal blocks; pages and content blocks are
+ * appended (ordered after existing ones).
+ */
+export async function importItems(
+  db: DB,
+  projectId: number,
+  items: ImportItem[],
+): Promise<ImportResult> {
+  const result: ImportResult = { header: false, footer: false, pages: 0, blocks: 0 };
+  const existingPages = await pagesFor(db, projectId);
+  const existingBlocks = await blocksFor(db, projectId);
+  let pageOrder = existingPages.length;
+  let blockOrder = existingBlocks.length;
+  const chrome: Partial<Pick<SiteProjectRow, "headerHtml" | "footerHtml">> = {};
+
+  for (const item of items) {
+    if (item.kind === "header") {
+      chrome.headerHtml = item.html;
+      result.header = true;
+    } else if (item.kind === "footer") {
+      chrome.footerHtml = item.html;
+      result.footer = true;
+    } else if (item.kind === "page") {
+      await createPage(db, {
+        projectId,
+        title: item.title,
+        slug: item.slug,
+        bodyHtml: item.html,
+        navOrder: pageOrder++,
+      });
+      result.pages++;
+    } else {
+      await createContentBlock(db, {
+        projectId,
+        name: item.name,
+        html: item.html,
+        sortOrder: blockOrder++,
+      });
+      result.blocks++;
+    }
+  }
+  if (Object.keys(chrome).length) await updateProjectChrome(db, projectId, chrome);
+  return result;
 }
 
 function nowSql() {
