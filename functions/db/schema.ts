@@ -176,6 +176,27 @@ export const clientUsers = sqliteTable("client_users", {
 export type ClientUserRow = typeof clientUsers.$inferSelect;
 export type NewClientUserRow = typeof clientUsers.$inferInsert;
 
+export const clientSubmissions = sqliteTable("client_submissions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  clientId: integer("client_id").notNull().references(() => clients.id),
+  clientUserId: integer("client_user_id")
+    .notNull()
+    .references(() => clientUsers.id),
+  type: text("type", { enum: ["request", "event"] }).notNull(),
+  subject: text("subject").notNull(),
+  details: text("details").notNull(),
+  eventDate: text("event_date"),
+  location: text("location"),
+  status: text("status", { enum: ["new", "in_progress", "done"] })
+    .notNull()
+    .default("new"),
+  adminNotes: text("admin_notes"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type ClientSubmissionRow = typeof clientSubmissions.$inferSelect;
+export type NewClientSubmissionRow = typeof clientSubmissions.$inferInsert;
+
 // ─── Finance dashboard ───────────────────────────────────────────────────
 
 export const paymentMethods = sqliteTable("payment_methods", {

@@ -15,6 +15,7 @@ import { AdminClients } from "@/pages/admin/AdminClients";
 import { AdminFinance } from "@/pages/admin/AdminFinance";
 import { AdminTimeClock } from "@/pages/admin/AdminTimeClock";
 import { AdminTimeOff } from "@/pages/admin/AdminTimeOff";
+import { AdminRequests } from "@/pages/admin/AdminRequests";
 import { CalculatorPage } from "@/pages/Calculator";
 import { ContentPage } from "@/pages/Content";
 import { TasksPage } from "@/pages/Tasks";
@@ -55,6 +56,11 @@ function App() {
           <Route path="/admin/clients">
             <AdminLayout>
               <AdminClients />
+            </AdminLayout>
+          </Route>
+          <Route path="/admin/requests">
+            <AdminLayout>
+              <AdminRequests />
             </AdminLayout>
           </Route>
           <Route path="/admin/finance">

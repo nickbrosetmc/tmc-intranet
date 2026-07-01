@@ -5,6 +5,9 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   SESSION_SECRET: string;
   DB: D1Database;
+  // Resend transactional email (optional until configured).
+  RESEND_API_KEY?: string;
+  RESEND_FROM?: string;
 }
 
 export type Role = "user" | "admin";
