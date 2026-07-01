@@ -11,6 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Toaster } from "@/components/ui/sonner";
+import { useUser } from "@/lib/useUser";
 import { content } from "@/lib/content";
 import { usePollingRefresh } from "@/lib/usePollingRefresh";
 import {
@@ -22,14 +24,23 @@ import {
 
 type Filter = "all" | "new" | "in_progress" | "done";
 
-export function AdminRequests() {
+export function RequestsPage() {
+  const userState = useUser();
+  const isTeam =
+    userState.status === "authenticated" && userState.user.type === "team";
+  const isAdmin =
+    userState.status === "authenticated" &&
+    userState.user.type === "team" &&
+    userState.user.role === "admin";
+
   const [rows, setRows] = useState<AdminSubmission[] | null>(null);
   const [notifyEmails, setNotifyEmails] = useState("");
   const [filter, setFilter] = useState<Filter>("new");
+  const [clientFilter, setClientFilter] = useState<number | "all">("all");
 
   async function refresh() {
     try {
-      const d = await submissions.adminList();
+      const d = await submissions.teamList();
       setRows(d.submissions);
       setNotifyEmails(d.notifyEmails);
     } catch (e) {
@@ -37,13 +48,10 @@ export function AdminRequests() {
     }
   }
   useEffect(() => {
-    void refresh();
-  }, []);
-  usePollingRefresh(refresh, { intervalMs: 45_000 });
+    if (isTeam) void refresh();
+  }, [isTeam]);
+  usePollingRefresh(refresh, { intervalMs: 45_000, enabled: isTeam });
 
-  const [clientFilter, setClientFilter] = useState<number | "all">("all");
-
-  // Distinct clients that have submitted, for the dropdown.
   const clientOptions = useMemo(() => {
     const m = new Map<number, string>();
     for (const r of rows ?? []) m.set(r.clientId, r.clientName);
@@ -63,12 +71,21 @@ export function AdminRequests() {
 
   const newCount = rows?.filter((r) => r.status === "new").length ?? 0;
 
+  if (!isTeam) {
+    return (
+      <div className="w-full max-w-4xl">
+        <p className="text-sm text-muted-foreground">
+          Sign in as a team member to view client requests.
+        </p>
+      </div>
+    );
+  }
   if (!rows) {
     return <div className="text-muted-foreground text-sm">Loading…</div>;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-4xl space-y-6">
       <header className="border-b border-tmc-gold/40 pb-4">
         <h1 className="text-2xl font-semibold tracking-tight text-tmc-dark">
           Client Requests & Events
@@ -78,7 +95,7 @@ export function AdminRequests() {
         </p>
       </header>
 
-      <NotifyEmailsCard value={notifyEmails} onSaved={refresh} />
+      {isAdmin && <NotifyEmailsCard value={notifyEmails} onSaved={refresh} />}
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex flex-wrap gap-1">
@@ -128,6 +145,8 @@ export function AdminRequests() {
           ))}
         </div>
       )}
+
+      <Toaster />
     </div>
   );
 }
@@ -159,7 +178,7 @@ function NotifyEmailsCard({
   return (
     <div className="rounded-lg border bg-card p-4 space-y-2">
       <Label className="text-xs font-semibold uppercase tracking-widest text-tmc-slate">
-        Notification recipients
+        Notification recipients (admin)
       </Label>
       <p className="text-xs text-muted-foreground">
         Comma-separated emails that get pinged when a client submits.
@@ -191,7 +210,7 @@ function SubmissionCard({
 
   async function setStatus(status: SubmissionStatus) {
     try {
-      await submissions.updateAdmin(sub.id, { status });
+      await submissions.update(sub.id, { status });
       toast.success(`Moved to ${STATUS_LABELS[status]}`);
       onChanged();
     } catch (e) {
@@ -200,7 +219,7 @@ function SubmissionCard({
   }
   async function saveNotes() {
     try {
-      await submissions.updateAdmin(sub.id, { adminNotes: notes.trim() || null });
+      await submissions.update(sub.id, { adminNotes: notes.trim() || null });
       toast.success("Notes saved.");
       onChanged();
     } catch (e) {

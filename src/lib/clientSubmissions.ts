@@ -64,16 +64,16 @@ export const submissions = {
       body: JSON.stringify(data),
     }),
 
-  // Admin
-  adminList: () =>
+  // Team (any team member can view + manage; recipient editing stays admin)
+  teamList: () =>
     jsonReq<{ submissions: AdminSubmission[]; notifyEmails: string }>(
-      "/api/admin/client-submissions",
+      "/api/submissions",
     ),
-  updateAdmin: (
+  update: (
     id: number,
     data: { status?: SubmissionStatus; adminNotes?: string | null },
   ) =>
-    jsonReq<{ ok: true }>(`/api/admin/client-submissions/${id}`, {
+    jsonReq<{ ok: true }>(`/api/submissions/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     }),

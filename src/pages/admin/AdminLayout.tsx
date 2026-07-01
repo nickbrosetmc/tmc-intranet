@@ -9,7 +9,6 @@ const NAV = [
   { href: "/admin/time-clock", label: "Time Clock" },
   { href: "/admin/time-off", label: "Time Off" },
   { href: "/admin/clients", label: "Clients" },
-  { href: "/admin/requests", label: "Requests" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/apps", label: "Apps" },
   { href: "/admin/groups", label: "Groups" },
