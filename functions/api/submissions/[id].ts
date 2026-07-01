@@ -1,13 +1,13 @@
-// Admin: update a client submission's status / notes.
+// Team: update a client submission's status / notes (any team member).
 
-import type { Env } from "../../../lib/auth";
-import { isResponse, requireAdmin } from "../../../lib/admin";
-import { getDb } from "../../../db";
+import type { Env } from "../../lib/auth";
+import { isResponse, requireTeamSession } from "../../lib/admin";
+import { getDb } from "../../db";
 import {
   getSubmissionById,
   updateSubmission,
-} from "../../../db/clientSubmissions";
-import type { NewClientSubmissionRow } from "../../../db/schema";
+} from "../../db/clientSubmissions";
+import type { NewClientSubmissionRow } from "../../db/schema";
 
 function parseId(p: Record<string, string | string[]>): number | null {
   const raw = p.id;
@@ -24,7 +24,7 @@ interface PatchBody {
 }
 
 export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params }) => {
-  const session = await requireAdmin(request, env);
+  const session = await requireTeamSession(request, env);
   if (isResponse(session)) return session;
   const id = parseId(params);
   if (!id) return Response.json({ error: "Invalid id" }, { status: 400 });

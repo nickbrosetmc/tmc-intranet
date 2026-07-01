@@ -116,7 +116,7 @@ async function notifyTeam(
         <p style="color:#404E5C;margin:0 0 16px">${esc(clientName)} submitted a ${esc(label)} through the portal.</p>
         <table style="border-collapse:collapse;font-size:14px;margin-bottom:16px">${rows.join("")}</table>
         <div style="background:#F1F1F0;border-radius:8px;padding:12px 14px;font-size:14px;white-space:pre-wrap">${esc(s.details)}</div>
-        <p style="margin-top:16px"><a href="https://portal.tmctechhub.com/admin/requests" style="color:#A8884E;font-weight:600">View in the portal →</a></p>
+        <p style="margin-top:16px"><a href="https://portal.tmctechhub.com/requests" style="color:#A8884E;font-weight:600">View in the portal →</a></p>
       </div>`;
 
     await sendEmail(env, {
