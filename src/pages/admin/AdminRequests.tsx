@@ -41,11 +41,25 @@ export function AdminRequests() {
   }, []);
   usePollingRefresh(refresh, { intervalMs: 45_000 });
 
+  const [clientFilter, setClientFilter] = useState<number | "all">("all");
+
+  // Distinct clients that have submitted, for the dropdown.
+  const clientOptions = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const r of rows ?? []) m.set(r.clientId, r.clientName);
+    return [...m.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [rows]);
+
   const filtered = useMemo(() => {
     if (!rows) return [];
-    if (filter === "all") return rows;
-    return rows.filter((r) => r.status === filter);
-  }, [rows, filter]);
+    return rows.filter(
+      (r) =>
+        (filter === "all" || r.status === filter) &&
+        (clientFilter === "all" || r.clientId === clientFilter),
+    );
+  }, [rows, filter, clientFilter]);
 
   const newCount = rows?.filter((r) => r.status === "new").length ?? 0;
 
@@ -66,21 +80,41 @@ export function AdminRequests() {
 
       <NotifyEmailsCard value={notifyEmails} onSaved={refresh} />
 
-      <div className="flex flex-wrap gap-1">
-        {(["new", "in_progress", "done", "all"] as Filter[]).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-              filter === f
-                ? "bg-tmc-gold/30 text-tmc-dark"
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
-            }`}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap gap-1">
+          {(["new", "in_progress", "done", "all"] as Filter[]).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                filter === f
+                  ? "bg-tmc-gold/30 text-tmc-dark"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              {f === "all" ? "All" : STATUS_LABELS[f]}
+              {f === "new" && newCount > 0 ? ` (${newCount})` : ""}
+            </button>
+          ))}
+        </div>
+        <div className="ml-auto min-w-[200px]">
+          <Select
+            value={clientFilter === "all" ? "all" : String(clientFilter)}
+            onValueChange={(v) => setClientFilter(v === "all" ? "all" : Number(v))}
           >
-            {f === "all" ? "All" : STATUS_LABELS[f]}
-            {f === "new" && newCount > 0 ? ` (${newCount})` : ""}
-          </button>
-        ))}
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All clients</SelectItem>
+              {clientOptions.map((c) => (
+                <SelectItem key={c.id} value={String(c.id)}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {filtered.length === 0 ? (
