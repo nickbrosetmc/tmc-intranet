@@ -59,6 +59,8 @@ export interface SiteEditorOptions {
   project: ProjectWithPages;
   uploadImage: (file: File) => Promise<string>;
   onChange: () => void;
+  /** Called when a nav link inside the preview switches the visible view. */
+  onNavigate?: (key: string) => void;
 }
 
 export class SiteEditor {
@@ -66,6 +68,7 @@ export class SiteEditor {
   private project: ProjectWithPages;
   private uploadImage: (file: File) => Promise<string>;
   private onChange: () => void;
+  private onNavigate?: (key: string) => void;
 
   private headerHost!: HTMLElement;
   private footerHost!: HTMLElement;
@@ -85,6 +88,7 @@ export class SiteEditor {
     this.project = opts.project;
     this.uploadImage = opts.uploadImage;
     this.onChange = opts.onChange;
+    this.onNavigate = opts.onNavigate;
   }
 
   mount() {
@@ -117,6 +121,36 @@ export class SiteEditor {
 
     this.footerHost.innerHTML = this.project.project.footerHtml;
     this.wire(this.footerHost, "Footer", "footer");
+
+    // Block ALL real navigation inside the preview. Links would otherwise
+    // navigate the iframe (relative hrefs resolve to the portal origin and
+    // load the portal inside the preview, killing the editor). Instead, a
+    // link whose href matches one of this site's page slugs switches the
+    // editor to that page — so the site's nav still "works" in the preview.
+    doc.addEventListener(
+      "click",
+      (e) => {
+        const target = e.target as HTMLElement | null;
+        const anchor = target?.closest?.("a");
+        if (!anchor) return;
+        e.preventDefault();
+        if (anchor.closest("[data-edit]")) return; // editing click, not navigation
+        const href = anchor.getAttribute("href") ?? "";
+        const path = (href.split("#")[0].split("?")[0].replace(/\/+$/, "") || "/").toLowerCase();
+        const page = this.project.pages.find((p) => {
+          const slug = (p.slug.replace(/\/+$/, "") || "/").toLowerCase();
+          return slug === path || slug === "/" + path.replace(/^\//, "");
+        });
+        if (page) {
+          const key = `page:${page.id}`;
+          this.showView(key);
+          this.onNavigate?.(key);
+        }
+      },
+      true,
+    );
+    // Forms in the preview must never actually submit.
+    doc.addEventListener("submit", (e) => e.preventDefault(), true);
 
     if (this.viewOrder[0]) this.showView(this.viewOrder[0]);
   }

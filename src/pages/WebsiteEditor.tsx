@@ -73,6 +73,7 @@ function TeamEditor({ projectId }: { projectId: number }) {
       project: data,
       uploadImage: async (file) => (await adminSite.uploadAsset(projectId, file)).url,
       onChange: () => setChanges(ed.changeList()),
+      onNavigate: (key) => setActiveKey(key),
     });
     ed.mount();
     setEditor(ed);

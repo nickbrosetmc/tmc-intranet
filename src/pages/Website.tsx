@@ -93,6 +93,7 @@ function ClientEditor({ user }: { user: ClientUser }) {
       project: data,
       uploadImage: async (file) => (await clientSite.uploadAsset(file)).url,
       onChange: () => setChanges(ed.changeList()),
+      onNavigate: (key) => setActiveKey(key),
     });
     ed.mount();
     setEditor(ed);
