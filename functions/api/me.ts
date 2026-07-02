@@ -5,6 +5,7 @@ import {
   type Env,
 } from "../lib/auth";
 import { getClientById, getDb, getUserByEmail } from "../db";
+import { listMembershipsForUser } from "../db/admin";
 
 // This endpoint is the app's "who am I" call on every page load. We use it
 // to slide the session forward: each load re-issues the cookie with a fresh
@@ -19,15 +20,33 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
 
   if (session.type === "client") {
     const db = getDb(env.DB);
-    const client = await getClientById(db, session.clientId);
-    const cookie = await createSessionCookie(session, env); // slide
+    const memberships = await listMembershipsForUser(db, session.clientUserId);
+    // Heal a stale active client (membership revoked / client deactivated)
+    // by falling back to the first remaining membership.
+    let activeId = session.clientId;
+    if (!memberships.some((m) => m.clientId === activeId)) {
+      if (memberships.length === 0) {
+        return new Response(JSON.stringify({ error: "Not authenticated" }), {
+          status: 401,
+          headers: {
+            "Content-Type": "application/json",
+            "Set-Cookie": clearSessionCookie(),
+          },
+        });
+      }
+      activeId = memberships[0].clientId;
+    }
+    const client = await getClientById(db, activeId);
+    const fresh = { ...session, clientId: activeId };
+    const cookie = await createSessionCookie(fresh, env); // slide
     return new Response(
       JSON.stringify({
         type: "client",
         name: session.name,
         username: session.username,
         clientUserId: session.clientUserId,
-        clientId: session.clientId,
+        clientId: activeId,
+        memberships,
         client: client
           ? {
               id: client.id,

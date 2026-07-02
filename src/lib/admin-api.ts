@@ -132,6 +132,7 @@ export interface AdminClientUser {
   clientId: number;
   username: string;
   name: string;
+  email: string | null;
   isActive: boolean;
   createdAt: string;
   lastSignedIn: string | null;
@@ -167,21 +168,38 @@ export const adminClients = {
     ),
   createUser: (
     clientId: number,
-    data: { username: string; password: string; name: string },
+    data: { username: string; password: string; name: string; email?: string },
   ) =>
-    jsonRequest<{ user: AdminClientUser }>(`/api/admin/clients/${clientId}/users`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  updateUser: (userId: number, data: { name?: string; password?: string }) =>
+    jsonRequest<{ user: AdminClientUser; emailed?: boolean }>(
+      `/api/admin/clients/${clientId}/users`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+    ),
+  attachUser: (clientId: number, attachUsername: string) =>
+    jsonRequest<{ user: AdminClientUser; attached: true }>(
+      `/api/admin/clients/${clientId}/users`,
+      {
+        method: "POST",
+        body: JSON.stringify({ attachUsername }),
+      },
+    ),
+  updateUser: (
+    userId: number,
+    data: { name?: string; password?: string; email?: string | null },
+  ) =>
     jsonRequest<{ ok: true }>(`/api/admin/client-users/${userId}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
-  removeUser: (userId: number) =>
-    jsonRequest<{ ok: true }>(`/api/admin/client-users/${userId}`, {
-      method: "DELETE",
-    }),
+  removeUser: (userId: number, clientId?: number) =>
+    jsonRequest<{ ok: true }>(
+      `/api/admin/client-users/${userId}${clientId ? `?clientId=${clientId}` : ""}`,
+      {
+        method: "DELETE",
+      },
+    ),
 };
 
 // Announcements

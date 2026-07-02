@@ -21,6 +21,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { ClientUser } from "@/lib/useUser";
 import {
   STATUS_LABELS,
@@ -107,6 +114,14 @@ export function ClientHome({ user }: { user: ClientUser }) {
         <p className="text-sm text-muted-foreground">
           {client.name}'s client portal — everything TMC has set up for you.
         </p>
+        {user.memberships.length > 1 && (
+          <div className="flex justify-center pt-1">
+            <AccountSwitcher
+              memberships={user.memberships}
+              activeClientId={user.clientId}
+            />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
@@ -166,6 +181,55 @@ export function ClientHome({ user }: { user: ClientUser }) {
         </section>
       )}
     </div>
+  );
+}
+
+function AccountSwitcher({
+  memberships,
+  activeClientId,
+}: {
+  memberships: { clientId: number; name: string }[];
+  activeClientId: number;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function switchTo(clientId: number) {
+    if (clientId === activeClientId || busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/auth/switch-client", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `${res.status}`);
+      }
+      window.location.reload();
+    } catch (e) {
+      toast.error(`Couldn't switch accounts: ${(e as Error).message}`);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Select
+      value={String(activeClientId)}
+      onValueChange={(v) => void switchTo(Number(v))}
+    >
+      <SelectTrigger className="h-8 w-56 text-sm" disabled={busy}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {memberships.map((m) => (
+          <SelectItem key={m.clientId} value={String(m.clientId)}>
+            {m.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
