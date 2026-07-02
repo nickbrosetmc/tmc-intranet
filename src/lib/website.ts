@@ -206,6 +206,21 @@ export const adminSite = {
   deleteContentBlock: (id: number) =>
     json<{ ok: true }>(`/api/admin/website/content-blocks/${id}`, { method: "DELETE" }),
 
+  async uploadAsset(projectId: number, file: File): Promise<{ key: string; url: string }> {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`/api/admin/website/projects/${projectId}/assets`, {
+      method: "POST",
+      credentials: "same-origin",
+      body: form,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? `Upload failed (${res.status})`);
+    }
+    return (await res.json()) as { key: string; url: string };
+  },
+
   importItems: (projectId: number, items: ImportItem[]) =>
     json<{ result: { header: boolean; footer: boolean; pages: number; blocks: number } }>(
       `/api/admin/website/projects/${projectId}/import`,

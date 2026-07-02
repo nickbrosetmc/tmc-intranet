@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "wouter";
 import { toast } from "sonner";
 import {
   Copy,
@@ -233,17 +234,26 @@ function Dashboard() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {projects.map((p) => (
-              <button
+              <div
                 key={p.project.id}
-                onClick={() => setSetupId(p.project.id)}
-                className="text-left rounded-lg border bg-card p-4 hover:shadow-md transition-shadow"
+                className="rounded-lg border bg-card p-4 hover:shadow-md transition-shadow"
               >
-                <div className="font-medium text-tmc-dark">{p.project.name}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  {p.clientName} · {p.pageCount} page{p.pageCount !== 1 && "s"}
-                  {p.project.domain ? ` · ${p.project.domain}` : ""}
+                <Link href={`/websites/${p.project.id}`} className="block">
+                  <div className="font-medium text-tmc-dark">{p.project.name}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {p.clientName} · {p.pageCount} page{p.pageCount !== 1 && "s"}
+                    {p.project.domain ? ` · ${p.project.domain}` : ""}
+                  </div>
+                </Link>
+                <div className="flex gap-2 mt-3">
+                  <Button size="sm" className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark" asChild>
+                    <Link href={`/websites/${p.project.id}`}>Preview &amp; edit</Link>
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setSetupId(p.project.id)}>
+                    Files &amp; setup
+                  </Button>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}

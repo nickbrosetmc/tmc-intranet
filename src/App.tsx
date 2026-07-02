@@ -20,6 +20,7 @@ import { CalculatorPage } from "@/pages/Calculator";
 import { ContentPage } from "@/pages/Content";
 import { WebsitePage } from "@/pages/Website";
 import { WebsitesPage } from "@/pages/Websites";
+import { WebsiteEditorPage } from "@/pages/WebsiteEditor";
 import { TasksPage } from "@/pages/Tasks";
 import { TimeClockPage } from "@/pages/TimeClock";
 import { TimeOffPage } from "@/pages/TimeOff";
@@ -41,6 +42,7 @@ function App() {
           <Route path="/" component={HomePage} />
           <Route path="/website" component={WebsitePage} />
           <Route path="/websites" component={WebsitesPage} />
+          <Route path="/websites/:id" component={WebsiteEditorPage} />
           <Route path="/calculator" component={CalculatorPage} />
           <Route path="/video-calculator" component={VideoCalculatorPage} />
           <Route path="/content" component={ContentPage} />

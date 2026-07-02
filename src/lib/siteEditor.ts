@@ -185,6 +185,22 @@ export class SiteEditor {
     this.onChange();
   }
 
+  /**
+   * Cleaned, full-length HTML for every scope that has pending changes —
+   * used by the team editor to persist edits back to the project records
+   * so the DB copy stays in sync with what was pasted into GHL.
+   */
+  exportChanged(): { scope: string; code: string }[] {
+    const scopes = new Set([...this.changes.values()].map((c) => c.scope));
+    const out: { scope: string; code: string }[] = [];
+    if (scopes.has("header")) out.push({ scope: "header", code: this.clean(this.headerHost) });
+    if (scopes.has("footer")) out.push({ scope: "footer", code: this.clean(this.footerHost) });
+    for (const key of this.viewOrder) {
+      if (scopes.has(key)) out.push({ scope: key, code: this.clean(this.viewEls.get(key)!) });
+    }
+    return out;
+  }
+
   buildBlocks(): SubmissionBlock[] {
     const scopes = new Set([...this.changes.values()].map((c) => c.scope));
     const blocks: SubmissionBlock[] = [];
