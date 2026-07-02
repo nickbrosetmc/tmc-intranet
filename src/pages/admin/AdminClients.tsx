@@ -200,11 +200,14 @@ function ClientUsersPanel({
 
   return (
     <div className="space-y-3 py-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h3 className="text-sm font-semibold text-tmc-dark">
           Users at {clientName}
         </h3>
-        <ClientUserDialog mode="create" clientId={clientId} onSaved={refresh} />
+        <div className="flex gap-2">
+          <AttachUserDialog clientId={clientId} onSaved={refresh} />
+          <ClientUserDialog mode="create" clientId={clientId} onSaved={refresh} />
+        </div>
       </div>
       {users === null ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
@@ -246,8 +249,10 @@ function ClientUserRow({
 }) {
   async function remove() {
     try {
-      await adminClients.removeUser(user.id);
-      toast.success(`Removed ${user.name}`);
+      // Scoped to this client: removes the membership; the account itself
+      // is only deleted once it has no memberships left.
+      await adminClients.removeUser(user.id, clientId);
+      toast.success(`Removed ${user.name} from this client`);
       onChanged();
     } catch (e) {
       toast.error(`Delete failed: ${(e as Error).message}`);
@@ -444,6 +449,7 @@ function ClientUserDialog({ mode, clientId, user, onSaved }: ClientUserDialogPro
     name: user?.name ?? "",
     username: user?.username ?? "",
     password: "",
+    email: user?.email ?? "",
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -468,16 +474,24 @@ function ClientUserDialog({ mode, clientId, user, onSaved }: ClientUserDialogPro
     setSubmitting(true);
     try {
       if (mode === "create") {
-        await adminClients.createUser(clientId, {
+        const res = await adminClients.createUser(clientId, {
           username: form.username,
           password: form.password,
           name: form.name,
+          email: form.email.trim() || undefined,
         });
-        toast.success(`Added ${form.name}`);
+        toast.success(
+          res.emailed
+            ? `Added ${form.name} — login details emailed to ${form.email.trim()}`
+            : `Added ${form.name}`,
+        );
       } else {
-        const updates: { name?: string; password?: string } = {};
+        const updates: { name?: string; password?: string; email?: string | null } = {};
         if (form.name !== user!.name) updates.name = form.name;
         if (form.password) updates.password = form.password;
+        if (form.email.trim() !== (user!.email ?? "")) {
+          updates.email = form.email.trim() || null;
+        }
         if (Object.keys(updates).length === 0) {
           toast.info("No changes to save");
           setSubmitting(false);
@@ -487,7 +501,12 @@ function ClientUserDialog({ mode, clientId, user, onSaved }: ClientUserDialogPro
         toast.success(`Updated ${form.name}`);
       }
       setOpen(false);
-      setForm({ name: user?.name ?? "", username: user?.username ?? "", password: "" });
+      setForm({
+        name: user?.name ?? "",
+        username: user?.username ?? "",
+        password: "",
+        email: user?.email ?? "",
+      });
       onSaved();
     } catch (e) {
       toast.error(`Save failed: ${(e as Error).message}`);
@@ -548,6 +567,21 @@ function ClientUserDialog({ mode, clientId, user, onSaved }: ClientUserDialogPro
               placeholder={mode === "create" ? "min 8 characters" : "leave blank to keep"}
             />
           </div>
+          <div className="space-y-2">
+            <Label>Email {mode === "create" ? "(sends login details)" : "(optional)"}</Label>
+            <Input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              placeholder="them@theircompany.com"
+            />
+            {mode === "create" && (
+              <p className="text-[11px] text-muted-foreground">
+                If set, they get a welcome email with the portal link,
+                username, and password.
+              </p>
+            )}
+          </div>
         </div>
 
         <DialogFooter>
@@ -558,6 +592,77 @@ function ClientUserDialog({ mode, clientId, user, onSaved }: ClientUserDialogPro
             className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
           >
             {submitting ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Attach an existing user to this client ──────────────────────────────
+
+function AttachUserDialog({
+  clientId,
+  onSaved,
+}: {
+  clientId: number;
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [username, setUsername] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    if (!username.trim()) {
+      toast.error("Enter the existing user's username");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await adminClients.attachUser(clientId, username.trim());
+      toast.success(`${res.user.name} now has access to this client`);
+      setOpen(false);
+      setUsername("");
+      onSaved();
+    } catch (e) {
+      toast.error(`Attach failed: ${(e as Error).message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          Attach existing
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Attach an existing user</DialogTitle>
+          <DialogDescription>
+            Give someone who already has a portal login access to this client
+            too. They'll see an account switcher on their home page (and get
+            an email if we have their address).
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label>Their username</Label>
+          <Input
+            value={username}
+            onChange={(e) => setUsername(e.target.value.toLowerCase())}
+            placeholder="kevin.duffy"
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button
+            onClick={submit}
+            disabled={submitting}
+            className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
+          >
+            {submitting ? "Attaching…" : "Attach"}
           </Button>
         </DialogFooter>
       </DialogContent>

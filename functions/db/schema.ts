@@ -164,10 +164,13 @@ export type NewClientRow = typeof clients.$inferInsert;
 
 export const clientUsers = sqliteTable("client_users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  /** Primary client — the default active account at login. Membership in
+   *  additional clients lives in client_user_clients. */
   clientId: integer("client_id").notNull().references(() => clients.id),
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
+  email: text("email"),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   lastSignedIn: text("last_signed_in"),
@@ -175,6 +178,23 @@ export const clientUsers = sqliteTable("client_users", {
 
 export type ClientUserRow = typeof clientUsers.$inferSelect;
 export type NewClientUserRow = typeof clientUsers.$inferInsert;
+
+export const clientUserClients = sqliteTable(
+  "client_user_clients",
+  {
+    clientUserId: integer("client_user_id")
+      .notNull()
+      .references(() => clientUsers.id),
+    clientId: integer("client_id")
+      .notNull()
+      .references(() => clients.id),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.clientUserId, t.clientId] }),
+  }),
+);
+export type ClientUserClientRow = typeof clientUserClients.$inferSelect;
 
 export const clientSubmissions = sqliteTable("client_submissions", {
   id: integer("id").primaryKey({ autoIncrement: true }),

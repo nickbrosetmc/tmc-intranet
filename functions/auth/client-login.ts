@@ -8,6 +8,7 @@ import {
   getDb,
   recordClientUserSignIn,
 } from "../db";
+import { listMembershipsForUser } from "../db/admin";
 import { verifyPassword } from "../lib/passwords";
 
 interface LoginBody {
@@ -43,7 +44,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return Response.json({ error: GENERIC_ERROR }, { status: 401 });
   }
 
-  const client = await getClientById(db, user.clientId);
+  // Resolve which client account to land in: the primary if it's still an
+  // active membership, otherwise the first active membership.
+  const memberships = await listMembershipsForUser(db, user.id);
+  if (memberships.length === 0) {
+    return Response.json(
+      { error: "Your account belongs to an inactive client. Contact TMC." },
+      { status: 403 },
+    );
+  }
+  const active =
+    memberships.find((m) => m.clientId === user.clientId) ?? memberships[0];
+  const client = await getClientById(db, active.clientId);
   if (!client || !client.isActive) {
     return Response.json(
       { error: "Your account belongs to an inactive client. Contact TMC." },

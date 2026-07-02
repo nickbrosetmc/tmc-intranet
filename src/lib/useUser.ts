@@ -14,6 +14,8 @@ export interface ClientUser {
   clientId: number;
   username: string;
   name: string;
+  /** Every client account this login can access (active clients only). */
+  memberships: { clientId: number; name: string }[];
   client: {
     id: number;
     name: string;

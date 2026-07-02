@@ -19,6 +19,7 @@ const NAV: NavItem[] = [
   { href: "/tasks", label: "Tasks" },
   { href: "/content", label: "Content" },
   { href: "/requests", label: "Requests" },
+  { href: "/client-view", label: "Client View" },
   { href: "/time-clock", label: "Time Clock" },
   { href: "/time-off", label: "Time Off" },
   { href: "/calculator", label: "Package Calc" },

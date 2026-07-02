@@ -6,8 +6,11 @@ import { isResponse, requireAdmin } from "../../../lib/admin";
 import type { Env } from "../../../lib/auth";
 import { getDb } from "../../../db";
 import {
+  countMembershipsForUser,
   deleteClientUser,
   getClientUserById,
+  removeClientMembership,
+  updateClientUserEmail,
   updateClientUserName,
   updateClientUserPassword,
 } from "../../../db/admin";
@@ -23,6 +26,7 @@ function parseId(params: Record<string, string | string[]>): number | null {
 interface PatchBody {
   name?: string;
   password?: string; // if set, resets password
+  email?: string | null;
 }
 
 export const onRequestPatch: PagesFunction<Env> = async ({
@@ -65,6 +69,17 @@ export const onRequestPatch: PagesFunction<Env> = async ({
     await updateClientUserPassword(db, id, hash);
   }
 
+  if ("email" in body) {
+    const email =
+      typeof body.email === "string" && body.email.trim()
+        ? body.email.trim().toLowerCase()
+        : null;
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return Response.json({ error: "Invalid email" }, { status: 400 });
+    }
+    await updateClientUserEmail(db, id, email);
+  }
+
   return Response.json({ ok: true });
 };
 
@@ -80,6 +95,21 @@ export const onRequestDelete: PagesFunction<Env> = async ({
   if (!id) return Response.json({ error: "Invalid id" }, { status: 400 });
 
   const db = getDb(env.DB);
+
+  // ?clientId=N → remove just that client's membership; only delete the
+  // account outright once no memberships remain, so multi-client users
+  // keep their other access.
+  const url = new URL(request.url);
+  const clientIdRaw = url.searchParams.get("clientId");
+  const clientId = clientIdRaw ? Number(clientIdRaw) : null;
+  if (clientId && Number.isFinite(clientId)) {
+    await removeClientMembership(db, id, clientId);
+    const remaining = await countMembershipsForUser(db, id);
+    if (remaining > 0) {
+      return Response.json({ ok: true, removedMembership: true });
+    }
+  }
+
   await deleteClientUser(db, id);
   return Response.json({ ok: true });
 };

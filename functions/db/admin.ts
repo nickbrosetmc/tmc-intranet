@@ -5,6 +5,7 @@ import {
   apps,
   appLaunches,
   clients,
+  clientUserClients,
   clientUsers,
   users,
   type AnnouncementRow,
@@ -298,12 +299,88 @@ export async function listClientUsers(
   db: DB,
   clientId: number,
 ): Promise<ClientUserRow[]> {
+  // Membership-based: shows everyone attached to this client, whether it's
+  // their primary account or an additional one.
   return db
-    .select()
-    .from(clientUsers)
-    .where(eq(clientUsers.clientId, clientId))
+    .select({
+      id: clientUsers.id,
+      clientId: clientUsers.clientId,
+      username: clientUsers.username,
+      passwordHash: clientUsers.passwordHash,
+      name: clientUsers.name,
+      email: clientUsers.email,
+      isActive: clientUsers.isActive,
+      createdAt: clientUsers.createdAt,
+      lastSignedIn: clientUsers.lastSignedIn,
+    })
+    .from(clientUserClients)
+    .innerJoin(clientUsers, eq(clientUsers.id, clientUserClients.clientUserId))
+    .where(eq(clientUserClients.clientId, clientId))
     .orderBy(asc(clientUsers.name))
     .all();
+}
+
+// ─── Client memberships (one user, many clients) ─────────────────────────
+
+export async function addClientMembership(
+  db: DB,
+  clientUserId: number,
+  clientId: number,
+): Promise<void> {
+  await db
+    .insert(clientUserClients)
+    .values({ clientUserId, clientId })
+    .onConflictDoNothing()
+    .run();
+}
+
+export async function removeClientMembership(
+  db: DB,
+  clientUserId: number,
+  clientId: number,
+): Promise<void> {
+  await db
+    .delete(clientUserClients)
+    .where(
+      and(
+        eq(clientUserClients.clientUserId, clientUserId),
+        eq(clientUserClients.clientId, clientId),
+      ),
+    )
+    .run();
+}
+
+/** All clients this user can access (active clients only), primary first. */
+export async function listMembershipsForUser(
+  db: DB,
+  clientUserId: number,
+): Promise<{ clientId: number; name: string }[]> {
+  const rows = await db
+    .select({
+      clientId: clientUserClients.clientId,
+      name: clients.name,
+      isActive: clients.isActive,
+    })
+    .from(clientUserClients)
+    .innerJoin(clients, eq(clients.id, clientUserClients.clientId))
+    .where(eq(clientUserClients.clientUserId, clientUserId))
+    .orderBy(asc(clients.name))
+    .all();
+  return rows
+    .filter((r) => r.isActive)
+    .map((r) => ({ clientId: r.clientId, name: r.name }));
+}
+
+export async function countMembershipsForUser(
+  db: DB,
+  clientUserId: number,
+): Promise<number> {
+  const row = await db
+    .select({ c: sql<number>`COUNT(*)` })
+    .from(clientUserClients)
+    .where(eq(clientUserClients.clientUserId, clientUserId))
+    .get();
+  return row?.c ?? 0;
 }
 
 export async function getClientUserById(
@@ -320,18 +397,39 @@ export async function getClientUserById(
 
 export async function createClientUser(
   db: DB,
-  data: { clientId: number; username: string; passwordHash: string; name: string },
+  data: {
+    clientId: number;
+    username: string;
+    passwordHash: string;
+    name: string;
+    email?: string | null;
+  },
 ): Promise<ClientUserRow> {
-  return db
+  const row = await db
     .insert(clientUsers)
     .values({
       clientId: data.clientId,
       username: data.username.toLowerCase().trim(),
       passwordHash: data.passwordHash,
       name: data.name.trim(),
+      email: data.email?.trim().toLowerCase() || null,
     } satisfies NewClientUserRow)
     .returning()
     .get();
+  await addClientMembership(db, row.id, data.clientId);
+  return row;
+}
+
+export async function updateClientUserEmail(
+  db: DB,
+  id: number,
+  email: string | null,
+): Promise<void> {
+  await db
+    .update(clientUsers)
+    .set({ email: email?.trim().toLowerCase() || null })
+    .where(eq(clientUsers.id, id))
+    .run();
 }
 
 export async function updateClientUserName(

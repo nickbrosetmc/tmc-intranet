@@ -16,6 +16,7 @@ import { AdminFinance } from "@/pages/admin/AdminFinance";
 import { AdminTimeClock } from "@/pages/admin/AdminTimeClock";
 import { AdminTimeOff } from "@/pages/admin/AdminTimeOff";
 import { RequestsPage } from "@/pages/Requests";
+import { ClientViewPage } from "@/pages/ClientView";
 import { CalculatorPage } from "@/pages/Calculator";
 import { ContentPage } from "@/pages/Content";
 import { TasksPage } from "@/pages/Tasks";
@@ -42,6 +43,7 @@ function App() {
           <Route path="/content" component={ContentPage} />
           <Route path="/tasks" component={TasksPage} />
           <Route path="/requests" component={RequestsPage} />
+          <Route path="/client-view" component={ClientViewPage} />
           <Route path="/time-clock" component={TimeClockPage} />
           <Route path="/time-off" component={TimeOffPage} />
           <Route path="/admin">
