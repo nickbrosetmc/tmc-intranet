@@ -353,7 +353,7 @@ function ReviewDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[88vh] overflow-auto">
+      <DialogContent className="sm:max-w-3xl max-h-[88vh] overflow-auto">
         <DialogHeader>
           <DialogTitle>Review &amp; publish to GHL</DialogTitle>
           <DialogDescription>
@@ -566,7 +566,7 @@ function ProjectSetupDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[88vh] overflow-auto">
+      <DialogContent className="sm:max-w-3xl max-h-[88vh] overflow-auto">
         <DialogHeader>
           <DialogTitle>{data ? `Set up: ${data.project.name}` : "Set up"}</DialogTitle>
           <DialogDescription>
@@ -778,7 +778,7 @@ function BulkImportDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[88vh] overflow-auto">
+      <DialogContent className="sm:max-w-3xl max-h-[88vh] overflow-auto">
         <DialogHeader>
           <DialogTitle>Bulk import files</DialogTitle>
           <DialogDescription>
@@ -902,7 +902,7 @@ function PageEditDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[88vh] overflow-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[88vh] overflow-auto">
         <DialogHeader>
           <DialogTitle>{page ? "Edit page" : "Add page"}</DialogTitle>
         </DialogHeader>
@@ -976,7 +976,7 @@ function ContentBlockEditDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[88vh] overflow-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[88vh] overflow-auto">
         <DialogHeader>
           <DialogTitle>{block ? "Edit content block" : "Add content block"}</DialogTitle>
           <DialogDescription>
