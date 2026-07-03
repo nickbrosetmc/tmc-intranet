@@ -40,6 +40,14 @@ import {
 const FALLBACK_GHL_URL = "https://app.tmctechhub.com";
 
 export function ClientHome({ user }: { user: ClientUser }) {
+  // Block portal use until the admin-set password is replaced.
+  if (user.mustChangePassword) {
+    return <ForcePasswordChange firstName={user.name.split(" ")[0]} />;
+  }
+  return <ClientHomeInner user={user} />;
+}
+
+function ClientHomeInner({ user }: { user: ClientUser }) {
   const client = user.client;
   const [mine, setMine] = useState<ClientSubmission[]>([]);
 
@@ -465,5 +473,95 @@ function TileCard({ tile }: { tile: Tile }) {
     >
       {content}
     </a>
+  );
+}
+
+// ─── Forced password change (first login / after admin reset) ────────────
+
+function ForcePasswordChange({ firstName }: { firstName: string }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (next.length < 8) {
+      toast.error("New password must be at least 8 characters.");
+      return;
+    }
+    if (next !== confirm) {
+      toast.error("Passwords don't match.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/auth/change-password", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `${res.status}`);
+      }
+      toast.success("Password updated. Welcome in!");
+      setTimeout(() => window.location.reload(), 600);
+    } catch (e2) {
+      toast.error(`${(e2 as Error).message}`);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="w-full max-w-sm mx-auto space-y-6">
+      <div className="text-center space-y-2">
+        <h1 className="text-2xl font-semibold tracking-tight text-tmc-dark">
+          Welcome, {firstName}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Before you get started, set your own password. The one you signed
+          in with was chosen by TMC — pick something only you know.
+        </p>
+      </div>
+      <form onSubmit={submit} className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="space-y-2">
+          <Label>Current password</Label>
+          <Input
+            type="password"
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            autoComplete="current-password"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>New password</Label>
+          <Input
+            type="password"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            placeholder="min 8 characters"
+            autoComplete="new-password"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Confirm new password</Label>
+          <Input
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            autoComplete="new-password"
+          />
+        </div>
+        <Button
+          type="submit"
+          disabled={busy}
+          className="w-full bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
+        >
+          {busy ? "Saving…" : "Set password & continue"}
+        </Button>
+      </form>
+    </div>
   );
 }

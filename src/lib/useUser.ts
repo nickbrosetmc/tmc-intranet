@@ -16,6 +16,8 @@ export interface ClientUser {
   name: string;
   /** Every client account this login can access (active clients only). */
   memberships: { clientId: number; name: string }[];
+  /** True when the portal must force a password change before use. */
+  mustChangePassword: boolean;
   client: {
     id: number;
     name: string;

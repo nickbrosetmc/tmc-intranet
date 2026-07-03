@@ -17,6 +17,7 @@ import { AdminTimeClock } from "@/pages/admin/AdminTimeClock";
 import { AdminTimeOff } from "@/pages/admin/AdminTimeOff";
 import { RequestsPage } from "@/pages/Requests";
 import { ClientViewPage } from "@/pages/ClientView";
+import { ResetPasswordPage } from "@/pages/ResetPassword";
 import { CalculatorPage } from "@/pages/Calculator";
 import { ContentPage } from "@/pages/Content";
 import { WebsitePage } from "@/pages/Website";
@@ -41,6 +42,7 @@ function App() {
       <main className="flex-1 flex flex-col items-center px-3 sm:px-6 py-6 sm:py-12">
         <Switch>
           <Route path="/" component={HomePage} />
+          <Route path="/reset-password" component={ResetPasswordPage} />
           <Route path="/website" component={WebsitePage} />
           <Route path="/websites" component={WebsitesPage} />
           <Route path="/websites/:id" component={WebsiteEditorPage} />

@@ -172,6 +172,12 @@ export const clientUsers = sqliteTable("client_users", {
   name: text("name").notNull(),
   email: text("email"),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  mustChangePassword: integer("must_change_password", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  resetTokenHash: text("reset_token_hash"),
+  resetTokenExpires: text("reset_token_expires"),
+  resetRequestedAt: text("reset_requested_at"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   lastSignedIn: text("last_signed_in"),
 });

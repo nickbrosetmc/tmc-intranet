@@ -66,7 +66,8 @@ export const onRequestPatch: PagesFunction<Env> = async ({
       );
     }
     const hash = await hashPassword(body.password);
-    await updateClientUserPassword(db, id, hash);
+    // Admin-set password → force the user to pick their own next login.
+    await updateClientUserPassword(db, id, hash, { mustChangePassword: true });
   }
 
   if ("email" in body) {

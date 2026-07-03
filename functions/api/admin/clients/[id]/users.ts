@@ -173,7 +173,8 @@ function welcomeHtml(
         </a>
       </p>
       <p style="color:#404E5C;font-size:12px">
-        Keep this email safe, or ask TMC to reset your password anytime.
+        You'll be asked to choose your own password the first time you sign
+        in. Forgot it later? Use "Forgot password?" on the sign-in page.
       </p>
     </div>`;
 }

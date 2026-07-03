@@ -310,6 +310,10 @@ export async function listClientUsers(
       name: clientUsers.name,
       email: clientUsers.email,
       isActive: clientUsers.isActive,
+      mustChangePassword: clientUsers.mustChangePassword,
+      resetTokenHash: clientUsers.resetTokenHash,
+      resetTokenExpires: clientUsers.resetTokenExpires,
+      resetRequestedAt: clientUsers.resetRequestedAt,
       createdAt: clientUsers.createdAt,
       lastSignedIn: clientUsers.lastSignedIn,
     })
@@ -413,6 +417,9 @@ export async function createClientUser(
       passwordHash: data.passwordHash,
       name: data.name.trim(),
       email: data.email?.trim().toLowerCase() || null,
+      // The initial password is admin-chosen (and emailed), so require the
+      // user to set their own on first sign-in.
+      mustChangePassword: true,
     } satisfies NewClientUserRow)
     .returning()
     .get();
@@ -448,12 +455,51 @@ export async function updateClientUserPassword(
   db: DB,
   id: number,
   passwordHash: string,
+  opts: { mustChangePassword?: boolean } = {},
 ): Promise<void> {
   await db
     .update(clientUsers)
-    .set({ passwordHash })
+    .set({
+      passwordHash,
+      mustChangePassword: opts.mustChangePassword ?? false,
+      // Any password change invalidates outstanding reset links.
+      resetTokenHash: null,
+      resetTokenExpires: null,
+    })
     .where(eq(clientUsers.id, id))
     .run();
+}
+
+// ─── Password reset tokens ───────────────────────────────────────────────
+
+export async function setClientUserResetToken(
+  db: DB,
+  id: number,
+  tokenHash: string,
+  expiresIso: string,
+  requestedAtIso: string,
+): Promise<void> {
+  await db
+    .update(clientUsers)
+    .set({
+      resetTokenHash: tokenHash,
+      resetTokenExpires: expiresIso,
+      resetRequestedAt: requestedAtIso,
+    })
+    .where(eq(clientUsers.id, id))
+    .run();
+}
+
+export async function getClientUserByResetTokenHash(
+  db: DB,
+  tokenHash: string,
+): Promise<ClientUserRow | null> {
+  const row = await db
+    .select()
+    .from(clientUsers)
+    .where(eq(clientUsers.resetTokenHash, tokenHash))
+    .get();
+  return row ?? null;
 }
 
 export async function deleteClientUser(db: DB, id: number): Promise<void> {

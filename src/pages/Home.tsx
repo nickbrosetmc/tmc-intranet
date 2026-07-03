@@ -1,8 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { AnnouncementsPanel } from "@/components/AnnouncementsPanel";
 import { AppGrid } from "@/components/AppGrid";
@@ -148,7 +157,84 @@ function ClientSignInCard() {
       >
         {submitting ? "Signing in…" : "Sign in"}
       </Button>
+      <div className="text-center">
+        <ForgotPasswordDialog initialUsername={username} />
+      </div>
     </form>
+  );
+}
+
+function ForgotPasswordDialog({ initialUsername }: { initialUsername: string }) {
+  const [open, setOpen] = useState(false);
+  const [username, setUsername] = useState(initialUsername);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (open) setUsername(initialUsername);
+  }, [open, initialUsername]);
+
+  async function submit() {
+    if (!username.trim()) {
+      toast.error("Enter your username first.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username.trim() }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { message?: string };
+      toast.success(
+        body.message ??
+          "If that account exists and has an email on file, a reset link is on its way.",
+      );
+      setOpen(false);
+    } catch (e) {
+      toast.error(`Request failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="text-xs text-tmc-gold-dark hover:underline"
+        >
+          Forgot password?
+        </button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Reset your password</DialogTitle>
+          <DialogDescription>
+            Enter your username and we'll email a reset link to the address
+            TMC has on file for you.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="fp-username">Username</Label>
+          <Input
+            id="fp-username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={busy}>
+            {busy ? "Sending…" : "Send reset link"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
