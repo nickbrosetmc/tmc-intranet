@@ -5,7 +5,7 @@ import {
   type Env,
 } from "../lib/auth";
 import { getClientById, getDb, getUserByEmail } from "../db";
-import { listMembershipsForUser } from "../db/admin";
+import { getClientUserById, listMembershipsForUser } from "../db/admin";
 
 // This endpoint is the app's "who am I" call on every page load. We use it
 // to slide the session forward: each load re-issues the cookie with a fresh
@@ -20,7 +20,19 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
 
   if (session.type === "client") {
     const db = getDb(env.DB);
-    const memberships = await listMembershipsForUser(db, session.clientUserId);
+    const [memberships, clientUser] = await Promise.all([
+      listMembershipsForUser(db, session.clientUserId),
+      getClientUserById(db, session.clientUserId),
+    ]);
+    if (!clientUser || !clientUser.isActive) {
+      return new Response(JSON.stringify({ error: "Not authenticated" }), {
+        status: 401,
+        headers: {
+          "Content-Type": "application/json",
+          "Set-Cookie": clearSessionCookie(),
+        },
+      });
+    }
     // Heal a stale active client (membership revoked / client deactivated)
     // by falling back to the first remaining membership.
     let activeId = session.clientId;
@@ -47,6 +59,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
         clientUserId: session.clientUserId,
         clientId: activeId,
         memberships,
+        mustChangePassword: clientUser.mustChangePassword,
         client: client
           ? {
               id: client.id,
