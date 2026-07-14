@@ -21,6 +21,18 @@ export const users = sqliteTable("users", {
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 
+export const apiTokens = sqliteTable("api_tokens", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  label: text("label").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  scope: text("scope", { enum: ["read", "write"] }).notNull().default("read"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  lastUsedAt: text("last_used_at"),
+  revokedAt: text("revoked_at"),
+});
+export type ApiTokenRow = typeof apiTokens.$inferSelect;
+
 export const appGroups = sqliteTable("app_groups", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),

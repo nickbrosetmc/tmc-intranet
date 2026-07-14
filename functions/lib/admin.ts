@@ -5,6 +5,7 @@ import {
   type TeamSessionUser,
 } from "./auth";
 import { getDb, getUserByEmail } from "../db";
+import { resolveApiToken } from "./apiTokens";
 
 /**
  * Team-only gate (any team member, user or admin).
@@ -20,6 +21,34 @@ export async function requireTeamSession(
   request: Request,
   env: Env,
 ): Promise<TeamSessionUser | Response> {
+  // ── Bearer token path (agents / scripts) ──
+  const authz = request.headers.get("Authorization");
+  if (authz?.startsWith("Bearer tmc_")) {
+    const db = getDb(env.DB);
+    const resolved = await resolveApiToken(db, authz.slice("Bearer ".length));
+    if (!resolved) {
+      return Response.json(
+        { error: "Invalid or revoked API token" },
+        { status: 401 },
+      );
+    }
+    // Read-scoped tokens may only perform safe methods.
+    const method = request.method.toUpperCase();
+    if (resolved.scope === "read" && method !== "GET" && method !== "HEAD") {
+      return Response.json(
+        { error: "This API token is read-only" },
+        { status: 403 },
+      );
+    }
+    return {
+      type: "team",
+      email: resolved.user.email,
+      name: resolved.user.name ?? resolved.user.email,
+      role: resolved.user.role,
+    };
+  }
+
+  // ── Cookie session path (humans in the browser) ──
   const session = await getSession(request, env);
   if (!session) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });

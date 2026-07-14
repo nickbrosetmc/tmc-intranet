@@ -101,6 +101,189 @@ export function AdminUsers() {
           </TableBody>
         </Table>
       </div>
+
+      <ApiTokensCard />
+    </div>
+  );
+}
+
+// ─── API tokens (agent / script access) ───────────────────────────────────
+
+interface ApiTokenInfo {
+  id: number;
+  label: string;
+  scope: "read" | "write";
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  ownerEmail: string;
+}
+
+function ApiTokensCard() {
+  const [tokens, setTokens] = useState<ApiTokenInfo[] | null>(null);
+  const [label, setLabel] = useState("");
+  const [scope, setScope] = useState<"read" | "write">("read");
+  const [minted, setMinted] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    try {
+      const res = await fetch("/api/admin/tokens", { credentials: "same-origin" });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const body = (await res.json()) as { tokens: ApiTokenInfo[] };
+      setTokens(body.tokens);
+    } catch (e) {
+      toast.error(`Failed to load tokens: ${(e as Error).message}`);
+    }
+  }
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  async function mint() {
+    if (!label.trim()) {
+      toast.error("Give the token a label (e.g. chief-of-staff).");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/tokens", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: label.trim(), scope }),
+      });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(b.error ?? `${res.status}`);
+      }
+      const body = (await res.json()) as { token: string };
+      setMinted(body.token);
+      setLabel("");
+      void refresh();
+    } catch (e) {
+      toast.error(`Mint failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revoke(id: number) {
+    try {
+      await fetch(`/api/admin/tokens/${id}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      toast.success("Token revoked.");
+      void refresh();
+    } catch (e) {
+      toast.error(`Revoke failed: ${(e as Error).message}`);
+    }
+  }
+
+  return (
+    <div className="rounded-md border bg-card p-4 space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-tmc-slate">
+          API tokens
+        </h2>
+        <p className="text-xs text-muted-foreground mt-1">
+          For agents and scripts (e.g. a Claude assistant). Calls the same
+          API as the portal with <code className="font-mono">Authorization:
+          Bearer tmc_…</code>. Read scope = view only; write can update.
+        </p>
+      </div>
+
+      <div className="flex items-end gap-2 flex-wrap">
+        <div className="space-y-1">
+          <Label className="text-[11px] text-muted-foreground">Label</Label>
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="chief-of-staff"
+            className="h-8 w-44 text-sm"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[11px] text-muted-foreground">Scope</Label>
+          <Select value={scope} onValueChange={(v) => setScope(v as "read" | "write")}>
+            <SelectTrigger className="h-8 w-32 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="read">Read-only</SelectItem>
+              <SelectItem value="write">Read + write</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button size="sm" onClick={mint} disabled={busy}>
+          {busy ? "Minting…" : "Mint token"}
+        </Button>
+      </div>
+
+      {minted && (
+        <div className="rounded-md bg-tmc-dark text-tmc-gold p-3 space-y-1">
+          <div className="text-[11px] uppercase tracking-widest">
+            Copy this now — it won't be shown again
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="font-mono text-xs break-all flex-1">{minted}</code>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => {
+                void navigator.clipboard.writeText(minted);
+                toast.success("Copied.");
+              }}
+            >
+              Copy
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {tokens && tokens.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Label</TableHead>
+              <TableHead>Scope</TableHead>
+              <TableHead>Owner</TableHead>
+              <TableHead>Last used</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {tokens.map((t) => (
+              <TableRow key={t.id} className={t.revokedAt ? "opacity-50" : undefined}>
+                <TableCell className="font-medium">{t.label}</TableCell>
+                <TableCell className="text-sm">{t.scope}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">{t.ownerEmail}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {t.revokedAt
+                    ? "revoked"
+                    : t.lastUsedAt
+                      ? new Date(t.lastUsedAt.replace(" ", "T") + "Z").toLocaleString()
+                      : "never"}
+                </TableCell>
+                <TableCell className="text-right">
+                  {!t.revokedAt && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive"
+                      onClick={() => revoke(t.id)}
+                    >
+                      Revoke
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
     </div>
   );
 }
