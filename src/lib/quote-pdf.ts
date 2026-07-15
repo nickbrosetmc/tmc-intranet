@@ -11,6 +11,8 @@ import tmcLogo from "@/assets/tmc-logo.png";
 export interface QuoteLineItem {
   label: string;
   amount: number;
+  /** Optional "what's included" bullets rendered under the label. */
+  sublines?: string[];
 }
 
 export interface QuoteSection {
@@ -38,6 +40,9 @@ export interface QuoteDoc {
   priceUnit?: string;
   /** Optional smaller note under the price (e.g. project range). */
   priceNote?: string;
+  /** Optional one-time charge shown after the monthly summary (e.g.
+   *  website design). When final < standard the standard shows struck. */
+  oneTime?: { label: string; standard: number; final: number };
   /** Optional fine print at the bottom. */
   footnote?: string;
 }
@@ -180,7 +185,16 @@ function buildHtml(doc: QuoteDoc, logoUrl: string): string {
             .map(
               (it) => `
             <tr>
-              <td class="line-label">${esc(it.label)}</td>
+              <td class="line-label">
+                ${esc(it.label)}
+                ${
+                  it.sublines && it.sublines.length
+                    ? `<ul class="sublines">${it.sublines
+                        .map((sl) => `<li>${esc(sl)}</li>`)
+                        .join("")}</ul>`
+                    : ""
+                }
+              </td>
               ${
                 s.bulletsOnly
                   ? `<td class="line-check">✓</td>`
@@ -234,6 +248,20 @@ function buildHtml(doc: QuoteDoc, logoUrl: string): string {
 
   const priceNote = doc.priceNote
     ? `<div class="price-note">${esc(doc.priceNote)}</div>`
+    : "";
+
+  const oneTimeBlock = doc.oneTime
+    ? `<div class="price-row" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--light-gray)">
+        <span class="price-row-label">${esc(doc.oneTime.label)} (one-time)</span>
+        <span style="font-variant-numeric:tabular-nums">
+          ${
+            doc.oneTime.final < doc.oneTime.standard
+              ? `<span style="text-decoration:line-through;color:var(--slate);font-size:14px">${money(doc.oneTime.standard)}</span>
+                 <span style="font-family:Montserrat,sans-serif;font-weight:800;font-size:20px;color:var(--gold-dark);margin-left:8px">${money(doc.oneTime.final)}</span>`
+              : `<span style="font-family:Montserrat,sans-serif;font-weight:800;font-size:20px;color:var(--gold-dark)">${money(doc.oneTime.final)}</span>`
+          }
+        </span>
+      </div>`
     : "";
 
   return `<!doctype html>
@@ -342,6 +370,9 @@ function buildHtml(doc: QuoteDoc, logoUrl: string): string {
   }
   .line-amt.disc { color: var(--gold-dark); }
   .line-check { text-align: right; color: var(--gold-dark); font-weight: 700; }
+  ul.sublines { list-style: none; margin: 4px 0 2px; }
+  ul.sublines li { font-size: 12px; color: var(--slate); padding: 1.5px 0 1.5px 14px; position: relative; }
+  ul.sublines li::before { content: "•"; color: var(--gold-dark); position: absolute; left: 2px; }
   .discounts .block-heading { color: var(--gold-dark); border-bottom-color: var(--gold); }
 
   /* Price summary */
@@ -451,6 +482,7 @@ function buildHtml(doc: QuoteDoc, logoUrl: string): string {
 
     <div class="summary">
       ${priceBlock}
+      ${oneTimeBlock}
       ${priceNote}
     </div>
 

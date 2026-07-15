@@ -22,14 +22,15 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { useUser } from "@/lib/useUser";
 import {
-  allocatePackagePrice,
   applyPackageDiscount,
   computePackage,
   DEFAULT_PACKAGE,
   fetchSettings,
   PACKAGE_PRESETS,
   patchSettings,
+  proposalServiceLines,
   TIERS,
+  WEBSITE_DESIGN_STANDARD,
   type CalculatorSettings,
   type PackageState,
   type Tier,
@@ -41,7 +42,22 @@ const PKG_STORAGE_KEY = "tmc.calculator.package.v1";
 function loadPackage(): PackageState {
   try {
     const raw = localStorage.getItem(PKG_STORAGE_KEY);
-    if (raw) return { ...DEFAULT_PACKAGE, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PackageState>;
+      // Deep-merge each service so states saved before a shape change
+      // (e.g. the flat website model) pick up new fields from defaults.
+      return {
+        ...DEFAULT_PACKAGE,
+        ...parsed,
+        social: { ...DEFAULT_PACKAGE.social, ...(parsed.social ?? {}) },
+        seo: { ...DEFAULT_PACKAGE.seo, ...(parsed.seo ?? {}) },
+        ppc: { ...DEFAULT_PACKAGE.ppc, ...(parsed.ppc ?? {}) },
+        web: { ...DEFAULT_PACKAGE.web, ...(parsed.web ?? {}) },
+        email: { ...DEFAULT_PACKAGE.email, ...(parsed.email ?? {}) },
+        video: { ...DEFAULT_PACKAGE.video, ...(parsed.video ?? {}) },
+        custom: { ...DEFAULT_PACKAGE.custom, ...(parsed.custom ?? {}) },
+      };
+    }
   } catch {
     /* ignore */
   }
@@ -449,6 +465,20 @@ function ServiceSocial({
         step={0.5}
         onChange={(v) => setPkg((p) => ({ ...p, social: { ...p.social, strategyHours: v } }))}
       />
+      <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={s.onSiteFilming}
+          onChange={(e) =>
+            setPkg((p) => ({ ...p, social: { ...p.social, onSiteFilming: e.target.checked } }))
+          }
+          className="accent-tmc-gold-dark w-4 h-4"
+        />
+        <span>
+          Include on-site filming & editing
+          <span className="text-muted-foreground text-xs"> (uncheck for long-distance clients)</span>
+        </span>
+      </label>
       <TierSelect
         label="Content created by:"
         value={s.contentTier}
@@ -544,42 +574,63 @@ function ServicePpc({
 function ServiceWeb({
   pkg,
   setPkg,
-  settings,
 }: {
   pkg: PackageState;
   setPkg: React.Dispatch<React.SetStateAction<PackageState>>;
   settings: CalculatorSettings;
 }) {
   const s = pkg.web;
-  const rate = s.tier === "admin" ? settings.rateAdmin : s.tier === "ft" ? settings.rateFt : settings.ratePt;
-  const cost = s.enabled ? Math.round(s.hoursPerMonth * rate) : 0;
+  const discounted = s.designPrice < WEBSITE_DESIGN_STANDARD;
   return (
     <ServiceRow
       enabled={s.enabled}
       onToggle={(v) => setPkg((p) => ({ ...p, web: { ...p.web, enabled: v } }))}
-      title="Website Management"
-      description="Hosting, updates, maintenance"
-      cost={cost}
+      title="Website Design & Management"
+      description={`$${WEBSITE_DESIGN_STANDARD.toLocaleString()} design one-time · $${s.monthlyFee}/mo hosting + up to 5 changes`}
+      cost={s.enabled ? Math.round(s.monthlyFee) : 0}
     >
-      <div className="flex items-center gap-3">
-        <Label className="text-sm text-muted-foreground min-w-40">Scope:</Label>
-        <Select
-          value={s.scope}
-          onValueChange={(v) =>
-            setPkg((p) => ({ ...p, web: { ...p.web, scope: v as "manage" | "build" } }))
+      <div className="flex items-center gap-3 bg-muted rounded-md p-3">
+        <Label className="whitespace-nowrap text-sm font-semibold">Design price (one-time):</Label>
+        <input
+          type="range"
+          min={0}
+          max={WEBSITE_DESIGN_STANDARD}
+          step={50}
+          value={s.designPrice}
+          onChange={(e) =>
+            setPkg((p) => ({ ...p, web: { ...p.web, designPrice: Number(e.target.value) } }))
           }
-        >
-          <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="manage">Ongoing management</SelectItem>
-            <SelectItem value="build">Build + manage (amortized)</SelectItem>
-          </SelectContent>
-        </Select>
+          className="flex-1 accent-tmc-gold-dark"
+        />
+        <span className="min-w-28 text-right">
+          {discounted && (
+            <span className="text-xs text-muted-foreground line-through mr-1">
+              ${WEBSITE_DESIGN_STANDARD.toLocaleString()}
+            </span>
+          )}
+          <span className="font-bold text-tmc-gold-dark text-lg tabular-nums">
+            ${s.designPrice.toLocaleString()}
+          </span>
+        </span>
       </div>
-      <RangeRow label="Monthly hours:" value={s.hoursPerMonth} min={0.5} max={10} step={0.5}
-        onChange={(v) => setPkg((p) => ({ ...p, web: { ...p.web, hoursPerMonth: v } }))} />
-      <TierSelect label="Managed by:" value={s.tier}
-        onChange={(v) => setPkg((p) => ({ ...p, web: { ...p.web, tier: v } }))} />
+      {discounted && (
+        <p className="text-[11px] text-tmc-gold-dark">
+          Design discounted by ${(WEBSITE_DESIGN_STANDARD - s.designPrice).toLocaleString()} — shows as savings on the proposal.
+        </p>
+      )}
+      <div className="flex items-center gap-3">
+        <Label className="text-sm text-muted-foreground min-w-40">Management & hosting ($/mo):</Label>
+        <Input
+          type="number"
+          min={0}
+          value={s.monthlyFee}
+          onChange={(e) =>
+            setPkg((p) => ({ ...p, web: { ...p.web, monthlyFee: Number(e.target.value) || 0 } }))
+          }
+          className="w-28 tabular-nums"
+        />
+        <span className="text-xs text-muted-foreground">includes hosting + up to 5 changes/mo</span>
+      </div>
     </ServiceRow>
   );
 }
@@ -710,7 +761,11 @@ function ResultsPanel({
   const [pdfBusy, setPdfBusy] = useState(false);
 
   async function downloadPackagePdf() {
-    const breakdown = allocatePackagePrice(results, results.targetPrice);
+    const breakdown = proposalServiceLines(
+      pkg,
+      results,
+      results.targetPrice - results.websiteMonthly,
+    );
     if (breakdown.length === 0) {
       toast.error("Toggle on at least one service first.");
       return;
@@ -731,14 +786,25 @@ function ResultsPanel({
         }),
         sections: [
           {
-            heading: "Monthly investment breakdown",
-            items: breakdown.map((b) => ({ label: b.label, amount: b.amount })),
+            heading: "Monthly services",
+            items: breakdown.map((b) => ({
+              label: b.label,
+              amount: b.amount,
+              sublines: b.sublines,
+            })),
           },
         ],
         standardTotal: results.targetPrice,
         discounts,
         finalTotal: disc.final,
         priceUnit: "/mo",
+        oneTime: pkg.web.enabled
+          ? {
+              label: "Website design",
+              standard: WEBSITE_DESIGN_STANDARD,
+              final: results.websiteDesignPrice,
+            }
+          : undefined,
         footnote:
           "Proposed monthly retainer. 30-day terms. Final scope confirmed in the service agreement.",
       });
@@ -918,6 +984,21 @@ function ResultsPanel({
             <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
               ${results.targetPrice.toLocaleString()}
               <span className="text-sm text-muted-foreground font-medium">/mo</span>
+            </span>
+          </div>
+        )}
+        {pkg.web.enabled && (
+          <div className="flex items-center justify-between pt-1 border-t text-sm">
+            <span className="text-tmc-dark font-medium">Website design (one-time)</span>
+            <span className="tabular-nums">
+              {results.websiteDesignPrice < WEBSITE_DESIGN_STANDARD && (
+                <span className="line-through text-muted-foreground mr-2">
+                  ${WEBSITE_DESIGN_STANDARD.toLocaleString()}
+                </span>
+              )}
+              <span className="font-bold text-tmc-gold-dark">
+                ${results.websiteDesignPrice.toLocaleString()}
+              </span>
             </span>
           </div>
         )}
