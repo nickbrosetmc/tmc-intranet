@@ -324,6 +324,8 @@ export interface PackageResults {
   profit: number;
   /** Flat website monthly management/hosting fee (0 when disabled). */
   websiteMonthly: number;
+  /** True when hosting is comped: website + at least one monthly service. */
+  hostingComped: boolean;
   /** One-time website design price from the slider (0 when disabled). */
   websiteDesignPrice: number;
   verdict: "go" | "caution" | "stop" | "empty";
@@ -448,6 +450,19 @@ export function computePackage(
 
   // Flat website pricing sits outside the margin engine (interim model).
   const websiteMonthly = pkg.web.enabled ? Math.round(pkg.web.monthlyFee) : 0;
+  // Bundle rule: pairing the website with ANY monthly service comps the
+  // hosting fee. targetPrice still includes it (that's the standard rate);
+  // the comp renders as an explicit discount so the client sees the value
+  // AND the condition.
+  const hasMonthlyServices =
+    pkg.social.enabled ||
+    pkg.seo.enabled ||
+    pkg.ppc.enabled ||
+    pkg.email.enabled ||
+    pkg.video.enabled ||
+    pkg.custom.enabled;
+  const hostingComped =
+    pkg.web.enabled && hasMonthlyServices && websiteMonthly > 0;
   const websiteDesignPrice = pkg.web.enabled
     ? Math.max(0, Math.round(pkg.web.designPrice))
     : 0;
@@ -485,6 +500,7 @@ export function computePackage(
     floorPrice,
     profit,
     websiteMonthly,
+    hostingComped,
     websiteDesignPrice,
     verdict,
     verdictText,
