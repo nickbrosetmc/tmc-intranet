@@ -264,9 +264,11 @@ export function proposalServiceLines(
 function sublinesFor(service: string, pkg: PackageState): string[] {
   switch (service) {
     case "Social media management": {
-      const perMonth = Math.round(pkg.social.postsPerWeek * 4.33);
+      // Client-facing count: posts × 4 weeks. (Internal workload math uses
+      // 4.33 weeks/month; that average shouldn't leak into the proposal.)
+      const perMonth = pkg.social.postsPerWeek * 4;
       const lines = [
-        `${pkg.social.postsPerWeek} posts per week (~${perMonth}/month)`,
+        `${pkg.social.postsPerWeek} posts per week (${perMonth}/month)`,
       ];
       if (pkg.social.onSiteFilming) lines.push("On-site filming & editing");
       lines.push("Engagement management");
