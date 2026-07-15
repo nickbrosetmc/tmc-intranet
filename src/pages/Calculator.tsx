@@ -631,6 +631,17 @@ function ServiceWeb({
         />
         <span className="text-xs text-muted-foreground">includes hosting + up to 5 changes/mo</span>
       </div>
+      {(pkg.social.enabled || pkg.seo.enabled || pkg.ppc.enabled || pkg.email.enabled || pkg.video.enabled || pkg.custom.enabled) ? (
+        <p className="text-xs font-medium text-green-700 bg-green-50 rounded p-2">
+          Hosting is FREE with their monthly service package — the ${s.monthlyFee}/mo
+          shows as a bundled discount on the proposal, on top of any other discount.
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground bg-muted rounded p-2">
+          Hosting bills at ${s.monthlyFee}/mo standalone. It becomes FREE if they
+          also take any monthly service (social, SEO, ads, email, or video).
+        </p>
+      )}
     </ServiceRow>
   );
 }
@@ -770,10 +781,17 @@ function ResultsPanel({
       toast.error("Toggle on at least one service first.");
       return;
     }
-    const discounts: QuoteDiscount[] =
-      disc.off > 0
-        ? [{ label: pkg.discountName || "Custom discount", amount: disc.off }]
-        : [];
+    const discounts: QuoteDiscount[] = [];
+    if (results.hostingComped) {
+      discounts.push({
+        label: "Hosting free with your monthly service package",
+        amount: results.websiteMonthly,
+      });
+    }
+    if (disc.off > 0) {
+      discounts.push({ label: pkg.discountName || "Custom discount", amount: disc.off });
+    }
+    const hostingComp = results.hostingComped ? results.websiteMonthly : 0;
     setPdfBusy(true);
     try {
       await downloadQuotePdf({
@@ -796,7 +814,7 @@ function ResultsPanel({
         ],
         standardTotal: results.targetPrice,
         discounts,
-        finalTotal: disc.final,
+        finalTotal: Math.max(0, disc.final - hostingComp),
         priceUnit: "/mo",
         oneTime: pkg.web.enabled
           ? {
@@ -954,39 +972,56 @@ function ResultsPanel({
           </div>
         </div>
 
-        {disc.off > 0 ? (
-          <div className="space-y-1 pt-1">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Standard rate</span>
-              <span className="line-through text-muted-foreground tabular-nums">
-                ${results.targetPrice.toLocaleString()}/mo
-              </span>
+        {(() => {
+          const hostingComp = results.hostingComped ? results.websiteMonthly : 0;
+          const finalMonthly = Math.max(0, disc.final - hostingComp);
+          const anyDiscount = disc.off > 0 || hostingComp > 0;
+          return anyDiscount ? (
+            <div className="space-y-1 pt-1">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Standard rate</span>
+                <span className="line-through text-muted-foreground tabular-nums">
+                  ${results.targetPrice.toLocaleString()}/mo
+                </span>
+              </div>
+              {hostingComp > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-green-700 font-medium">
+                    Hosting free with monthly package
+                  </span>
+                  <span className="text-green-700 font-medium tabular-nums">
+                    −${hostingComp.toLocaleString()}/mo
+                  </span>
+                </div>
+              )}
+              {disc.off > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-tmc-gold-dark font-medium">
+                    {pkg.discountName || "Discount"}
+                  </span>
+                  <span className="text-tmc-gold-dark font-medium tabular-nums">
+                    −${disc.off.toLocaleString()}/mo
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center justify-between pt-1 border-t">
+                <span className="font-bold text-tmc-dark">Your price</span>
+                <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
+                  ${finalMonthly.toLocaleString()}
+                  <span className="text-sm text-muted-foreground font-medium">/mo</span>
+                </span>
+              </div>
             </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-tmc-gold-dark font-medium">
-                {pkg.discountName || "Discount"}
-              </span>
-              <span className="text-tmc-gold-dark font-medium tabular-nums">
-                −${disc.off.toLocaleString()}/mo
-              </span>
-            </div>
+          ) : (
             <div className="flex items-center justify-between pt-1 border-t">
-              <span className="font-bold text-tmc-dark">Your price</span>
+              <span className="font-bold text-tmc-dark">Quote</span>
               <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
-                ${disc.final.toLocaleString()}
+                ${results.targetPrice.toLocaleString()}
                 <span className="text-sm text-muted-foreground font-medium">/mo</span>
               </span>
             </div>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between pt-1 border-t">
-            <span className="font-bold text-tmc-dark">Quote</span>
-            <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
-              ${results.targetPrice.toLocaleString()}
-              <span className="text-sm text-muted-foreground font-medium">/mo</span>
-            </span>
-          </div>
-        )}
+          );
+        })()}
         {pkg.web.enabled && (
           <div className="flex items-center justify-between pt-1 border-t text-sm">
             <span className="text-tmc-dark font-medium">Website design (one-time)</span>
