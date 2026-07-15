@@ -45,10 +45,15 @@ export interface PackageState {
     strategyHours: number;
     contentTier: Tier;
     strategyTier: Tier;
+    /** Include on-site filming/editing (uncheck for long-distance clients). */
+    onSiteFilming: boolean;
   };
   seo: { enabled: boolean; pagesPerMonth: number; hoursPerPage: number; tier: Tier };
   ppc: { enabled: boolean; platform: "one" | "both"; hoursPerMonth: number; tier: Tier };
-  web: { enabled: boolean; scope: "manage" | "build"; hoursPerMonth: number; tier: Tier };
+  /** Interim flat website model: one-time design (slider-discountable from
+   *  $3,000 standard) + flat monthly management/hosting with up to 5
+   *  changes per month. Not part of the margin engine. */
+  web: { enabled: boolean; designPrice: number; monthlyFee: number };
   email: { enabled: boolean; campaignsPerMonth: number; hoursPerCampaign: number; tier: Tier };
   video: { enabled: boolean; hoursPerMonth: number; tier: Tier };
   custom: { enabled: boolean; description: string; hoursPerMonth: number; tier: Tier };
@@ -60,6 +65,8 @@ export interface PackageState {
   discountValue: number; // dollars when flat, percent (0–100) when pct
 }
 
+export const WEBSITE_DESIGN_STANDARD = 3000;
+
 export const DEFAULT_PACKAGE: PackageState = {
   clientName: "",
   social: {
@@ -69,10 +76,11 @@ export const DEFAULT_PACKAGE: PackageState = {
     strategyHours: 2,
     contentTier: "ft",
     strategyTier: "admin",
+    onSiteFilming: true,
   },
   seo: { enabled: false, pagesPerMonth: 2, hoursPerPage: 2.5, tier: "admin" },
   ppc: { enabled: false, platform: "one", hoursPerMonth: 4, tier: "admin" },
-  web: { enabled: false, scope: "manage", hoursPerMonth: 1, tier: "admin" },
+  web: { enabled: false, designPrice: WEBSITE_DESIGN_STANDARD, monthlyFee: 150 },
   email: { enabled: false, campaignsPerMonth: 2, hoursPerCampaign: 2, tier: "ft" },
   video: { enabled: false, hoursPerMonth: 8, tier: "admin" },
   custom: { enabled: false, description: "", hoursPerMonth: 4, tier: "ft" },
@@ -112,7 +120,7 @@ export const PACKAGE_PRESETS: PackagePreset[] = [
     blurb: "Social content + light strategy",
     build: () => ({
       ...servicesOff(),
-      social: { enabled: true, postsPerWeek: 3, minsPerPost: 45, strategyHours: 2, contentTier: "ft", strategyTier: "admin" },
+      social: { enabled: true, postsPerWeek: 3, minsPerPost: 45, strategyHours: 2, contentTier: "ft", strategyTier: "admin", onSiteFilming: true },
       targetMargin: 45,
     }),
   },
@@ -122,7 +130,7 @@ export const PACKAGE_PRESETS: PackagePreset[] = [
     blurb: "Social + SEO + email",
     build: () => ({
       ...servicesOff(),
-      social: { enabled: true, postsPerWeek: 5, minsPerPost: 45, strategyHours: 3, contentTier: "ft", strategyTier: "admin" },
+      social: { enabled: true, postsPerWeek: 5, minsPerPost: 45, strategyHours: 3, contentTier: "ft", strategyTier: "admin", onSiteFilming: true },
       seo: { enabled: true, pagesPerMonth: 2, hoursPerPage: 2.5, tier: "admin" },
       email: { enabled: true, campaignsPerMonth: 2, hoursPerCampaign: 2, tier: "ft" },
       targetMargin: 45,
@@ -134,11 +142,11 @@ export const PACKAGE_PRESETS: PackagePreset[] = [
     blurb: "Social, SEO, PPC, email, web",
     build: () => ({
       ...servicesOff(),
-      social: { enabled: true, postsPerWeek: 5, minsPerPost: 45, strategyHours: 4, contentTier: "ft", strategyTier: "admin" },
+      social: { enabled: true, postsPerWeek: 5, minsPerPost: 45, strategyHours: 4, contentTier: "ft", strategyTier: "admin", onSiteFilming: true },
       seo: { enabled: true, pagesPerMonth: 4, hoursPerPage: 2.5, tier: "admin" },
       ppc: { enabled: true, platform: "both", hoursPerMonth: 6, tier: "admin" },
       email: { enabled: true, campaignsPerMonth: 4, hoursPerCampaign: 2, tier: "ft" },
-      web: { enabled: true, scope: "manage", hoursPerMonth: 2, tier: "admin" },
+      web: { enabled: true, designPrice: 0, monthlyFee: 150 },
       targetMargin: 45,
     }),
   },
@@ -160,10 +168,10 @@ function servicesOff(): Pick<
   "social" | "seo" | "ppc" | "web" | "email" | "video" | "custom" | "targetMargin"
 > {
   return {
-    social: { enabled: false, postsPerWeek: 3, minsPerPost: 45, strategyHours: 2, contentTier: "ft", strategyTier: "admin" },
+    social: { enabled: false, postsPerWeek: 3, minsPerPost: 45, strategyHours: 2, contentTier: "ft", strategyTier: "admin", onSiteFilming: true },
     seo: { enabled: false, pagesPerMonth: 2, hoursPerPage: 2.5, tier: "admin" },
     ppc: { enabled: false, platform: "one", hoursPerMonth: 4, tier: "admin" },
-    web: { enabled: false, scope: "manage", hoursPerMonth: 1, tier: "admin" },
+    web: { enabled: false, designPrice: WEBSITE_DESIGN_STANDARD, monthlyFee: 150 },
     email: { enabled: false, campaignsPerMonth: 2, hoursPerCampaign: 2, tier: "ft" },
     video: { enabled: false, hoursPerMonth: 8, tier: "admin" },
     custom: { enabled: false, description: "", hoursPerMonth: 4, tier: "ft" },
@@ -177,7 +185,7 @@ export function enabledServiceLabels(pkg: PackageState): string[] {
   if (pkg.social.enabled) out.push(`Social media management (${pkg.social.postsPerWeek} posts/week)`);
   if (pkg.seo.enabled) out.push(`Search engine optimization (${pkg.seo.pagesPerMonth} pages/month)`);
   if (pkg.ppc.enabled) out.push(pkg.ppc.platform === "both" ? "Paid ads management (Google + Meta)" : "Paid ads management");
-  if (pkg.web.enabled) out.push(pkg.web.scope === "build" ? "Website build + management" : "Website management");
+  if (pkg.web.enabled) out.push("Website design, management & hosting");
   if (pkg.email.enabled) out.push(`Email marketing (${pkg.email.campaignsPerMonth} campaigns/month)`);
   if (pkg.video.enabled) out.push("Video production");
   if (pkg.custom.enabled) out.push(pkg.custom.description || "Custom service");
@@ -198,32 +206,101 @@ export function applyPackageDiscount(
   return { final: price - off, off };
 }
 
+export interface ProposalLine {
+  label: string;
+  amount: number;
+  /** "What's included" bullets shown under the line on the proposal. */
+  sublines: string[];
+}
+
 /**
- * Allocate a monthly sell price across the service groups, weighted by each
- * group's cost. Gives a client-facing per-service breakdown that sums back
- * to the price. The last group absorbs any rounding remainder.
+ * Client-facing proposal lines: the monthly price allocated across visible
+ * service groups (software overhead is folded in proportionally, never
+ * shown as its own line), each with a "what's included" list. The flat
+ * website management fee is appended as its own line when enabled.
+ * `monthlyPrice` should be the cost-based monthly price EXCLUDING the
+ * website monthly fee (i.e. results.targetPrice - results.websiteMonthly).
  */
-export function allocatePackagePrice(
+export function proposalServiceLines(
+  pkg: PackageState,
   results: PackageResults,
-  price: number,
-): { label: string; amount: number }[] {
-  if (results.totalCost <= 0 || price <= 0) return [];
+  monthlyPrice: number,
+): ProposalLine[] {
+  const HIDDEN = "Tools & software";
   const byService = new Map<string, number>();
   for (const l of results.lines) {
+    if (l.service === HIDDEN) continue; // folded into the others
     byService.set(l.service, (byService.get(l.service) ?? 0) + l.cost);
   }
-  const entries = [...byService.entries()];
-  const out: { label: string; amount: number }[] = [];
-  let allocated = 0;
-  entries.forEach(([label, cost], i) => {
-    const amount =
-      i === entries.length - 1
-        ? price - allocated
-        : Math.round((price * cost) / results.totalCost);
-    allocated += amount;
-    out.push({ label, amount });
-  });
+  const visibleCost = [...byService.values()].reduce((a, b) => a + b, 0);
+
+  const out: ProposalLine[] = [];
+  if (visibleCost > 0 && monthlyPrice > 0) {
+    const entries = [...byService.entries()];
+    let allocated = 0;
+    entries.forEach(([label, cost], i) => {
+      const amount =
+        i === entries.length - 1
+          ? monthlyPrice - allocated
+          : Math.round((monthlyPrice * cost) / visibleCost);
+      allocated += amount;
+      out.push({ label, amount, sublines: sublinesFor(label, pkg) });
+    });
+  }
+
+  if (pkg.web.enabled) {
+    out.push({
+      label: "Website management & hosting",
+      amount: Math.round(pkg.web.monthlyFee),
+      sublines: [
+        "Hosting included",
+        "Up to 5 content changes per month",
+      ],
+    });
+  }
   return out;
+}
+
+function sublinesFor(service: string, pkg: PackageState): string[] {
+  switch (service) {
+    case "Social media management": {
+      const perMonth = Math.round(pkg.social.postsPerWeek * 4.33);
+      const lines = [
+        `${pkg.social.postsPerWeek} posts per week (~${perMonth}/month)`,
+      ];
+      if (pkg.social.onSiteFilming) lines.push("On-site filming & editing");
+      lines.push("Engagement management");
+      lines.push(
+        pkg.social.strategyHours > 0
+          ? "Monthly reporting & strategy sessions"
+          : "Monthly reporting",
+      );
+      return lines;
+    }
+    case "Search engine optimization":
+      return [
+        `${pkg.seo.pagesPerMonth} optimized pages / blog posts per month`,
+        "Keyword & AI visibility tracking",
+        "Monthly reporting",
+      ];
+    case "Paid advertising":
+      return [
+        pkg.ppc.platform === "both"
+          ? "Google + Meta campaign management"
+          : "Campaign management",
+        "Optimization & monthly reporting",
+      ];
+    case "Email marketing":
+      return [
+        `${pkg.email.campaignsPerMonth} campaigns per month`,
+        "Design, copy & delivery",
+        "Performance reporting",
+      ];
+    case "Video production":
+      return [`${pkg.video.hoursPerMonth} production hours per month`];
+    default:
+      return [];
+  }
 }
 
 export interface BreakdownLine {
@@ -239,9 +316,14 @@ export interface PackageResults {
   lines: BreakdownLine[];
   totalCost: number;
   totalHours: number;
+  /** Monthly price including the flat website monthly fee. */
   targetPrice: number;
   floorPrice: number;
   profit: number;
+  /** Flat website monthly management/hosting fee (0 when disabled). */
+  websiteMonthly: number;
+  /** One-time website design price from the slider (0 when disabled). */
+  websiteDesignPrice: number;
   verdict: "go" | "caution" | "stop" | "empty";
   verdictText: string;
 }
@@ -308,16 +390,8 @@ export function computePackage(
     });
   }
 
-  if (pkg.web.enabled) {
-    const { hoursPerMonth, tier, scope } = pkg.web;
-    lines.push({
-      item: scope === "build" ? "Website (build + manage)" : "Website management",
-      tier: tierLabel(tier),
-      hours: hoursPerMonth,
-      cost: Math.round(hoursPerMonth * tierRate(s, tier)),
-      service: "Website",
-    });
-  }
+  // Website is priced flat (design one-time + monthly fee), outside the
+  // cost/margin engine — handled after the totals below.
 
   if (pkg.email.enabled) {
     const { campaignsPerMonth, hoursPerCampaign, tier } = pkg.email;
@@ -369,15 +443,27 @@ export function computePackage(
   );
   const tm = pkg.targetMargin / 100;
   const floor = (s.marginFloor || 30) / 100;
-  const targetPrice = totalCost > 0 ? Math.round(totalCost / (1 - tm)) : 0;
-  const floorPrice = totalCost > 0 ? Math.round(totalCost / (1 - floor)) : 0;
+
+  // Flat website pricing sits outside the margin engine (interim model).
+  const websiteMonthly = pkg.web.enabled ? Math.round(pkg.web.monthlyFee) : 0;
+  const websiteDesignPrice = pkg.web.enabled
+    ? Math.max(0, Math.round(pkg.web.designPrice))
+    : 0;
+
+  const marginPrice = totalCost > 0 ? Math.round(totalCost / (1 - tm)) : 0;
+  const targetPrice = marginPrice + websiteMonthly;
+  const floorPrice =
+    (totalCost > 0 ? Math.round(totalCost / (1 - floor)) : 0) + websiteMonthly;
   const profit = targetPrice - totalCost;
 
   let verdict: PackageResults["verdict"];
   let verdictText: string;
-  if (totalCost === 0) {
+  if (totalCost === 0 && websiteMonthly === 0) {
     verdict = "empty";
     verdictText = "Toggle services above to build a package.";
+  } else if (totalCost === 0) {
+    verdict = "go";
+    verdictText = `Flat website pricing. Quote at $${targetPrice.toLocaleString()}/mo${websiteDesignPrice > 0 ? ` + $${websiteDesignPrice.toLocaleString()} one-time design` : ""}.`;
   } else if (tm >= 0.4) {
     verdict = "go";
     verdictText = `Healthy margin. Quote this package at $${targetPrice.toLocaleString()}/mo.`;
@@ -396,6 +482,8 @@ export function computePackage(
     targetPrice,
     floorPrice,
     profit,
+    websiteMonthly,
+    websiteDesignPrice,
     verdict,
     verdictText,
   };
