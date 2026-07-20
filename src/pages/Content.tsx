@@ -1879,13 +1879,16 @@ function ClientTargetsCard({
   }
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Client weekly post schedule</CardTitle>
-        <p className="text-xs text-muted-foreground mt-1">
-          Set posts/week to opt a client into the pipeline. Pick the
-          fixed days they post on to auto-seed blank slots on the planner
-          each week. Leave days blank for ad-hoc scheduling.
-        </p>
+      <CardHeader className="flex-row items-start justify-between gap-3">
+        <div>
+          <CardTitle className="text-base">Client weekly post schedule</CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Set posts/week to opt a client into the pipeline. Pick the
+            fixed days they post on to auto-seed blank slots on the planner
+            each week. Leave days blank for ad-hoc scheduling.
+          </p>
+        </div>
+        <NewPlannerClientDialog onCreated={onChanged} />
       </CardHeader>
       <CardContent>
         <Table>
@@ -1894,6 +1897,7 @@ function ClientTargetsCard({
               <TableHead>Client</TableHead>
               <TableHead className="w-24">Posts/wk</TableHead>
               <TableHead>Posting days</TableHead>
+              <TableHead className="text-right w-24"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1944,6 +1948,49 @@ function ClientTargetsCard({
                       })}
                     </div>
                   </TableCell>
+                  <TableCell className="text-right">
+                    {(c.weeklyPostTarget ?? 0) > 0 || days.size > 0 ? (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm" variant="ghost" className="text-destructive h-7 px-2 text-xs">
+                            Remove
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Remove {c.name} from the planner?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Clears their weekly target and posting days so they
+                              drop off the content grid. Existing posts stay, and
+                              the client keeps its finance/billing records — you
+                              can re-add them here anytime by setting posts/week.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={async () => {
+                                try {
+                                  await finance.updateClient(c.id, {
+                                    weeklyPostTarget: null,
+                                    postingDays: null,
+                                  });
+                                  toast.success(`${c.name} removed from the planner`);
+                                  onChanged();
+                                } catch (e) {
+                                  toast.error(`Failed: ${(e as Error).message}`);
+                                }
+                              }}
+                            >
+                              Remove
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">not tracked</span>
+                    )}
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -1951,5 +1998,151 @@ function ClientTargetsCard({
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+// ─── New client (from the planner) ───────────────────────────────────────
+
+function NewPlannerClientDialog({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [monthly, setMonthly] = useState("");
+  const [postsPerWeek, setPostsPerWeek] = useState("3");
+  const [days, setDays] = useState<Set<DayCode>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  function reset() {
+    setName("");
+    setMonthly("");
+    setPostsPerWeek("3");
+    setDays(new Set());
+  }
+
+  async function submit() {
+    if (!name.trim()) {
+      toast.error("Client name is required.");
+      return;
+    }
+    const target = Number(postsPerWeek);
+    if (!Number.isFinite(target) || target < 0 || target > 7) {
+      toast.error("Posts/week must be 0–7.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const csv = Array.from(DAY_CODES).filter((d) => days.has(d)).join(",");
+      await finance.createClient({
+        name: name.trim(),
+        monthlyAmount: Number(monthly) || 0,
+        weeklyPostTarget: target > 0 ? target : null,
+        postingDays: csv || null,
+      } as Partial<RecurringClient>);
+      toast.success(`${name.trim()} added to the planner`);
+      setOpen(false);
+      reset();
+      onCreated();
+    } catch (e) {
+      toast.error(`Create failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark shrink-0">
+          New client
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add a client to the planner</DialogTitle>
+          <DialogDescription>
+            Creates the client and puts them straight on the content grid.
+            Billing details can be filled in later under Admin → Finance.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label>Client name *</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="New Client LLC"
+              autoFocus
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Posts per week</Label>
+              <Input
+                type="number"
+                min={0}
+                max={7}
+                value={postsPerWeek}
+                onChange={(e) => setPostsPerWeek(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Monthly retainer ($, optional)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={monthly}
+                onChange={(e) => setMonthly(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>Posting days (optional — auto-seeds blank posts)</Label>
+            <div className="flex gap-1">
+              {DAY_CODES.map((dc) => {
+                const on = days.has(dc);
+                return (
+                  <button
+                    key={dc}
+                    type="button"
+                    onClick={() => {
+                      const next = new Set(days);
+                      if (on) next.delete(dc);
+                      else next.add(dc);
+                      setDays(next);
+                    }}
+                    title={dc.toUpperCase()}
+                    className={`w-8 h-8 rounded-md text-xs font-semibold transition-colors ${
+                      on
+                        ? "bg-tmc-gold text-tmc-dark"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                  >
+                    {DAY_LABEL[dc]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            onClick={submit}
+            disabled={busy}
+            className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
+          >
+            {busy ? "Adding…" : "Add client"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
