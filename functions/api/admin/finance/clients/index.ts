@@ -40,6 +40,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     isActive: body.isActive ?? true,
     notes: body.notes ?? null,
     sortOrder: body.sortOrder ?? 0,
+    // Content-planner fields, so a client can be created straight from
+    // the planner settings with their schedule already in place.
+    weeklyPostTarget: body.weeklyPostTarget ?? null,
+    postingDays: body.postingDays ?? null,
   });
   return Response.json({ client: created }, { status: 201 });
 };
