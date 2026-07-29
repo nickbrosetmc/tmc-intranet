@@ -487,7 +487,15 @@ function PostChip({
           style={{ borderLeft: `3px solid ${status.color}` }}
         >
           <div className="flex items-start gap-1 justify-between">
-            <div className="font-medium truncate min-w-0">{post.title}</div>
+            <div className="font-medium truncate min-w-0">
+              {post.editNotes && (
+                <span
+                  className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-1 align-middle"
+                  title="Edits requested"
+                />
+              )}
+              {post.title}
+            </div>
             {assignee && (
               <span
                 className="shrink-0 text-[9px] font-bold uppercase bg-tmc-slate/15 text-tmc-slate rounded-full px-1.5 py-0.5 leading-none"
@@ -839,6 +847,7 @@ function PostDialog({
     reviewerId: number | null;
     estimatedMinutes: number | null;
     notes: string;
+    clearEditNotes: boolean;
   }>({
     clientId: post?.clientId ?? defaultClientId ?? tracked[0]?.id ?? 0,
     title: post?.title ?? "",
@@ -851,6 +860,7 @@ function PostDialog({
     reviewerId: post?.reviewerId ?? null,
     estimatedMinutes: post?.estimatedMinutes ?? defaultEstMinutes,
     notes: post?.notes ?? "",
+    clearEditNotes: false,
   });
   const [saving, setSaving] = useState(false);
 
@@ -888,6 +898,9 @@ function PostDialog({
         reviewerId: form.reviewerId ?? null,
         estimatedMinutes: form.estimatedMinutes,
         notes: form.notes || null,
+        ...(form.clearEditNotes
+          ? { editNotes: null, editRequestedBy: null, editRequestedAt: null }
+          : {}),
       };
       if (mode === "create") {
         await content.createPost(payload);
@@ -948,6 +961,27 @@ function PostDialog({
             approved. Pillar + funnel are required at that point.
           </DialogDescription>
         </DialogHeader>
+        {post?.editNotes && (
+          <div className="rounded-md border-l-2 border-amber-400 bg-amber-50 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-800">
+                Edits requested
+              </span>
+              <button
+                type="button"
+                className="text-[10px] text-amber-800 hover:underline"
+                onClick={() =>
+                  setForm({ ...form, clearEditNotes: true })
+                }
+              >
+                {form.clearEditNotes ? "will clear on save" : "clear"}
+              </button>
+            </div>
+            <p className={`text-xs text-tmc-dark mt-1 whitespace-pre-wrap ${form.clearEditNotes ? "line-through opacity-50" : ""}`}>
+              {post.editNotes}
+            </p>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Title</Label>
