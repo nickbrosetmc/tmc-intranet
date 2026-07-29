@@ -37,6 +37,10 @@ export interface ContentPost {
   reviewerId: number | null;
   estimatedMinutes: number | null;
   notes: string | null;
+  /** Reviewer's change requests when sent back for edits. */
+  editNotes: string | null;
+  editRequestedBy: number | null;
+  editRequestedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -114,6 +114,10 @@ export const contentPosts = sqliteTable("content_posts", {
   reviewerId: integer("reviewer_id").references(() => users.id),
   estimatedMinutes: integer("estimated_minutes"),
   notes: text("notes"),
+  /** Reviewer's change requests when a post is sent back for edits. */
+  editNotes: text("edit_notes"),
+  editRequestedBy: integer("edit_requested_by").references(() => users.id),
+  editRequestedAt: text("edit_requested_at"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

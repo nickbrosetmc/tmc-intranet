@@ -8,6 +8,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
 import { useUser } from "@/lib/useUser";
@@ -770,7 +771,9 @@ function PostRow({
   const workDue = workDueDate(post.scheduledDate);
   const overdue = (daysUntilDue(workDue) ?? 0) < 0;
   const [editOpen, setEditOpen] = useState(false);
+  const [sendBackOpen, setSendBackOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const editRequester = data.userOptions.find((u) => u.id === post.editRequestedBy);
 
   // Change status inline. Completing requires pillar + funnel; if they're
   // missing we pop the editor instead of failing.
@@ -788,7 +791,12 @@ function PostRow({
     }
     setSaving(true);
     try {
-      await content.updatePost(post.id, { status: next });
+      // Completing resolves any outstanding change requests.
+      const patch: Partial<ContentPost> =
+        next === "completed"
+          ? { status: next, editNotes: null, editRequestedBy: null, editRequestedAt: null }
+          : { status: next };
+      await content.updatePost(post.id, patch);
       toast.success(`Moved to ${statusMeta(next).label}`);
       onChanged();
     } catch (e) {
@@ -840,6 +848,21 @@ function PostRow({
             <span>· {assignee.name ?? assignee.email}</span>
           ) : null}
         </div>
+        {post.editNotes && (
+          <div className="mt-2 rounded-md border-l-2 border-amber-400 bg-amber-50 px-3 py-2">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
+              <RotateCcw size={11} /> Edits requested
+              {editRequester && (
+                <span className="font-normal normal-case tracking-normal">
+                  by {editRequester.name ?? editRequester.email}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-tmc-dark mt-1 whitespace-pre-wrap">
+              {post.editNotes}
+            </p>
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-2 shrink-0 self-center">
         <Select
@@ -861,6 +884,17 @@ function PostRow({
             ))}
           </SelectContent>
         </Select>
+        {post.status === "review" && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 px-2 text-xs gap-1 text-amber-800 border-amber-300 hover:bg-amber-50"
+            onClick={() => setSendBackOpen(true)}
+            title="Send back for edits"
+          >
+            <RotateCcw size={13} /> Send back
+          </Button>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -880,7 +914,120 @@ function PostRow({
           onSaved={onChanged}
         />
       )}
+      {sendBackOpen && (
+        <SendBackDialog
+          post={post}
+          data={data}
+          open={sendBackOpen}
+          onOpenChange={setSendBackOpen}
+          onSaved={onChanged}
+        />
+      )}
     </li>
+  );
+}
+
+// Reviewer kickback: return a post to a specific person with edit notes.
+function SendBackDialog({
+  post,
+  data,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  post: ContentPost;
+  data: TasksDashboard;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSaved: () => void;
+}) {
+  // Default back to whoever drafted it.
+  const [assignTo, setAssignTo] = useState<number | null>(
+    post.assignedTo ?? data.defaultPostAssigneeId ?? null,
+  );
+  const [notes, setNotes] = useState(post.editNotes ?? "");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (assignTo == null) {
+      toast.error("Pick who should make the edits.");
+      return;
+    }
+    if (!notes.trim()) {
+      toast.error("Add a note so they know what to change.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await content.updatePost(post.id, {
+        status: "drafting",
+        assignedTo: assignTo,
+        editNotes: notes.trim(),
+        editRequestedBy: data.user.id,
+        editRequestedAt: new Date().toISOString(),
+      });
+      const who = data.userOptions.find((u) => u.id === assignTo);
+      toast.success(`Sent back to ${who?.name ?? "them"} for edits`);
+      onOpenChange(false);
+      onSaved();
+    } catch (e) {
+      toast.error(`Send back failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Send back for edits</DialogTitle>
+          <DialogDescription>
+            Moves "{post.title}" back to Drafting on their task list with your
+            notes attached.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label>Assign edits to *</Label>
+            <Select
+              value={assignTo == null ? "" : String(assignTo)}
+              onValueChange={(v) => setAssignTo(Number(v))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Pick a person" />
+              </SelectTrigger>
+              <SelectContent>
+                {data.userOptions.map((u) => (
+                  <SelectItem key={u.id} value={String(u.id)}>
+                    {u.name ?? u.email}
+                    {u.id === post.assignedTo ? " (drafted it)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Edit notes *</Label>
+            <textarea
+              className="w-full min-h-[110px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="What needs to change? e.g. Tighten the hook, swap the second image, fix the CTA link."
+              autoFocus
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={busy}>
+            {busy ? "Sending…" : "Send back"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
