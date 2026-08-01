@@ -124,27 +124,15 @@ export async function downloadQuotePdf(doc: QuoteDoc): Promise<void> {
       logging: false,
     });
 
-    const imgData = canvas.toDataURL("image/png");
     const pdf = new jsPDF({ unit: "pt", format: "letter" });
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
     const imgH = (canvas.height / canvas.width) * pageW;
 
     if (imgH <= pageH) {
-      pdf.addImage(imgData, "PNG", 0, 0, pageW, imgH);
+      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, pageW, imgH);
     } else {
-      // Slice across pages: place the full image shifted up each page;
-      // off-page content is clipped by the page boundary.
-      let position = 0;
-      let remaining = imgH;
-      while (remaining > 0) {
-        pdf.addImage(imgData, "PNG", 0, position, pageW, imgH);
-        remaining -= pageH;
-        if (remaining > 0) {
-          pdf.addPage();
-          position -= pageH;
-        }
-      }
+      paginateCanvas(pdf, canvas, pageW, pageH);
     }
     pdf.save(fileName(doc));
   } catch {
@@ -153,6 +141,153 @@ export async function downloadQuotePdf(doc: QuoteDoc): Promise<void> {
   } finally {
     document.body.removeChild(iframe);
   }
+}
+
+type PdfDoc = import("jspdf").jsPDF;
+
+/**
+ * Split the rasterized quote across letter pages.
+ *
+ * Two things matter here. Each page gets its own cropped canvas rather than the
+ * full-height image nudged upward, so a page only carries its own pixels (the
+ * old approach embedded the whole image once per page and pushed quotes past
+ * 8MB). And each cut is pulled up to the nearest band of blank pixels, so a
+ * break lands in the gutter between blocks instead of slicing through a line of
+ * text or a table row.
+ */
+function paginateCanvas(
+  pdf: PdfDoc,
+  canvas: HTMLCanvasElement,
+  pageW: number,
+  pageH: number,
+): void {
+  const ctx = canvas.getContext("2d");
+  const pxPerPt = canvas.width / pageW;
+  // Canvas pixels per CSS pixel, used to size the whitespace bands we look for.
+  const unit = Math.max(1, Math.round(canvas.width / 720));
+  const pagePx = Math.floor(pageH * pxPerPt);
+  // Breathing room at the top of continuation pages so content does not butt
+  // up against the trim edge.
+  const gapPx = Math.round(18 * pxPerPt);
+  const blank = ctx ? scanBlankRows(ctx, canvas.width, canvas.height) : null;
+
+  let y = 0;
+  let page = 0;
+  // Hard cap: a runaway loop must not lock up the browser.
+  while (y < canvas.height && page < 40) {
+    const topPad = page === 0 ? 0 : gapPx;
+    const budget = pagePx - topPad;
+    let sliceH = Math.min(budget, canvas.height - y);
+
+    if (blank && y + sliceH < canvas.height) {
+      // Never give up more than 40% of the page hunting for a gap.
+      const cut = findCut(blank, unit, y + sliceH, y + Math.floor(budget * 0.6));
+      if (cut > y) sliceH = cut - y;
+    }
+
+    const slice = document.createElement("canvas");
+    slice.width = canvas.width;
+    slice.height = sliceH + topPad;
+    const sctx = slice.getContext("2d");
+    if (!sctx) break;
+    sctx.fillStyle = "#ffffff";
+    sctx.fillRect(0, 0, slice.width, slice.height);
+    sctx.drawImage(
+      canvas,
+      0,
+      y,
+      canvas.width,
+      sliceH,
+      0,
+      topPad,
+      canvas.width,
+      sliceH,
+    );
+
+    if (page > 0) pdf.addPage();
+    pdf.addImage(
+      slice.toDataURL("image/png"),
+      "PNG",
+      0,
+      0,
+      pageW,
+      slice.height / pxPerPt,
+    );
+
+    y += sliceH;
+    page += 1;
+  }
+}
+
+/**
+ * Flag every row that is a single flat color across its width, meaning nothing
+ * (text, rule, border, chart) crosses it. Those rows are safe to cut on.
+ */
+function scanBlankRows(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): Uint8Array | null {
+  const flags = new Uint8Array(height);
+  const step = Math.max(1, Math.floor(width / 400));
+  const CHUNK = 512;
+  for (let top = 0; top < height; top += CHUNK) {
+    const h = Math.min(CHUNK, height - top);
+    let data: Uint8ClampedArray;
+    try {
+      data = ctx.getImageData(0, top, width, h).data;
+    } catch {
+      // Tainted canvas: fall back to plain page-height cuts.
+      return null;
+    }
+    for (let row = 0; row < h; row++) {
+      const base = row * width * 4;
+      const r0 = data[base];
+      const g0 = data[base + 1];
+      const b0 = data[base + 2];
+      let flat = true;
+      for (let x = step; x < width; x += step) {
+        const i = base + x * 4;
+        if (
+          Math.abs(data[i] - r0) > 6 ||
+          Math.abs(data[i + 1] - g0) > 6 ||
+          Math.abs(data[i + 2] - b0) > 6
+        ) {
+          flat = false;
+          break;
+        }
+      }
+      flags[top + row] = flat ? 1 : 0;
+    }
+  }
+  return flags;
+}
+
+/**
+ * Walk up from the ideal cut looking for a run of blank rows. A wide band is a
+ * real gap between blocks; the narrow retry catches leading between two lines
+ * when a section is taller than a page and has to break somewhere.
+ */
+function findCut(
+  blank: Uint8Array,
+  unit: number,
+  ideal: number,
+  floor: number,
+): number {
+  const start = Math.min(ideal, blank.length - 1);
+  for (const band of [10 * unit, 2 * unit]) {
+    for (let y = start; y > floor + band; y--) {
+      let ok = true;
+      for (let k = 0; k < band; k++) {
+        if (!blank[y - k]) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return y + 1;
+    }
+  }
+  return ideal;
 }
 
 function waitForReady(iframe: HTMLIFrameElement): Promise<void> {
