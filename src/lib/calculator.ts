@@ -64,11 +64,40 @@ export function optionMonthly(o: ProposalOption): number {
     : Math.round(o.monthlyPrice);
 }
 
-/** Human-readable pricing detail, e.g. "$350/episode x 4". */
+/**
+ * Per-unit pricing written as proposal copy rather than calculator notation:
+ * "4 episodes at $350 each". The old "$350/episode x 4" form read like a
+ * formula and the rasterizer swallowed the space before the "x".
+ */
+export function perUnitPhrase(
+  unitLabel: string,
+  quantity: number,
+  unitPrice: number,
+): string {
+  const unit = unitLabel.trim() || "unit";
+  const price = `$${Math.round(unitPrice).toLocaleString()}`;
+  if (quantity === 1) return `${price} per ${unit}`;
+  const noun = /s$/i.test(unit) ? unit : `${unit}s`;
+  return `${quantity} ${noun} at ${price} each`;
+}
+
+/** Human-readable pricing detail, e.g. "4 episodes at $350 each". */
 export function optionDetail(o: ProposalOption): string {
   if (o.pricingMode !== "perUnit") return "";
-  const unit = o.unitLabel.trim() || "unit";
-  return `$${Math.round(o.unitPrice).toLocaleString()}/${unit} x ${o.quantity}`;
+  return perUnitPhrase(o.unitLabel, o.quantity, o.unitPrice);
+}
+
+/**
+ * Monthly client price for a manually-priced custom line item. Returns 0 in
+ * "hours" mode, where the item is costed and priced by the margin engine
+ * instead.
+ */
+export function customManualMonthly(c: PackageState["custom"]): number {
+  if (!c.enabled) return 0;
+  if (c.pricingMode === "flat") return Math.max(0, Math.round(c.flatPrice));
+  if (c.pricingMode === "perUnit")
+    return Math.max(0, Math.round(c.unitPrice * c.quantity));
+  return 0;
 }
 
 export interface PackageState {
@@ -91,15 +120,22 @@ export interface PackageState {
   web: { enabled: boolean; designPrice: number; monthlyFee: number };
   email: { enabled: boolean; campaignsPerMonth: number; hoursPerCampaign: number; tier: Tier };
   video: { enabled: boolean; hoursPerMonth: number; tier: Tier };
-  /** Custom line item. "hours" runs through the margin engine; "flat" is a
-   *  manually-set monthly price that bypasses it. */
+  /** Custom line item. "hours" runs through the margin engine; "flat" and
+   *  "perUnit" are manually-set client prices that bypass it. "perUnit" is
+   *  for volume-priced work quoted as part of the package, e.g. podcast
+   *  production at $75 per episode, 4 episodes a month. */
   custom: {
     enabled: boolean;
     description: string;
-    pricingMode: "hours" | "flat";
+    pricingMode: "hours" | "flat" | "perUnit";
     hoursPerMonth: number;
     tier: Tier;
     flatPrice: number;
+    unitLabel: string;
+    unitPrice: number;
+    quantity: number;
+    /** One-time setup fee, quoted alongside the monthly price (0 = none). */
+    setupFee: number;
   };
   /** Extra proposal blocks: scaled-down alternatives and optional add-ons. */
   options: ProposalOption[];
@@ -136,6 +172,10 @@ export const DEFAULT_PACKAGE: PackageState = {
     hoursPerMonth: 4,
     tier: "ft",
     flatPrice: 0,
+    unitLabel: "episode",
+    unitPrice: 0,
+    quantity: 4,
+    setupFee: 0,
   },
   options: [],
   softwareAllocation: 167,
@@ -235,6 +275,10 @@ function servicesOff(): Pick<
       hoursPerMonth: 4,
       tier: "ft",
       flatPrice: 0,
+      unitLabel: "episode",
+      unitPrice: 0,
+      quantity: 4,
+      setupFee: 0,
     },
     targetMargin: 40,
   };
@@ -276,17 +320,20 @@ export interface ProposalLine {
 
 /**
  * Client-facing proposal lines: the monthly price allocated across visible
- * service groups (software overhead is folded in proportionally, never
- * shown as its own line), each with a "what's included" list. The flat
- * website management fee is appended as its own line when enabled.
- * `monthlyPrice` should be the cost-based monthly price EXCLUDING the
- * website monthly fee (i.e. results.targetPrice - results.websiteMonthly).
+ * service groups (software overhead is folded in proportionally, never shown
+ * as its own line), each with a "what's included" list.
+ *
+ * Only the cost-based portion of targetPrice gets allocated. Manually-priced
+ * items (a flat or per-unit custom line, the flat website fee) are appended
+ * verbatim, so they're subtracted from the allocation base first, otherwise
+ * their price would be counted twice.
  */
 export function proposalServiceLines(
   pkg: PackageState,
   results: PackageResults,
-  monthlyPrice: number,
 ): ProposalLine[] {
+  const monthlyPrice =
+    results.targetPrice - results.websiteMonthly - results.customFlat;
   const HIDDEN = "Tools & software";
   const byService = new Map<string, number>();
   for (const l of results.lines) {
@@ -309,11 +356,15 @@ export function proposalServiceLines(
     });
   }
 
-  if (pkg.custom.enabled && pkg.custom.pricingMode === "flat") {
+  if (pkg.custom.enabled && pkg.custom.pricingMode !== "hours") {
+    const c = pkg.custom;
     out.push({
-      label: pkg.custom.description || "Custom service",
-      amount: Math.max(0, Math.round(pkg.custom.flatPrice)),
-      sublines: [],
+      label: c.description || "Custom service",
+      amount: customManualMonthly(c),
+      sublines:
+        c.pricingMode === "perUnit"
+          ? [perUnitPhrase(c.unitLabel, c.quantity, c.unitPrice)]
+          : [],
     });
   }
 
@@ -393,8 +444,10 @@ export interface PackageResults {
   profit: number;
   /** Flat website monthly management/hosting fee (0 when disabled). */
   websiteMonthly: number;
-  /** Manually-priced custom line item (0 unless in flat mode). */
+  /** Manually-priced custom line item (0 unless in flat or per-unit mode). */
   customFlat: number;
+  /** One-time setup fee on a manually-priced custom line item (0 = none). */
+  customSetup: number;
   /** True when hosting is comped: website + at least one monthly service. */
   hostingComped: boolean;
   /** One-time website design price from the slider (0 when disabled). */
@@ -501,8 +554,9 @@ export function computePackage(
       service: description || "Custom service",
     });
   }
-  // Flat-priced custom items are client-price-defined, so they sit outside
-  // the cost/margin engine and are added to the price after the fact.
+  // Flat- and per-unit-priced custom items are client-price-defined, so they
+  // sit outside the cost/margin engine and are added to the price after the
+  // fact.
 
   if (pkg.softwareAllocation > 0) {
     lines.push({
@@ -523,9 +577,10 @@ export function computePackage(
 
   // Flat website pricing sits outside the margin engine (interim model).
   const websiteMonthly = pkg.web.enabled ? Math.round(pkg.web.monthlyFee) : 0;
-  const customFlat =
-    pkg.custom.enabled && pkg.custom.pricingMode === "flat"
-      ? Math.max(0, Math.round(pkg.custom.flatPrice))
+  const customFlat = customManualMonthly(pkg.custom);
+  const customSetup =
+    pkg.custom.enabled && pkg.custom.pricingMode !== "hours"
+      ? Math.max(0, Math.round(pkg.custom.setupFee))
       : 0;
   // Bundle rule: pairing the website with ANY monthly service comps the
   // hosting fee. targetPrice still includes it (that's the standard rate);
@@ -580,6 +635,7 @@ export function computePackage(
     profit,
     websiteMonthly,
     customFlat,
+    customSetup,
     hostingComped,
     websiteDesignPrice,
     verdict,

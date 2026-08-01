@@ -24,6 +24,7 @@ import { useUser } from "@/lib/useUser";
 import {
   applyPackageDiscount,
   computePackage,
+  customManualMonthly,
   DEFAULT_PACKAGE,
   fetchSettings,
   optionDetail,
@@ -719,12 +720,14 @@ function ServiceCustom({
 }) {
   const s = pkg.custom;
   const rate = s.tier === "admin" ? settings.rateAdmin : s.tier === "ft" ? settings.rateFt : settings.ratePt;
-  const flat = s.pricingMode === "flat";
+  const manual = s.pricingMode !== "hours";
   const cost = !s.enabled
     ? 0
-    : flat
-      ? Math.max(0, Math.round(s.flatPrice))
+    : manual
+      ? customManualMonthly(s)
       : Math.round(s.hoursPerMonth * rate);
+  const set = (patch: Partial<PackageState["custom"]>) =>
+    setPkg((p) => ({ ...p, custom: { ...p.custom, ...patch } }));
   return (
     <ServiceRow
       enabled={s.enabled}
@@ -748,42 +751,88 @@ function ServiceCustom({
         <Label className="text-sm text-muted-foreground min-w-40">Pricing:</Label>
         <Select
           value={s.pricingMode}
-          onValueChange={(v) =>
-            setPkg((p) => ({ ...p, custom: { ...p.custom, pricingMode: v as "hours" | "flat" } }))
-          }
+          onValueChange={(v) => set({ pricingMode: v as typeof s.pricingMode })}
         >
           <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="hours">Hours x tier rate (costed)</SelectItem>
             <SelectItem value="flat">Set price manually</SelectItem>
+            <SelectItem value="perUnit">Per unit (e.g. per episode)</SelectItem>
           </SelectContent>
         </Select>
       </div>
-      {flat ? (
+      {s.pricingMode === "flat" && (
+        <div className="flex items-center gap-3">
+          <Label className="text-sm text-muted-foreground min-w-40">Price ($/mo):</Label>
+          <Input
+            type="number"
+            min={0}
+            value={s.flatPrice || ""}
+            onChange={(e) => set({ flatPrice: Number(e.target.value) || 0 })}
+            className="w-32 tabular-nums"
+          />
+        </div>
+      )}
+      {s.pricingMode === "perUnit" && (
         <>
-          <div className="flex items-center gap-3">
-            <Label className="text-sm text-muted-foreground min-w-40">Price ($/mo):</Label>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Label className="text-sm text-muted-foreground min-w-40">Price per unit ($):</Label>
             <Input
               type="number"
               min={0}
-              value={s.flatPrice || ""}
-              onChange={(e) =>
-                setPkg((p) => ({ ...p, custom: { ...p.custom, flatPrice: Number(e.target.value) || 0 } }))
-              }
-              className="w-32 tabular-nums"
+              value={s.unitPrice || ""}
+              onChange={(e) => set({ unitPrice: Number(e.target.value) || 0 })}
+              className="w-28 tabular-nums"
+            />
+            <span className="text-sm text-muted-foreground">per</span>
+            <Input
+              className="w-32"
+              placeholder="episode"
+              value={s.unitLabel}
+              onChange={(e) => set({ unitLabel: e.target.value })}
             />
           </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Label className="text-sm text-muted-foreground min-w-40">Units per month:</Label>
+            <Input
+              type="number"
+              min={1}
+              value={s.quantity || ""}
+              onChange={(e) => set({ quantity: Math.max(1, Number(e.target.value) || 1) })}
+              className="w-24 tabular-nums"
+            />
+            <span className="text-sm text-muted-foreground">
+              {s.unitPrice > 0
+                ? `= $${customManualMonthly(s).toLocaleString()}/mo on the proposal`
+                : "Set a unit price to see the monthly total"}
+            </span>
+          </div>
+        </>
+      )}
+      {manual ? (
+        <>
+          <div className="flex items-center gap-3">
+            <Label className="text-sm text-muted-foreground min-w-40">Setup fee ($):</Label>
+            <Input
+              type="number"
+              min={0}
+              value={s.setupFee || ""}
+              onChange={(e) => set({ setupFee: Number(e.target.value) || 0 })}
+              className="w-32 tabular-nums"
+            />
+            <span className="text-xs text-muted-foreground">One-time, optional</span>
+          </div>
           <p className="text-xs text-muted-foreground bg-muted rounded p-2">
-            Manually-priced items bypass the margin engine — they're added to
+            Manually-priced items bypass the margin engine. They're added to
             the quote as-is, so sanity-check the margin yourself.
           </p>
         </>
       ) : (
         <>
           <RangeRow label="Hours/month:" value={s.hoursPerMonth} min={1} max={40}
-            onChange={(v) => setPkg((p) => ({ ...p, custom: { ...p.custom, hoursPerMonth: v } }))} />
+            onChange={(v) => set({ hoursPerMonth: v })} />
           <TierSelect label="Performed by:" value={s.tier}
-            onChange={(v) => setPkg((p) => ({ ...p, custom: { ...p.custom, tier: v } }))} />
+            onChange={(v) => set({ tier: v })} />
         </>
       )}
     </ServiceRow>
@@ -819,11 +868,7 @@ function ResultsPanel({
   const [pdfBusy, setPdfBusy] = useState(false);
 
   async function downloadPackagePdf() {
-    const breakdown = proposalServiceLines(
-      pkg,
-      results,
-      results.targetPrice - results.websiteMonthly,
-    );
+    const breakdown = proposalServiceLines(pkg, results);
     if (breakdown.length === 0) {
       toast.error("Toggle on at least one service first.");
       return;
@@ -863,13 +908,26 @@ function ResultsPanel({
         discounts,
         finalTotal: Math.max(0, disc.final - hostingComp),
         priceUnit: "/mo",
-        oneTime: pkg.web.enabled
-          ? {
-              label: "Website design",
-              standard: WEBSITE_DESIGN_STANDARD,
-              final: results.websiteDesignPrice,
-            }
-          : undefined,
+        oneTimes: [
+          ...(pkg.web.enabled
+            ? [
+                {
+                  label: "Website design",
+                  standard: WEBSITE_DESIGN_STANDARD,
+                  final: results.websiteDesignPrice,
+                },
+              ]
+            : []),
+          ...(results.customSetup > 0
+            ? [
+                {
+                  label: `${pkg.custom.description || "Custom service"} setup`,
+                  standard: results.customSetup,
+                  final: results.customSetup,
+                },
+              ]
+            : []),
+        ],
         extraSections: buildOptionSections(pkg.options),
         footnote:
           "Proposed monthly retainer. 30-day terms. Final scope confirmed in the service agreement.",
@@ -1320,7 +1378,7 @@ function buildOptionSections(options: ProposalOption[]) {
   if (alts.length) {
     sections.push({
       heading: "Other ways we can scale this",
-      note: "Instead of the package above — same team, different volume.",
+      note: "Swap in place of the package above. Same team, different volume.",
       items: toItems(alts),
     });
   }

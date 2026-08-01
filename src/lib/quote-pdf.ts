@@ -40,9 +40,9 @@ export interface QuoteDoc {
   priceUnit?: string;
   /** Optional smaller note under the price (e.g. project range). */
   priceNote?: string;
-  /** Optional one-time charge shown after the monthly summary (e.g.
-   *  website design). When final < standard the standard shows struck. */
-  oneTime?: { label: string; standard: number; final: number };
+  /** One-time charges shown after the monthly summary (e.g. website design,
+   *  podcast setup). When final < standard the standard shows struck. */
+  oneTimes?: { label: string; standard: number; final: number }[];
   /** Blocks rendered after the price summary — e.g. "Other options we can
    *  scale to" and "Optional add-ons". Not part of the quoted total. */
   extraSections?: {
@@ -130,7 +130,16 @@ export async function downloadQuotePdf(doc: QuoteDoc): Promise<void> {
     const imgH = (canvas.height / canvas.width) * pageW;
 
     if (imgH <= pageH) {
-      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, pageW, imgH);
+      pdf.addImage(
+        canvas.toDataURL("image/png"),
+        "PNG",
+        0,
+        0,
+        pageW,
+        imgH,
+        undefined,
+        IMAGE_COMPRESSION,
+      );
     } else {
       paginateCanvas(pdf, canvas, pageW, pageH);
     }
@@ -144,6 +153,14 @@ export async function downloadQuotePdf(doc: QuoteDoc): Promise<void> {
 }
 
 type PdfDoc = import("jspdf").jsPDF;
+
+/**
+ * Canvas PNGs carry an alpha channel, so jsPDF decodes them and embeds a raw
+ * bitmap unless told to deflate. Without this a two-page quote ships at ~9MB;
+ * with it, ~200KB, and it's lossless either way. "FAST" measured smaller than
+ * "MEDIUM" on this content and is quicker than "SLOW" for the same result.
+ */
+const IMAGE_COMPRESSION = "FAST" as const;
 
 /**
  * Split the rasterized quote across letter pages.
@@ -212,6 +229,8 @@ function paginateCanvas(
       0,
       pageW,
       slice.height / pxPerPt,
+      undefined,
+      IMAGE_COMPRESSION,
     );
 
     y += sliceH;
@@ -399,18 +418,25 @@ function buildHtml(doc: QuoteDoc, logoUrl: string): string {
     ? `<div class="price-note">${esc(doc.priceNote)}</div>`
     : "";
 
-  const oneTimeBlock = doc.oneTime
-    ? `<div class="price-row" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--light-gray)">
-        <span class="price-row-label">${esc(doc.oneTime.label)} (one-time)</span>
+  const oneTimeList = (doc.oneTimes ?? []).filter((o) => o.final > 0 || o.standard > 0);
+  const oneTimeBlock = oneTimeList.length
+    ? oneTimeList
+        .map(
+          (ot, i) => `<div class="price-row" style="margin-top:${i === 0 ? 12 : 4}px;${
+            i === 0 ? "padding-top:12px;border-top:1px solid var(--light-gray);" : ""
+          }">
+        <span class="price-row-label">${esc(ot.label)} (one-time)</span>
         <span style="font-variant-numeric:tabular-nums">
           ${
-            doc.oneTime.final < doc.oneTime.standard
-              ? `<span style="text-decoration:line-through;color:var(--slate);font-size:14px">${money(doc.oneTime.standard)}</span>
-                 <span style="font-family:Montserrat,sans-serif;font-weight:800;font-size:20px;color:var(--gold-dark);margin-left:8px">${money(doc.oneTime.final)}</span>`
-              : `<span style="font-family:Montserrat,sans-serif;font-weight:800;font-size:20px;color:var(--gold-dark)">${money(doc.oneTime.final)}</span>`
+            ot.final < ot.standard
+              ? `<span style="text-decoration:line-through;color:var(--slate);font-size:14px">${money(ot.standard)}</span>
+                 <span style="font-family:Montserrat,sans-serif;font-weight:800;font-size:20px;color:var(--gold-dark);margin-left:8px">${money(ot.final)}</span>`
+              : `<span style="font-family:Montserrat,sans-serif;font-weight:800;font-size:20px;color:var(--gold-dark)">${money(ot.final)}</span>`
           }
         </span>
-      </div>`
+      </div>`,
+        )
+        .join("")
     : "";
 
   return `<!doctype html>
