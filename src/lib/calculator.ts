@@ -36,6 +36,41 @@ export function tierLabel(t: Tier): string {
   return TIERS.find((x) => x.id === t)?.label ?? t;
 }
 
+/**
+ * An extra block on the proposal. "alternative" = a different version of
+ * the same package (e.g. 2 posts/week instead of 3); "addon" = something
+ * they could bolt on (e.g. podcast production). Neither affects the main
+ * quoted total — they're presented as choices.
+ */
+export interface ProposalOption {
+  id: string;
+  kind: "alternative" | "addon";
+  label: string;
+  description: string;
+  pricingMode: "flat" | "perUnit";
+  monthlyPrice: number;
+  /** perUnit mode: unitPrice x quantity, e.g. $350/episode x 4. */
+  unitLabel: string;
+  unitPrice: number;
+  quantity: number;
+  /** Optional one-time setup fee (0 = none). */
+  oneTimePrice: number;
+}
+
+/** Monthly total for an option, honouring its pricing mode. */
+export function optionMonthly(o: ProposalOption): number {
+  return o.pricingMode === "perUnit"
+    ? Math.round(o.unitPrice * o.quantity)
+    : Math.round(o.monthlyPrice);
+}
+
+/** Human-readable pricing detail, e.g. "$350/episode x 4". */
+export function optionDetail(o: ProposalOption): string {
+  if (o.pricingMode !== "perUnit") return "";
+  const unit = o.unitLabel.trim() || "unit";
+  return `$${Math.round(o.unitPrice).toLocaleString()}/${unit} x ${o.quantity}`;
+}
+
 export interface PackageState {
   clientName: string;
   social: {
@@ -56,7 +91,18 @@ export interface PackageState {
   web: { enabled: boolean; designPrice: number; monthlyFee: number };
   email: { enabled: boolean; campaignsPerMonth: number; hoursPerCampaign: number; tier: Tier };
   video: { enabled: boolean; hoursPerMonth: number; tier: Tier };
-  custom: { enabled: boolean; description: string; hoursPerMonth: number; tier: Tier };
+  /** Custom line item. "hours" runs through the margin engine; "flat" is a
+   *  manually-set monthly price that bypasses it. */
+  custom: {
+    enabled: boolean;
+    description: string;
+    pricingMode: "hours" | "flat";
+    hoursPerMonth: number;
+    tier: Tier;
+    flatPrice: number;
+  };
+  /** Extra proposal blocks: scaled-down alternatives and optional add-ons. */
+  options: ProposalOption[];
   softwareAllocation: number;
   targetMargin: number; // 0–100
   // Custom discount shown on the client quote.
@@ -83,7 +129,15 @@ export const DEFAULT_PACKAGE: PackageState = {
   web: { enabled: false, designPrice: WEBSITE_DESIGN_STANDARD, monthlyFee: 150 },
   email: { enabled: false, campaignsPerMonth: 2, hoursPerCampaign: 2, tier: "ft" },
   video: { enabled: false, hoursPerMonth: 8, tier: "admin" },
-  custom: { enabled: false, description: "", hoursPerMonth: 4, tier: "ft" },
+  custom: {
+    enabled: false,
+    description: "",
+    pricingMode: "hours",
+    hoursPerMonth: 4,
+    tier: "ft",
+    flatPrice: 0,
+  },
+  options: [],
   softwareAllocation: 167,
   targetMargin: 40,
   discountName: "",
@@ -174,7 +228,14 @@ function servicesOff(): Pick<
     web: { enabled: false, designPrice: WEBSITE_DESIGN_STANDARD, monthlyFee: 150 },
     email: { enabled: false, campaignsPerMonth: 2, hoursPerCampaign: 2, tier: "ft" },
     video: { enabled: false, hoursPerMonth: 8, tier: "admin" },
-    custom: { enabled: false, description: "", hoursPerMonth: 4, tier: "ft" },
+    custom: {
+      enabled: false,
+      description: "",
+      pricingMode: "hours",
+      hoursPerMonth: 4,
+      tier: "ft",
+      flatPrice: 0,
+    },
     targetMargin: 40,
   };
 }
@@ -245,6 +306,14 @@ export function proposalServiceLines(
           : Math.round((monthlyPrice * cost) / visibleCost);
       allocated += amount;
       out.push({ label, amount, sublines: sublinesFor(label, pkg) });
+    });
+  }
+
+  if (pkg.custom.enabled && pkg.custom.pricingMode === "flat") {
+    out.push({
+      label: pkg.custom.description || "Custom service",
+      amount: Math.max(0, Math.round(pkg.custom.flatPrice)),
+      sublines: [],
     });
   }
 
@@ -324,6 +393,8 @@ export interface PackageResults {
   profit: number;
   /** Flat website monthly management/hosting fee (0 when disabled). */
   websiteMonthly: number;
+  /** Manually-priced custom line item (0 unless in flat mode). */
+  customFlat: number;
   /** True when hosting is comped: website + at least one monthly service. */
   hostingComped: boolean;
   /** One-time website design price from the slider (0 when disabled). */
@@ -420,7 +491,7 @@ export function computePackage(
     });
   }
 
-  if (pkg.custom.enabled) {
+  if (pkg.custom.enabled && pkg.custom.pricingMode === "hours") {
     const { hoursPerMonth, tier, description } = pkg.custom;
     lines.push({
       item: description || "Custom service",
@@ -430,6 +501,8 @@ export function computePackage(
       service: description || "Custom service",
     });
   }
+  // Flat-priced custom items are client-price-defined, so they sit outside
+  // the cost/margin engine and are added to the price after the fact.
 
   if (pkg.softwareAllocation > 0) {
     lines.push({
@@ -450,6 +523,10 @@ export function computePackage(
 
   // Flat website pricing sits outside the margin engine (interim model).
   const websiteMonthly = pkg.web.enabled ? Math.round(pkg.web.monthlyFee) : 0;
+  const customFlat =
+    pkg.custom.enabled && pkg.custom.pricingMode === "flat"
+      ? Math.max(0, Math.round(pkg.custom.flatPrice))
+      : 0;
   // Bundle rule: pairing the website with ANY monthly service comps the
   // hosting fee. targetPrice still includes it (that's the standard rate);
   // the comp renders as an explicit discount so the client sees the value
@@ -468,14 +545,16 @@ export function computePackage(
     : 0;
 
   const marginPrice = totalCost > 0 ? Math.round(totalCost / (1 - tm)) : 0;
-  const targetPrice = marginPrice + websiteMonthly;
+  const targetPrice = marginPrice + websiteMonthly + customFlat;
   const floorPrice =
-    (totalCost > 0 ? Math.round(totalCost / (1 - floor)) : 0) + websiteMonthly;
+    (totalCost > 0 ? Math.round(totalCost / (1 - floor)) : 0) +
+    websiteMonthly +
+    customFlat;
   const profit = targetPrice - totalCost;
 
   let verdict: PackageResults["verdict"];
   let verdictText: string;
-  if (totalCost === 0 && websiteMonthly === 0) {
+  if (totalCost === 0 && websiteMonthly === 0 && customFlat === 0) {
     verdict = "empty";
     verdictText = "Toggle services above to build a package.";
   } else if (totalCost === 0) {
@@ -500,6 +579,7 @@ export function computePackage(
     floorPrice,
     profit,
     websiteMonthly,
+    customFlat,
     hostingComped,
     websiteDesignPrice,
     verdict,

@@ -26,6 +26,8 @@ import {
   computePackage,
   DEFAULT_PACKAGE,
   fetchSettings,
+  optionDetail,
+  optionMonthly,
   PACKAGE_PRESETS,
   patchSettings,
   proposalServiceLines,
@@ -33,6 +35,7 @@ import {
   WEBSITE_DESIGN_STANDARD,
   type CalculatorSettings,
   type PackageState,
+  type ProposalOption,
   type Tier,
 } from "@/lib/calculator";
 import { downloadQuotePdf, type QuoteDiscount } from "@/lib/quote-pdf";
@@ -56,6 +59,7 @@ function loadPackage(): PackageState {
         email: { ...DEFAULT_PACKAGE.email, ...(parsed.email ?? {}) },
         video: { ...DEFAULT_PACKAGE.video, ...(parsed.video ?? {}) },
         custom: { ...DEFAULT_PACKAGE.custom, ...(parsed.custom ?? {}) },
+        options: parsed.options ?? [],
       };
     }
   } catch {
@@ -715,7 +719,12 @@ function ServiceCustom({
 }) {
   const s = pkg.custom;
   const rate = s.tier === "admin" ? settings.rateAdmin : s.tier === "ft" ? settings.rateFt : settings.ratePt;
-  const cost = s.enabled ? Math.round(s.hoursPerMonth * rate) : 0;
+  const flat = s.pricingMode === "flat";
+  const cost = !s.enabled
+    ? 0
+    : flat
+      ? Math.max(0, Math.round(s.flatPrice))
+      : Math.round(s.hoursPerMonth * rate);
   return (
     <ServiceRow
       enabled={s.enabled}
@@ -735,10 +744,48 @@ function ServiceCustom({
           }
         />
       </div>
-      <RangeRow label="Hours/month:" value={s.hoursPerMonth} min={1} max={40}
-        onChange={(v) => setPkg((p) => ({ ...p, custom: { ...p.custom, hoursPerMonth: v } }))} />
-      <TierSelect label="Performed by:" value={s.tier}
-        onChange={(v) => setPkg((p) => ({ ...p, custom: { ...p.custom, tier: v } }))} />
+      <div className="flex items-center gap-3">
+        <Label className="text-sm text-muted-foreground min-w-40">Pricing:</Label>
+        <Select
+          value={s.pricingMode}
+          onValueChange={(v) =>
+            setPkg((p) => ({ ...p, custom: { ...p.custom, pricingMode: v as "hours" | "flat" } }))
+          }
+        >
+          <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="hours">Hours x tier rate (costed)</SelectItem>
+            <SelectItem value="flat">Set price manually</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {flat ? (
+        <>
+          <div className="flex items-center gap-3">
+            <Label className="text-sm text-muted-foreground min-w-40">Price ($/mo):</Label>
+            <Input
+              type="number"
+              min={0}
+              value={s.flatPrice || ""}
+              onChange={(e) =>
+                setPkg((p) => ({ ...p, custom: { ...p.custom, flatPrice: Number(e.target.value) || 0 } }))
+              }
+              className="w-32 tabular-nums"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground bg-muted rounded p-2">
+            Manually-priced items bypass the margin engine — they're added to
+            the quote as-is, so sanity-check the margin yourself.
+          </p>
+        </>
+      ) : (
+        <>
+          <RangeRow label="Hours/month:" value={s.hoursPerMonth} min={1} max={40}
+            onChange={(v) => setPkg((p) => ({ ...p, custom: { ...p.custom, hoursPerMonth: v } }))} />
+          <TierSelect label="Performed by:" value={s.tier}
+            onChange={(v) => setPkg((p) => ({ ...p, custom: { ...p.custom, tier: v } }))} />
+        </>
+      )}
     </ServiceRow>
   );
 }
@@ -823,6 +870,7 @@ function ResultsPanel({
               final: results.websiteDesignPrice,
             }
           : undefined,
+        extraSections: buildOptionSections(pkg.options),
         footnote:
           "Proposed monthly retainer. 30-day terms. Final scope confirmed in the service agreement.",
       });
@@ -912,6 +960,12 @@ function ResultsPanel({
           )}
         </tbody>
       </table>
+
+      <ProposalOptionsCard
+        pkg={pkg}
+        setPkg={setPkg}
+        currentMonthly={results.targetPrice}
+      />
 
       {/* ── Client quote: custom discount + standard vs your price ── */}
       <div className="rounded-lg border-2 border-tmc-gold/50 p-4 space-y-3">
@@ -1242,6 +1296,260 @@ function NumRow({
       <Input type="number" className="w-24"
         value={value}
         onChange={(e) => onChange(Number(e.target.value) || 0)} />
+    </div>
+  );
+}
+
+// ─── Proposal options: alternatives + optional add-ons ────────────────────
+
+/** Group the saved options into the PDF's extraSections shape. */
+function buildOptionSections(options: ProposalOption[]) {
+  const alts = options.filter((o) => o.kind === "alternative");
+  const addons = options.filter((o) => o.kind === "addon");
+  const toItems = (list: ProposalOption[]) =>
+    list.map((o) => ({
+      label: o.label || "Option",
+      description: o.description || undefined,
+      detail: optionDetail(o) || undefined,
+      amount: optionMonthly(o),
+      unit: "/mo",
+      oneTime: o.oneTimePrice > 0 ? o.oneTimePrice : undefined,
+    }));
+
+  const sections: NonNullable<Parameters<typeof downloadQuotePdf>[0]["extraSections"]> = [];
+  if (alts.length) {
+    sections.push({
+      heading: "Other ways we can scale this",
+      note: "Instead of the package above — same team, different volume.",
+      items: toItems(alts),
+    });
+  }
+  if (addons.length) {
+    sections.push({
+      heading: "Optional add-ons",
+      note: "Available on top of your package whenever you're ready.",
+      items: toItems(addons),
+    });
+  }
+  return sections.length ? sections : undefined;
+}
+
+function ProposalOptionsCard({
+  pkg,
+  setPkg,
+  currentMonthly,
+}: {
+  pkg: PackageState;
+  setPkg: React.Dispatch<React.SetStateAction<PackageState>>;
+  currentMonthly: number;
+}) {
+  function addOption(kind: ProposalOption["kind"], seedPrice = 0) {
+    const fresh: ProposalOption = {
+      id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+      kind,
+      label: "",
+      description: "",
+      pricingMode: "flat",
+      monthlyPrice: seedPrice,
+      unitLabel: "episode",
+      unitPrice: 0,
+      quantity: 4,
+      oneTimePrice: 0,
+    };
+    setPkg((p) => ({ ...p, options: [...p.options, fresh] }));
+  }
+  function update(id: string, patch: Partial<ProposalOption>) {
+    setPkg((p) => ({
+      ...p,
+      options: p.options.map((o) => (o.id === id ? { ...o, ...patch } : o)),
+    }));
+  }
+  function remove(id: string) {
+    setPkg((p) => ({ ...p, options: p.options.filter((o) => o.id !== id) }));
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-5 space-y-3">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-tmc-slate">
+            Proposal options
+          </h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            Extra blocks on the proposal that don't change the quoted total:
+            scaled alternatives ("if you did 2 posts/week instead") and
+            optional add-ons ("podcast production").
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button size="sm" variant="outline" onClick={() => addOption("alternative")}>
+            + Alternative
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => addOption("addon")}>
+            + Add-on
+          </Button>
+        </div>
+      </div>
+
+      {pkg.options.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">
+          None yet. Tip: set the sliders to the scaled-down version, click
+          "+ Alternative", then "Use current price" to snapshot it — and set
+          the sliders back to what you're actually quoting.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {pkg.options.map((o) => {
+            const perUnit = o.pricingMode === "perUnit";
+            return (
+              <div
+                key={o.id}
+                className="rounded-md border p-3 space-y-2 bg-muted/30"
+              >
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select
+                    value={o.kind}
+                    onValueChange={(v) =>
+                      update(o.id, { kind: v as ProposalOption["kind"] })
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-36 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="alternative">Alternative</SelectItem>
+                      <SelectItem value="addon">Add-on</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    className="flex-1 min-w-44 h-8 text-sm"
+                    placeholder={
+                      o.kind === "alternative"
+                        ? "e.g. Lighter option: 2 posts per week"
+                        : "e.g. Podcast production"
+                    }
+                    value={o.label}
+                    onChange={(e) => update(o.id, { label: e.target.value })}
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2 text-destructive"
+                    onClick={() => remove(o.id)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+
+                <Input
+                  className="h-8 text-sm"
+                  placeholder="Short description shown under the name (optional)"
+                  value={o.description}
+                  onChange={(e) => update(o.id, { description: e.target.value })}
+                />
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select
+                    value={o.pricingMode}
+                    onValueChange={(v) =>
+                      update(o.id, { pricingMode: v as ProposalOption["pricingMode"] })
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-40 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="flat">Flat monthly</SelectItem>
+                      <SelectItem value="perUnit">Per unit x qty</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {perUnit ? (
+                    <>
+                      <span className="text-xs text-muted-foreground">$</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        className="h-8 w-24 text-sm tabular-nums"
+                        value={o.unitPrice || ""}
+                        onChange={(e) =>
+                          update(o.id, { unitPrice: Number(e.target.value) || 0 })
+                        }
+                      />
+                      <span className="text-xs text-muted-foreground">per</span>
+                      <Input
+                        className="h-8 w-28 text-sm"
+                        placeholder="episode"
+                        value={o.unitLabel}
+                        onChange={(e) => update(o.id, { unitLabel: e.target.value })}
+                      />
+                      <span className="text-xs text-muted-foreground">x</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        className="h-8 w-20 text-sm tabular-nums"
+                        value={o.quantity || ""}
+                        onChange={(e) =>
+                          update(o.id, { quantity: Number(e.target.value) || 0 })
+                        }
+                      />
+                      <span className="text-xs text-muted-foreground">per month</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-xs text-muted-foreground">$</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        className="h-8 w-28 text-sm tabular-nums"
+                        value={o.monthlyPrice || ""}
+                        onChange={(e) =>
+                          update(o.id, { monthlyPrice: Number(e.target.value) || 0 })
+                        }
+                      />
+                      <span className="text-xs text-muted-foreground">/mo</span>
+                      {o.kind === "alternative" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 px-2 text-xs text-tmc-gold-dark"
+                          onClick={() => update(o.id, { monthlyPrice: currentMonthly })}
+                          title="Snapshot the price currently showing above"
+                        >
+                          Use current price (${currentMonthly.toLocaleString()})
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Label className="text-[11px] text-muted-foreground">
+                    One-time setup ($, optional):
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    className="h-8 w-28 text-sm tabular-nums"
+                    value={o.oneTimePrice || ""}
+                    onChange={(e) =>
+                      update(o.id, { oneTimePrice: Number(e.target.value) || 0 })
+                    }
+                  />
+                  <span className="ml-auto text-sm font-semibold text-tmc-gold-dark tabular-nums">
+                    ${optionMonthly(o).toLocaleString()}/mo
+                    {o.oneTimePrice > 0 && (
+                      <span className="text-xs text-muted-foreground font-normal">
+                        {" "}+ ${o.oneTimePrice.toLocaleString()} setup
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

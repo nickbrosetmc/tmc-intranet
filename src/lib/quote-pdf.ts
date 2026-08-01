@@ -43,6 +43,20 @@ export interface QuoteDoc {
   /** Optional one-time charge shown after the monthly summary (e.g.
    *  website design). When final < standard the standard shows struck. */
   oneTime?: { label: string; standard: number; final: number };
+  /** Blocks rendered after the price summary — e.g. "Other options we can
+   *  scale to" and "Optional add-ons". Not part of the quoted total. */
+  extraSections?: {
+    heading: string;
+    note?: string;
+    items: {
+      label: string;
+      description?: string;
+      detail?: string;
+      amount: number;
+      unit?: string;
+      oneTime?: number;
+    }[];
+  }[];
   /** Optional fine print at the bottom. */
   footnote?: string;
 }
@@ -432,6 +446,29 @@ function buildHtml(doc: QuoteDoc, logoUrl: string): string {
 
   .footnote { padding: 16px 40px 0; font-size: 11px; color: var(--slate); line-height: 1.5; }
 
+  .options { padding: 18px 40px 0; }
+  .opt-block { margin-bottom: 14px; }
+  .opt-heading {
+    font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 11px;
+    letter-spacing: 1.5px; text-transform: uppercase; color: var(--slate);
+    padding-bottom: 5px; margin-bottom: 8px; border-bottom: 1px solid var(--light-gray);
+  }
+  .opt-note { font-size: 12px; color: var(--slate); margin: -4px 0 8px; }
+  .opt-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 16px; padding: 7px 12px; background: var(--cream);
+    border-radius: 8px; margin-bottom: 6px;
+  }
+  .opt-name { font-weight: 600; font-size: 14px; }
+  .opt-desc { font-size: 12px; color: var(--slate); margin-top: 2px; }
+  .opt-detail { font-size: 11px; color: var(--gold-dark); margin-top: 2px; font-weight: 600; }
+  .opt-price {
+    font-family: "Montserrat", sans-serif; font-weight: 800; font-size: 18px;
+    color: var(--gold-dark); white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .opt-price .u { font-size: 12px; color: var(--slate); font-weight: 600; }
+  .opt-onetime { font-size: 11px; color: var(--slate); display: block; text-align: right; margin-top: 2px; }
+
   /* Gold footer bar */
   .footer {
     margin-top: 28px;
@@ -486,6 +523,40 @@ function buildHtml(doc: QuoteDoc, logoUrl: string): string {
       ${priceNote}
     </div>
 
+    ${
+      doc.extraSections && doc.extraSections.length
+        ? `<div class="options">${doc.extraSections
+            .filter((sec) => sec.items.length > 0)
+            .map(
+              (sec) => `
+          <div class="opt-block">
+            <div class="opt-heading">${esc(sec.heading)}</div>
+            ${sec.note ? `<div class="opt-note">${esc(sec.note)}</div>` : ""}
+            ${sec.items
+              .map(
+                (it) => `
+              <div class="opt-row">
+                <div>
+                  <div class="opt-name">${esc(it.label)}</div>
+                  ${it.description ? `<div class="opt-desc">${esc(it.description)}</div>` : ""}
+                  ${it.detail ? `<div class="opt-detail">${esc(it.detail)}</div>` : ""}
+                </div>
+                <div>
+                  <span class="opt-price">${money(it.amount)}<span class="u">${esc(it.unit ?? "/mo")}</span></span>
+                  ${
+                    it.oneTime && it.oneTime > 0
+                      ? `<span class="opt-onetime">+ ${money(it.oneTime)} one-time setup</span>`
+                      : ""
+                  }
+                </div>
+              </div>`,
+              )
+              .join("")}
+          </div>`,
+            )
+            .join("")}</div>`
+        : ""
+    }
     ${doc.footnote ? `<div class="footnote">${esc(doc.footnote)}</div>` : ""}
 
     <div class="footer">
