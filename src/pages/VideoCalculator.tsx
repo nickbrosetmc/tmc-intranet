@@ -13,8 +13,12 @@ import {
 import { FileText, Settings as Gear } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { useUser } from "@/lib/useUser";
-import { fetchSettings, type CalculatorSettings } from "@/lib/calculator";
-import { AdminSettingsDialog } from "@/pages/Calculator";
+import {
+  fetchSettings,
+  reconcileDiscounts,
+  type CalculatorSettings,
+} from "@/lib/calculator";
+import { AdminSettingsDialog, FinalPriceRow } from "@/pages/Calculator";
 import {
   applySharedRates,
   computeVideo,
@@ -29,6 +33,20 @@ import {
 } from "@/lib/quote-pdf";
 
 const VIDEO_STORAGE_KEY = "tmc.calculator.video.v1";
+
+/**
+ * The savings the client sees, rebuilt against the quoted price. When the
+ * price is hand-set, the calculated discount lines no longer account for the
+ * whole difference, so the remainder gets its own line.
+ */
+function quoteDiscountLines(r: ReturnType<typeof computeVideo>) {
+  return reconcileDiscounts(
+    r.standardRounded,
+    r.grandRounded,
+    r.discountLines.map(([label, v]) => ({ label, amount: Math.abs(v) })),
+    "Discount applied",
+  );
+}
 
 function loadVideoState(): VideoState {
   try {
@@ -142,12 +160,13 @@ export function VideoCalculatorPage() {
     lines.push(pad("After multipliers", fmt$(r.adjustedSubtotal)));
     lines.push("");
     lines.push("==========================================");
-    if (r.discountTotal > 0) {
+    const quoteDiscounts = quoteDiscountLines(r);
+    if (quoteDiscounts.length > 0) {
       lines.push(pad("STANDARD INVESTMENT", fmt$(r.standardRounded)));
       lines.push("");
       lines.push("DISCOUNTS APPLIED");
-      r.discountLines.forEach(([n, v]) =>
-        lines.push(pad("  " + n, "−" + fmt$(Math.abs(v)))),
+      quoteDiscounts.forEach((d) =>
+        lines.push(pad("  " + d.label, "−" + fmt$(d.amount))),
       );
       lines.push(pad("  Total savings", "−" + fmt$(r.standardRounded - r.grandRounded)));
       lines.push("");
@@ -176,10 +195,7 @@ export function VideoCalculatorPage() {
       items.push({ label: "Production & creative direction", amount: production });
     }
 
-    const discounts: QuoteDiscount[] = r.discountLines.map(([label, v]) => ({
-      label,
-      amount: Math.abs(v),
-    }));
+    const discounts: QuoteDiscount[] = quoteDiscountLines(r);
 
     setPdfBusy(true);
     try {
@@ -292,7 +308,7 @@ export function VideoCalculatorPage() {
         {/* RIGHT: quote panel */}
         <div>
           <div className="lg:sticky lg:top-24 space-y-4">
-            <QuoteBreakdown r={r} s={s} />
+            <QuoteBreakdown r={r} s={s} setS={setS} />
           </div>
         </div>
       </div>
@@ -1052,10 +1068,13 @@ function AnchorOverridesCard({ s, set }: { s: VideoState; set: Setter }) {
 function QuoteBreakdown({
   r,
   s,
+  setS,
 }: {
   r: ReturnType<typeof computeVideo>;
   s: VideoState;
+  setS: React.Dispatch<React.SetStateAction<VideoState>>;
 }) {
+  const quoteDiscounts = quoteDiscountLines(r);
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
       <h2 className="text-sm font-semibold tracking-wide text-tmc-slate uppercase">
@@ -1101,14 +1120,24 @@ function QuoteBreakdown({
         )) : <Empty>— no safety adjustments —</Empty>}
       </Section>
 
+      {/* Shown exactly as the client's quote will list them, so a hand-set
+          price is visible here as its own line rather than silently changing
+          the total below. */}
       <Section title="Discounts">
-        {r.discountLines.length ? r.discountLines.map(([n, v], i) => (
-          <QLine key={i} label={n} value={"−" + fmt$(Math.abs(v))} />
+        {quoteDiscounts.length ? quoteDiscounts.map((d, i) => (
+          <QLine key={i} label={d.label} value={"−" + fmt$(d.amount)} />
         )) : <Empty>— none —</Empty>}
       </Section>
 
+      <FinalPriceRow
+        label="Final quoted price ($)"
+        calculated={r.calculatedRounded}
+        override={s.finalOverride}
+        onChange={(v) => setS((p) => ({ ...p, finalOverride: v }))}
+      />
+
       <div className="bg-tmc-dark text-white rounded-md p-4 mt-3 text-center">
-        {r.discountTotal > 0 ? (
+        {r.standardRounded > r.grandRounded ? (
           <>
             <div className="text-[10px] uppercase tracking-widest text-white/60">
               Standard investment

@@ -152,6 +152,8 @@ export interface VideoState {
   estMult: boolean;
   roundInc: number;
   recurring: boolean;
+  /** Hand-set project quote, overriding the calculated price. null = calculated. */
+  finalOverride: number | null;
 }
 
 export const DEFAULT_VIDEO_STATE: VideoState = {
@@ -217,6 +219,7 @@ export const DEFAULT_VIDEO_STATE: VideoState = {
   estMult: true,
   roundInc: 50,
   recurring: false,
+  finalOverride: null,
 };
 
 /** Apply the team's shared rates from settings to a video state object. */
@@ -259,6 +262,8 @@ export interface VideoResult {
   standardRounded: number;
   /** Sum of every discount applied (positive number). */
   discountTotal: number;
+  /** What the calculator arrived at, before any hand-set override. */
+  calculatedRounded: number;
   grandRounded: number;
   rangeLow: number;
   rangeHigh: number;
@@ -570,7 +575,12 @@ export function computeVideo(s: VideoState): VideoResult {
   const discountTotal =
     waivedTotal + bundleDisc + seriesDisc + recurringDisc + customDisc;
   const grand = subBeforeCustom - customDisc;
-  const grandRounded = roundFinal(grand, s.roundInc);
+  // A hand-set quote replaces the calculated one here rather than at the UI
+  // layer, so the margin, markup and floor readouts all reflect the number
+  // the client will actually see.
+  const calculatedRounded = roundFinal(grand, s.roundInc);
+  const grandRounded =
+    s.finalOverride != null ? Math.max(0, Math.round(s.finalOverride)) : calculatedRounded;
   // The "standard" rate is the same basis without any discount.
   const standardRounded = roundFinal(withSafety, s.roundInc);
 
@@ -629,6 +639,7 @@ export function computeVideo(s: VideoState): VideoResult {
     withSafety,
     standardRounded,
     discountTotal,
+    calculatedRounded,
     grandRounded,
     rangeLow,
     rangeHigh,

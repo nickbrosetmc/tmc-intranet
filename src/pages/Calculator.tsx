@@ -32,6 +32,7 @@ import {
   PACKAGE_PRESETS,
   patchSettings,
   proposalServiceLines,
+  reconcileDiscounts,
   TIERS,
   WEBSITE_DESIGN_STANDARD,
   type CalculatorSettings,
@@ -39,7 +40,7 @@ import {
   type ProposalOption,
   type Tier,
 } from "@/lib/calculator";
-import { downloadQuotePdf, type QuoteDiscount } from "@/lib/quote-pdf";
+import { downloadQuotePdf } from "@/lib/quote-pdf";
 
 const PKG_STORAGE_KEY = "tmc.calculator.package.v1";
 
@@ -865,6 +866,26 @@ function ResultsPanel({
     pkg.discountValue,
   );
 
+  const hostingComp = results.hostingComped ? results.websiteMonthly : 0;
+  const calculatedMonthly = Math.max(0, disc.final - hostingComp);
+  // A hand-set price wins over the calculated one; the discount lines are
+  // rebuilt to match it so the quote never contradicts itself.
+  const quotedMonthly =
+    pkg.priceOverride != null ? Math.max(0, Math.round(pkg.priceOverride)) : calculatedMonthly;
+  const quoteDiscounts = reconcileDiscounts(
+    results.targetPrice,
+    quotedMonthly,
+    [
+      ...(hostingComp > 0
+        ? [{ label: "Hosting free with your monthly service package", amount: hostingComp }]
+        : []),
+      ...(disc.off > 0
+        ? [{ label: pkg.discountName || "Discount applied", amount: disc.off }]
+        : []),
+    ],
+    pkg.discountName || "Discount applied",
+  );
+
   const [pdfBusy, setPdfBusy] = useState(false);
 
   async function downloadPackagePdf() {
@@ -873,17 +894,6 @@ function ResultsPanel({
       toast.error("Toggle on at least one service first.");
       return;
     }
-    const discounts: QuoteDiscount[] = [];
-    if (results.hostingComped) {
-      discounts.push({
-        label: "Hosting free with your monthly service package",
-        amount: results.websiteMonthly,
-      });
-    }
-    if (disc.off > 0) {
-      discounts.push({ label: pkg.discountName || "Custom discount", amount: disc.off });
-    }
-    const hostingComp = results.hostingComped ? results.websiteMonthly : 0;
     setPdfBusy(true);
     try {
       await downloadQuotePdf({
@@ -905,8 +915,8 @@ function ResultsPanel({
           },
         ],
         standardTotal: results.targetPrice,
-        discounts,
-        finalTotal: Math.max(0, disc.final - hostingComp),
+        discounts: quoteDiscounts,
+        finalTotal: quotedMonthly,
         priceUnit: "/mo",
         oneTimes: [
           ...(pkg.web.enabled
@@ -1084,56 +1094,78 @@ function ResultsPanel({
           </div>
         </div>
 
-        {(() => {
-          const hostingComp = results.hostingComped ? results.websiteMonthly : 0;
-          const finalMonthly = Math.max(0, disc.final - hostingComp);
-          const anyDiscount = disc.off > 0 || hostingComp > 0;
-          return anyDiscount ? (
-            <div className="space-y-1 pt-1">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Standard rate</span>
-                <span className="line-through text-muted-foreground tabular-nums">
-                  ${results.targetPrice.toLocaleString()}/mo
-                </span>
-              </div>
-              {hostingComp > 0 && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-green-700 font-medium">
-                    Hosting free with monthly package
-                  </span>
-                  <span className="text-green-700 font-medium tabular-nums">
-                    −${hostingComp.toLocaleString()}/mo
-                  </span>
-                </div>
-              )}
-              {disc.off > 0 && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-tmc-gold-dark font-medium">
-                    {pkg.discountName || "Discount"}
-                  </span>
-                  <span className="text-tmc-gold-dark font-medium tabular-nums">
-                    −${disc.off.toLocaleString()}/mo
-                  </span>
-                </div>
-              )}
-              <div className="flex items-center justify-between pt-1 border-t">
-                <span className="font-bold text-tmc-dark">Your price</span>
-                <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
-                  ${finalMonthly.toLocaleString()}
-                  <span className="text-sm text-muted-foreground font-medium">/mo</span>
-                </span>
-              </div>
+        <FinalPriceRow
+          label="Final quoted price ($/mo)"
+          calculated={calculatedMonthly}
+          override={pkg.priceOverride}
+          onChange={(v) => setPkg((p) => ({ ...p, priceOverride: v }))}
+        />
+
+        {pkg.priceOverride != null &&
+          results.totalCost > 0 &&
+          (() => {
+            const margin =
+              quotedMonthly > 0
+                ? ((quotedMonthly - results.totalCost) / quotedMonthly) * 100
+                : 0;
+            const below = margin < settings.marginFloor;
+            return (
+              <p
+                className={`text-[11px] ${below ? "text-red-700 font-medium" : "text-muted-foreground"}`}
+              >
+                Margin at this price: {margin.toFixed(0)}% (floor {settings.marginFloor}%).
+                {below ? " Below the floor." : ""}
+              </p>
+            );
+          })()}
+
+        {quoteDiscounts.length > 0 ? (
+          <div className="space-y-1 pt-1">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Standard rate</span>
+              <span className="line-through text-muted-foreground tabular-nums">
+                ${results.targetPrice.toLocaleString()}/mo
+              </span>
             </div>
-          ) : (
+            {quoteDiscounts.map((d) => (
+              <div key={d.label} className="flex items-center justify-between text-sm">
+                <span
+                  className={
+                    d.label.startsWith("Hosting free")
+                      ? "text-green-700 font-medium"
+                      : "text-tmc-gold-dark font-medium"
+                  }
+                >
+                  {d.label}
+                </span>
+                <span
+                  className={
+                    d.label.startsWith("Hosting free")
+                      ? "text-green-700 font-medium tabular-nums"
+                      : "text-tmc-gold-dark font-medium tabular-nums"
+                  }
+                >
+                  −${d.amount.toLocaleString()}/mo
+                </span>
+              </div>
+            ))}
             <div className="flex items-center justify-between pt-1 border-t">
-              <span className="font-bold text-tmc-dark">Quote</span>
+              <span className="font-bold text-tmc-dark">Your price</span>
               <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
-                ${results.targetPrice.toLocaleString()}
+                ${quotedMonthly.toLocaleString()}
                 <span className="text-sm text-muted-foreground font-medium">/mo</span>
               </span>
             </div>
-          );
-        })()}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between pt-1 border-t">
+            <span className="font-bold text-tmc-dark">Quote</span>
+            <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
+              ${quotedMonthly.toLocaleString()}
+              <span className="text-sm text-muted-foreground font-medium">/mo</span>
+            </span>
+          </div>
+        )}
         {pkg.web.enabled && (
           <div className="flex items-center justify-between pt-1 border-t text-sm">
             <span className="text-tmc-dark font-medium">Website design (one-time)</span>
@@ -1150,6 +1182,59 @@ function ResultsPanel({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Hand-set the number the client sees. Empty means "use the calculated price",
+ * so the field starts as a placeholder rather than a value the user has to
+ * clear before the calculator resumes driving it.
+ */
+export function FinalPriceRow({
+  label,
+  calculated,
+  override,
+  onChange,
+}: {
+  label: string;
+  calculated: number;
+  override: number | null;
+  onChange: (v: number | null) => void;
+}) {
+  const active = override != null;
+  const delta = active ? Math.round(override) - calculated : 0;
+  return (
+    <div className="space-y-1 pt-1">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <Label className="text-[11px] text-muted-foreground">{label}</Label>
+        {active && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-[11px] text-tmc-gold-dark hover:underline"
+          >
+            Reset to calculated
+          </button>
+        )}
+      </div>
+      <Input
+        type="number"
+        min={0}
+        value={active ? String(override) : ""}
+        placeholder={calculated.toLocaleString()}
+        onChange={(e) => {
+          const raw = e.target.value.trim();
+          onChange(raw === "" ? null : Math.max(0, Math.round(Number(raw) || 0)));
+        }}
+        className="h-8 text-sm tabular-nums"
+      />
+      {active && delta !== 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          {delta < 0 ? "−" : "+"}${Math.abs(delta).toLocaleString()} vs the calculated $
+          {calculated.toLocaleString()}
+        </p>
+      )}
     </div>
   );
 }

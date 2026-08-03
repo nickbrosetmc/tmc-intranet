@@ -145,6 +145,8 @@ export interface PackageState {
   discountName: string;
   discountType: "flat" | "pct";
   discountValue: number; // dollars when flat, percent (0–100) when pct
+  /** Hand-set monthly quote, overriding the calculated price. null = calculated. */
+  priceOverride: number | null;
 }
 
 export const WEBSITE_DESIGN_STANDARD = 3000;
@@ -183,6 +185,7 @@ export const DEFAULT_PACKAGE: PackageState = {
   discountName: "",
   discountType: "flat",
   discountValue: 0,
+  priceOverride: null,
 };
 
 // ─── Pre-made packages ───────────────────────────────────────────────────
@@ -294,6 +297,39 @@ export function enabledServiceLabels(pkg: PackageState): string[] {
   if (pkg.email.enabled) out.push(`Email marketing (${pkg.email.campaignsPerMonth} campaigns/month)`);
   if (pkg.video.enabled) out.push("Video production");
   if (pkg.custom.enabled) out.push(pkg.custom.description || "Custom service");
+  return out;
+}
+
+/**
+ * Build the quote's discount lines so they always add up to `standard - final`.
+ *
+ * The quoted price can be typed in directly, which means the itemized reasons
+ * no longer necessarily account for the whole saving. Named lines are honoured
+ * in order up to whatever saving is available, and any remainder lands on its
+ * own line: `soleLabel` when nothing else was listed, `extraLabel` otherwise.
+ * A price at or above standard produces no lines at all, so the quote simply
+ * shows the investment with no phantom discount.
+ */
+export function reconcileDiscounts(
+  standard: number,
+  final: number,
+  named: { label: string; amount: number }[],
+  soleLabel: string,
+  extraLabel = "Additional discount",
+): { label: string; amount: number }[] {
+  let remaining = Math.max(0, Math.round(standard) - Math.round(final));
+  const out: { label: string; amount: number }[] = [];
+  for (const n of named) {
+    if (remaining <= 0) break;
+    const amount = Math.min(Math.round(n.amount), remaining);
+    if (amount > 0) {
+      out.push({ label: n.label, amount });
+      remaining -= amount;
+    }
+  }
+  if (remaining > 0) {
+    out.push({ label: out.length ? extraLabel : soleLabel, amount: remaining });
+  }
   return out;
 }
 
