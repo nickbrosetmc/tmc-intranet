@@ -117,6 +117,8 @@ export async function downloadQuotePdf(doc: QuoteDoc): Promise<void> {
     ]);
 
     const target = (idoc.querySelector(".page") as HTMLElement) ?? idoc.body;
+    fitToPages(idoc, target);
+
     const canvas = await html2canvas(target, {
       scale: 2,
       backgroundColor: "#ffffff",
@@ -149,6 +151,30 @@ export async function downloadQuotePdf(doc: QuoteDoc): Promise<void> {
     printFallback(html);
   } finally {
     document.body.removeChild(iframe);
+  }
+}
+
+/**
+ * Trim the layout if that saves a page.
+ *
+ * The rasterized `.page` is mapped across the full letter width, so one PDF
+ * page holds `width x 11/8.5` of layout. A quote that runs a few millimetres
+ * long spills a near-empty page carrying nothing but the gold footer bar,
+ * which reads as a mistake rather than as a two-page document. Step down
+ * through the density tiers and keep the first one that drops the page count;
+ * if none does, the content genuinely needs the extra page, so leave it at
+ * full spacing and let paginateCanvas break it cleanly.
+ */
+function fitToPages(idoc: Document, target: HTMLElement): void {
+  const capacity = target.offsetWidth * (11 / 8.5);
+  if (capacity <= 0) return;
+  const pages = () => Math.ceil(target.offsetHeight / capacity);
+  const natural = pages();
+  if (natural <= 1) return;
+  for (const tier of ["dense-1", "dense-2", "dense-3"]) {
+    idoc.documentElement.classList.add(tier);
+    if (pages() < natural) return;
+    idoc.documentElement.classList.remove(tier);
   }
 }
 
@@ -644,6 +670,59 @@ function buildHtml(doc: QuoteDoc, logoUrl: string): string {
     font-size: 12px;
   }
   .footer .contact { font-weight: 500; letter-spacing: 0.5px; text-transform: none; font-size: 11px; margin-top: 2px; }
+
+  /* Density tiers, roughly -6% / -13% / -21% of layout height. fitToPages()
+     applies the gentlest one that pulls the document onto one fewer page, so
+     a quote never spills a few millimetres of content (usually nothing but
+     the gold footer bar) onto a page of its own. Whitespace only, apart from
+     the hero price, so body type always reads at full size. */
+  html.dense-1 .header { padding: 28px 40px; }
+  html.dense-1 .meta { padding: 17px 40px; }
+  html.dense-1 .body { padding: 24px 40px 7px; }
+  html.dense-1 .block { margin-bottom: 19px; }
+  html.dense-1 .block-heading { padding-bottom: 5px; margin-bottom: 7px; }
+  html.dense-1 table.lines td { padding: 5px 0; }
+  html.dense-1 ul.sublines li { padding-top: 1.25px; padding-bottom: 1.25px; }
+  html.dense-1 .summary { margin-top: 7px; padding: 19px 25px; }
+  html.dense-1 .price-final { margin-top: 8px; padding-top: 12px; }
+  html.dense-1 .price-final-amt { font-size: 37px; }
+  html.dense-1 .options { padding-top: 15px; }
+  html.dense-1 .opt-block { margin-bottom: 12px; }
+  html.dense-1 .opt-row { padding: 6px 12px; margin-bottom: 5px; }
+  html.dense-1 .footnote { padding-top: 14px; }
+  html.dense-1 .footer { margin-top: 22px; padding: 12px 40px; }
+
+  html.dense-2 .header { padding: 24px 40px; }
+  html.dense-2 .meta { padding: 15px 40px; }
+  html.dense-2 .body { padding: 20px 40px 6px; }
+  html.dense-2 .block { margin-bottom: 16px; }
+  html.dense-2 .block-heading { padding-bottom: 4px; margin-bottom: 6px; }
+  html.dense-2 table.lines td { padding: 4px 0; }
+  html.dense-2 ul.sublines li { padding-top: 1px; padding-bottom: 1px; }
+  html.dense-2 .summary { margin-top: 6px; padding: 16px 24px; }
+  html.dense-2 .price-final { margin-top: 7px; padding-top: 10px; }
+  html.dense-2 .price-final-amt { font-size: 34px; }
+  html.dense-2 .options { padding-top: 12px; }
+  html.dense-2 .opt-block { margin-bottom: 10px; }
+  html.dense-2 .opt-row { padding: 5px 12px; margin-bottom: 4px; }
+  html.dense-2 .footnote { padding-top: 12px; }
+  html.dense-2 .footer { margin-top: 18px; padding: 11px 40px; }
+
+  html.dense-3 .header { padding: 18px 40px; }
+  html.dense-3 .meta { padding: 12px 40px; }
+  html.dense-3 .body { padding: 14px 40px 4px; }
+  html.dense-3 .block { margin-bottom: 12px; }
+  html.dense-3 .block-heading { padding-bottom: 3px; margin-bottom: 4px; }
+  html.dense-3 table.lines td { padding: 3px 0; }
+  html.dense-3 ul.sublines li { padding-top: 0; padding-bottom: 0; }
+  html.dense-3 .summary { margin-top: 4px; padding: 12px 20px; }
+  html.dense-3 .price-final { margin-top: 5px; padding-top: 8px; }
+  html.dense-3 .price-final-amt { font-size: 30px; }
+  html.dense-3 .options { padding-top: 8px; }
+  html.dense-3 .opt-block { margin-bottom: 8px; }
+  html.dense-3 .opt-row { padding: 4px 12px; margin-bottom: 3px; }
+  html.dense-3 .footnote { padding-top: 8px; }
+  html.dense-3 .footer { margin-top: 12px; padding: 9px 40px; }
 
   @page { margin: 0.5in; }
   @media print {
