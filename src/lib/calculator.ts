@@ -300,37 +300,36 @@ export function enabledServiceLabels(pkg: PackageState): string[] {
   return out;
 }
 
+export interface QuoteTotals {
+  /** "Standard investment" on the quote: the price before the listed reasons. */
+  standard: number;
+  /** What the client is asked to pay. */
+  final: number;
+  /** Itemized savings, exactly the reasons given. Rounded, zeroes dropped. */
+  discounts: { label: string; amount: number }[];
+}
+
 /**
- * Build the quote's discount lines so they always add up to `standard - final`.
+ * Totals for the client-facing quote, derived from the price being charged
+ * and the reasons for any saving.
  *
- * The quoted price can be typed in directly, which means the itemized reasons
- * no longer necessarily account for the whole saving. Named lines are honoured
- * in order up to whatever saving is available, and any remainder lands on its
- * own line: `soleLabel` when nothing else was listed, `extraLabel` otherwise.
- * A price at or above standard produces no lines at all, so the quote simply
- * shows the investment with no phantom discount.
+ * The standard rate is computed as final + reasons rather than the reasons
+ * being fitted to a pre-set standard. That way a hand-set price is treated as
+ * what it usually is, a tidier number, so rounding $778 to $750 quotes $750
+ * flat instead of inventing a $28 "discount". A discount only ever appears
+ * when there is a named reason for it; to show a bigger saving, raise the
+ * discount itself.
  */
-export function reconcileDiscounts(
-  standard: number,
+export function quoteTotals(
   final: number,
-  named: { label: string; amount: number }[],
-  soleLabel: string,
-  extraLabel = "Additional discount",
-): { label: string; amount: number }[] {
-  let remaining = Math.max(0, Math.round(standard) - Math.round(final));
-  const out: { label: string; amount: number }[] = [];
-  for (const n of named) {
-    if (remaining <= 0) break;
-    const amount = Math.min(Math.round(n.amount), remaining);
-    if (amount > 0) {
-      out.push({ label: n.label, amount });
-      remaining -= amount;
-    }
-  }
-  if (remaining > 0) {
-    out.push({ label: out.length ? extraLabel : soleLabel, amount: remaining });
-  }
-  return out;
+  reasons: { label: string; amount: number }[],
+): QuoteTotals {
+  const discounts = reasons
+    .map((r) => ({ label: r.label, amount: Math.round(r.amount) }))
+    .filter((r) => r.amount > 0);
+  const f = Math.max(0, Math.round(final));
+  const saved = discounts.reduce((sum, d) => sum + d.amount, 0);
+  return { standard: f + saved, final: f, discounts };
 }
 
 /** Apply a custom discount to a monthly price; returns the post-discount price + the amount off. */

@@ -15,7 +15,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { useUser } from "@/lib/useUser";
 import {
   fetchSettings,
-  reconcileDiscounts,
+  quoteTotals,
   type CalculatorSettings,
 } from "@/lib/calculator";
 import { AdminSettingsDialog, FinalPriceRow } from "@/pages/Calculator";
@@ -26,25 +26,19 @@ import {
   fmt$,
   type VideoState,
 } from "@/lib/video-calculator";
-import {
-  downloadQuotePdf,
-  type QuoteDiscount,
-  type QuoteSection,
-} from "@/lib/quote-pdf";
+import { downloadQuotePdf, type QuoteSection } from "@/lib/quote-pdf";
 
 const VIDEO_STORAGE_KEY = "tmc.calculator.video.v1";
 
 /**
- * The savings the client sees, rebuilt against the quoted price. When the
- * price is hand-set, the calculated discount lines no longer account for the
- * whole difference, so the remainder gets its own line.
+ * The client-facing totals: the quoted price plus the savings actually given.
+ * The standard rate is derived from those, so hand-setting the price nudges
+ * the whole quote rather than showing up as an unexplained discount.
  */
-function quoteDiscountLines(r: ReturnType<typeof computeVideo>) {
-  return reconcileDiscounts(
-    r.standardRounded,
+function clientTotals(r: ReturnType<typeof computeVideo>) {
+  return quoteTotals(
     r.grandRounded,
     r.discountLines.map(([label, v]) => ({ label, amount: Math.abs(v) })),
-    "Discount applied",
   );
 }
 
@@ -160,15 +154,15 @@ export function VideoCalculatorPage() {
     lines.push(pad("After multipliers", fmt$(r.adjustedSubtotal)));
     lines.push("");
     lines.push("==========================================");
-    const quoteDiscounts = quoteDiscountLines(r);
-    if (quoteDiscounts.length > 0) {
-      lines.push(pad("STANDARD INVESTMENT", fmt$(r.standardRounded)));
+    const totals = clientTotals(r);
+    if (totals.discounts.length > 0) {
+      lines.push(pad("STANDARD INVESTMENT", fmt$(totals.standard)));
       lines.push("");
       lines.push("DISCOUNTS APPLIED");
-      quoteDiscounts.forEach((d) =>
+      totals.discounts.forEach((d) =>
         lines.push(pad("  " + d.label, "−" + fmt$(d.amount))),
       );
-      lines.push(pad("  Total savings", "−" + fmt$(r.standardRounded - r.grandRounded)));
+      lines.push(pad("  Total savings", "−" + fmt$(totals.standard - totals.final)));
       lines.push("");
       lines.push(pad("YOUR PRICE", fmt$(r.grandRounded)));
     } else {
@@ -185,17 +179,16 @@ export function VideoCalculatorPage() {
     // Itemized cost breakdown: shoot + edit + add-on lines at their base
     // price, then one "Production & creative direction" line for the value
     // multipliers + buffers so the items reconcile to the standard total.
+    const totals = clientTotals(r);
     const items: QuoteSection["items"] = [
       ...r.shootLines.map(([label, v]) => ({ label, amount: v })),
       ...r.editLines.map(([label, v]) => ({ label, amount: v })),
       ...r.modLines.map(([label, v]) => ({ label, amount: v })),
     ];
-    const production = Math.round(r.standardRounded - r.baseSubtotal);
+    const production = Math.round(totals.standard - r.baseSubtotal);
     if (production > 0) {
       items.push({ label: "Production & creative direction", amount: production });
     }
-
-    const discounts: QuoteDiscount[] = quoteDiscountLines(r);
 
     setPdfBusy(true);
     try {
@@ -208,9 +201,9 @@ export function VideoCalculatorPage() {
           year: "numeric",
         }),
         sections: [{ heading: "Investment breakdown", items }],
-        standardTotal: r.standardRounded,
-        discounts,
-        finalTotal: r.grandRounded,
+        standardTotal: totals.standard,
+        discounts: totals.discounts,
+        finalTotal: totals.final,
         priceUnit: "",
         priceNote: `Estimated project range: ${fmt$(r.rangeLow)} – ${fmt$(r.rangeHigh)}`,
         footnote:
@@ -1074,7 +1067,7 @@ function QuoteBreakdown({
   s: VideoState;
   setS: React.Dispatch<React.SetStateAction<VideoState>>;
 }) {
-  const quoteDiscounts = quoteDiscountLines(r);
+  const totals = clientTotals(r);
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
       <h2 className="text-sm font-semibold tracking-wide text-tmc-slate uppercase">
@@ -1124,7 +1117,7 @@ function QuoteBreakdown({
           price is visible here as its own line rather than silently changing
           the total below. */}
       <Section title="Discounts">
-        {quoteDiscounts.length ? quoteDiscounts.map((d, i) => (
+        {totals.discounts.length ? totals.discounts.map((d, i) => (
           <QLine key={i} label={d.label} value={"−" + fmt$(d.amount)} />
         )) : <Empty>— none —</Empty>}
       </Section>
@@ -1137,13 +1130,13 @@ function QuoteBreakdown({
       />
 
       <div className="bg-tmc-dark text-white rounded-md p-4 mt-3 text-center">
-        {r.standardRounded > r.grandRounded ? (
+        {totals.discounts.length > 0 ? (
           <>
             <div className="text-[10px] uppercase tracking-widest text-white/60">
               Standard investment
             </div>
             <div className="text-lg font-semibold text-white/70 line-through tabular-nums">
-              {fmt$(r.standardRounded)}
+              {fmt$(totals.standard)}
             </div>
             <div className="text-[10px] uppercase tracking-widest text-tmc-gold mt-2">
               Your price
@@ -1152,7 +1145,7 @@ function QuoteBreakdown({
               {fmt$(r.grandRounded)}
             </div>
             <div className="text-[11px] font-medium text-green-300 mt-1">
-              You save {fmt$(r.standardRounded - r.grandRounded)}
+              You save {fmt$(totals.standard - totals.final)}
             </div>
           </>
         ) : (

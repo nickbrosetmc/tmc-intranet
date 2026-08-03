@@ -32,7 +32,7 @@ import {
   PACKAGE_PRESETS,
   patchSettings,
   proposalServiceLines,
-  reconcileDiscounts,
+  quoteTotals,
   TIERS,
   WEBSITE_DESIGN_STANDARD,
   type CalculatorSettings,
@@ -868,13 +868,10 @@ function ResultsPanel({
 
   const hostingComp = results.hostingComped ? results.websiteMonthly : 0;
   const calculatedMonthly = Math.max(0, disc.final - hostingComp);
-  // A hand-set price wins over the calculated one; the discount lines are
-  // rebuilt to match it so the quote never contradicts itself.
-  const quotedMonthly =
-    pkg.priceOverride != null ? Math.max(0, Math.round(pkg.priceOverride)) : calculatedMonthly;
-  const quoteDiscounts = reconcileDiscounts(
-    results.targetPrice,
-    quotedMonthly,
+  // A hand-set price wins over the calculated one. The standard rate is then
+  // restated around it, so nudging the number never reads as a discount.
+  const totals = quoteTotals(
+    pkg.priceOverride != null ? pkg.priceOverride : calculatedMonthly,
     [
       ...(hostingComp > 0
         ? [{ label: "Hosting free with your monthly service package", amount: hostingComp }]
@@ -883,8 +880,8 @@ function ResultsPanel({
         ? [{ label: pkg.discountName || "Discount applied", amount: disc.off }]
         : []),
     ],
-    pkg.discountName || "Discount applied",
   );
+  const quotedMonthly = totals.final;
 
   const [pdfBusy, setPdfBusy] = useState(false);
 
@@ -914,9 +911,9 @@ function ResultsPanel({
             })),
           },
         ],
-        standardTotal: results.targetPrice,
-        discounts: quoteDiscounts,
-        finalTotal: quotedMonthly,
+        standardTotal: totals.standard,
+        discounts: totals.discounts,
+        finalTotal: totals.final,
         priceUnit: "/mo",
         oneTimes: [
           ...(pkg.web.enabled
@@ -1119,15 +1116,15 @@ function ResultsPanel({
             );
           })()}
 
-        {quoteDiscounts.length > 0 ? (
+        {totals.discounts.length > 0 ? (
           <div className="space-y-1 pt-1">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Standard rate</span>
               <span className="line-through text-muted-foreground tabular-nums">
-                ${results.targetPrice.toLocaleString()}/mo
+                ${totals.standard.toLocaleString()}/mo
               </span>
             </div>
-            {quoteDiscounts.map((d) => (
+            {totals.discounts.map((d) => (
               <div key={d.label} className="flex items-center justify-between text-sm">
                 <span
                   className={

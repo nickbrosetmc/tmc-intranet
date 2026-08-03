@@ -612,6 +612,9 @@ function buildHtml(doc: QuoteDoc, logoUrl: string): string {
     padding-top: 14px;
     border-top: 2px solid var(--gold);
   }
+  /* No discount block above it: the rule would be a divider with nothing on
+     the other side. Applies to every density tier. */
+  .price-final:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
   .price-final-label {
     font-family: "Montserrat", sans-serif;
     font-weight: 800;
