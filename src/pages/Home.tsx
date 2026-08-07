@@ -17,6 +17,7 @@ import { AnnouncementsPanel } from "@/components/AnnouncementsPanel";
 import { AppGrid } from "@/components/AppGrid";
 import { ClientHome } from "@/components/ClientHome";
 import { useUser, type TeamUser } from "@/lib/useUser";
+import { Dashboard } from "@/pages/Dashboard";
 
 export function HomePage() {
   const state = useUser();
@@ -239,16 +240,12 @@ function ForgotPasswordDialog({ initialUsername }: { initialUsername: string }) 
 }
 
 function TeamWelcome({ user }: { user: TeamUser }) {
+  // Dashboard first, launcher below it. The grid is still how people get to
+  // the calculators and the planner, it just no longer costs a click to find
+  // out whether anything needs them today.
   return (
-    <div className="w-full flex flex-col items-center gap-10">
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-tmc-dark">
-          Hey, {user.name.split(" ")[0]}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Pick a tool to get started.
-        </p>
-      </div>
+    <div className="w-full flex flex-col items-center gap-8">
+      <Dashboard user={user} />
       <AnnouncementsPanel />
       <AppGrid />
     </div>

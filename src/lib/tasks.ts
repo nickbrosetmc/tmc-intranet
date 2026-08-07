@@ -1,4 +1,5 @@
 // Types, API wrappers, and helpers for the tasks system.
+import { effectiveAssigneeId, workDueDate } from "./content";
 import type { ContentPost, FunnelStage, Pillar } from "./content";
 
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
@@ -234,3 +235,145 @@ export const tasksApi = {
       `/api/tasks/for-posts?postIds=${postIds.join(",")}`,
     ),
 };
+
+// ─── Week items ───────────────────────────────────────────────────────────
+// A person's workload is three things at once: manually-created tasks, open
+// content posts routed by status, and placeholder slots for posts a client
+// is owed but nobody has created yet. The Tasks page and the dashboard both
+// read from here so they can never disagree about what someone owes.
+
+export type WeekItem =
+  | { kind: "task"; task: TaskWithRefs; dueDate: string | null; done: boolean }
+  | { kind: "post"; post: ContentPost; dueDate: string }
+  | {
+      kind: "placeholder";
+      clientId: number;
+      clientName: string;
+      slotIndex: number; // 1-based, used in title & key
+      slotsTotal: number; // total needed for this client this week
+      dueDate: string; // friday of current week
+    };
+
+/**
+ * For each tracked client with a weekly target, return one placeholder per
+ * missing post. They only show up if a default assignee is set and we're
+ * inside the current week's display window.
+ */
+export function buildPlaceholders(data: TasksDashboard): WeekItem[] {
+  const out: WeekItem[] = [];
+  for (const c of data.clientOptions) {
+    if (!c.isActive) continue;
+    const target = c.weeklyPostTarget ?? 0;
+    if (target <= 0) continue;
+    const scheduled = data.weeklyPostsByClient[c.id] ?? 0;
+    const missing = Math.max(0, target - scheduled);
+    for (let i = 0; i < missing; i++) {
+      out.push({
+        kind: "placeholder",
+        clientId: c.id,
+        clientName: c.name,
+        slotIndex: i + 1,
+        slotsTotal: target,
+        dueDate: data.weekDueDate,
+      });
+    }
+  }
+  return out;
+}
+
+export function buildItemsForUser(
+  data: TasksDashboard,
+  userId: number,
+): WeekItem[] {
+  const items: WeekItem[] = data.tasks
+    .filter((t) => t.assigneeId === userId)
+    .map((t) => ({
+      kind: "task" as const,
+      task: t,
+      dueDate: t.dueDate,
+      done: t.status === "completed",
+    }));
+  for (const p of data.openPosts) {
+    if (effectiveAssigneeId(p, data.defaultPostAssigneeId) !== userId) continue;
+    items.push({ kind: "post", post: p, dueDate: workDueDate(p.scheduledDate) });
+  }
+  // Placeholders only land on the default assignee's list.
+  if (data.defaultPostAssigneeId === userId) {
+    items.push(...buildPlaceholders(data));
+  }
+  return items;
+}
+
+export function buildAllItems(data: TasksDashboard): WeekItem[] {
+  const items: WeekItem[] = data.tasks.map((t) => ({
+    kind: "task" as const,
+    task: t,
+    dueDate: t.dueDate,
+    done: t.status === "completed",
+  }));
+  for (const p of data.openPosts) {
+    items.push({ kind: "post", post: p, dueDate: workDueDate(p.scheduledDate) });
+  }
+  items.push(...buildPlaceholders(data));
+  return items;
+}
+
+export function itemKey(it: WeekItem): string {
+  if (it.kind === "task") return `t-${it.task.id}`;
+  if (it.kind === "post") return `p-${it.post.id}`;
+  return `ph-${it.clientId}-${it.slotIndex}`;
+}
+
+/** Stable sort within a bucket. */
+export function sortItems(items: WeekItem[]): WeekItem[] {
+  const kindRank = (k: WeekItem["kind"]) =>
+    k === "post" ? 0 : k === "placeholder" ? 1 : 2;
+  return [...items].sort((a, b) => {
+    const aDue = a.dueDate ?? "9999-12-31";
+    const bDue = b.dueDate ?? "9999-12-31";
+    if (aDue !== bDue) return aDue < bDue ? -1 : 1;
+    return kindRank(a.kind) - kindRank(b.kind);
+  });
+}
+
+/** Open (not completed) items, split into overdue / due today / rest. */
+export function bucketByUrgency(items: WeekItem[]): {
+  overdue: WeekItem[];
+  today: WeekItem[];
+  upcoming: WeekItem[];
+} {
+  const overdue: WeekItem[] = [];
+  const today: WeekItem[] = [];
+  const upcoming: WeekItem[] = [];
+  for (const it of items) {
+    if (it.kind === "task" && it.done) continue;
+    const diff = daysUntilDue(it.dueDate);
+    if (diff == null) upcoming.push(it);
+    else if (diff < 0) overdue.push(it);
+    else if (diff === 0) today.push(it);
+    else upcoming.push(it);
+  }
+  return {
+    overdue: sortItems(overdue),
+    today: sortItems(today),
+    upcoming: sortItems(upcoming),
+  };
+}
+
+/** Total estimated minutes across open items, with the post fallback. */
+export function estimatedMinutesFor(
+  items: WeekItem[],
+  postFallback: number | null,
+): number {
+  let total = 0;
+  for (const it of items) {
+    if (it.kind === "task") {
+      if (!it.done) total += it.task.estimatedMinutes ?? 0;
+    } else if (it.kind === "post") {
+      total += it.post.estimatedMinutes ?? postFallback ?? 0;
+    } else {
+      total += postFallback ?? 0;
+    }
+  }
+  return total;
+}
