@@ -240,14 +240,20 @@ function ForgotPasswordDialog({ initialUsername }: { initialUsername: string }) 
 }
 
 function TeamWelcome({ user }: { user: TeamUser }) {
-  // Dashboard first, launcher below it. The grid is still how people get to
-  // the calculators and the planner, it just no longer costs a click to find
-  // out whether anything needs them today.
+  // Order matters here: the launcher sits directly under the greeting so the
+  // links stay reachable without scrolling, which the full tile grid could
+  // not do once the dashboard was above it. The dashboard follows, and
+  // announcements render nothing when there are none.
   return (
-    <div className="w-full flex flex-col items-center gap-8">
-      <Dashboard user={user} />
+    <div className="w-full max-w-5xl space-y-5">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-tmc-dark">
+          Hey, {user.name.split(" ")[0]}
+        </h1>
+      </div>
+      <AppGrid variant="compact" />
       <AnnouncementsPanel />
-      <AppGrid />
+      <Dashboard />
     </div>
   );
 }

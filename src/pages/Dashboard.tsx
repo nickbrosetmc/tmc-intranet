@@ -36,7 +36,6 @@ import {
   type ContentPost,
   type PostStatus,
 } from "@/lib/content";
-import type { TeamUser } from "@/lib/useUser";
 
 interface DashboardData extends TasksDashboard {
   isAdmin: boolean;
@@ -67,7 +66,7 @@ interface DashboardData extends TasksDashboard {
   } | null;
 }
 
-export function Dashboard({ user }: { user: TeamUser }) {
+export function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,12 +86,9 @@ export function Dashboard({ user }: { user: TeamUser }) {
   }, []);
   usePollingRefresh(load);
 
-  const firstName = user.name?.split(" ")[0] ?? "there";
-
   if (error && !data) {
     return (
-      <div className="w-full max-w-5xl space-y-4">
-        <Greeting firstName={firstName} />
+      <div className="w-full space-y-4">
         <Card>
           <p className="text-sm text-muted-foreground">
             Couldn't load your dashboard ({error}).{" "}
@@ -105,17 +101,11 @@ export function Dashboard({ user }: { user: TeamUser }) {
     );
   }
   if (!data) {
-    return (
-      <div className="w-full max-w-5xl space-y-4">
-        <Greeting firstName={firstName} />
-        <div className="text-sm text-muted-foreground">Loading…</div>
-      </div>
-    );
+    return <div className="text-sm text-muted-foreground">Loading…</div>;
   }
 
   return (
-    <div className="w-full max-w-5xl space-y-5">
-      <Greeting firstName={firstName} weekDueDate={data.weekDueDate} />
+    <div className="w-full">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-5">
           <MyWeek data={data} />
@@ -126,27 +116,6 @@ export function Dashboard({ user }: { user: TeamUser }) {
           {data.team && <TeamBlock team={data.team} data={data} />}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Greeting({
-  firstName,
-  weekDueDate,
-}: {
-  firstName: string;
-  weekDueDate?: string;
-}) {
-  return (
-    <div className="space-y-1">
-      <h1 className="text-2xl font-semibold tracking-tight text-tmc-dark">
-        Hey, {firstName}
-      </h1>
-      {weekDueDate && (
-        <p className="text-sm text-muted-foreground">
-          This week's content is due {formatDueDate(weekDueDate)}.
-        </p>
-      )}
     </div>
   );
 }
@@ -205,6 +174,9 @@ function MyWeek({ data }: { data: DashboardData }) {
       icon={<CalendarClock size={13} />}
       action={{ label: "All tasks", href: "/tasks" }}
     >
+      <p className="text-[11px] text-muted-foreground -mt-1">
+        Content due {formatDueDate(data.weekDueDate)}
+      </p>
       {openCount === 0 ? (
         <Empty icon={<CheckCircle2 size={15} />}>
           Nothing open. You're clear for the week.
