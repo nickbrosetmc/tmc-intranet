@@ -205,7 +205,7 @@ function MyWeek({ data }: { data: DashboardData }) {
                 label="Coming up"
                 tone="normal"
                 items={buckets.upcoming.slice(0, 6)}
-                more={buckets.upcoming.length - 6}
+                more={Math.max(0, buckets.upcoming.length - 6)}
                 data={data}
               />
             )}

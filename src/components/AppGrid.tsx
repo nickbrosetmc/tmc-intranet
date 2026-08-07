@@ -43,8 +43,11 @@ export function AppGrid({ variant = "tiles" }: { variant?: "tiles" | "compact" }
   }
 
   const compact = variant === "compact";
+  // Compact lays the groups out side by side. Stacked, three groups of three
+  // apps used a third of the width and 300px of height; in columns they fill
+  // the row and cost about 100px.
   return (
-    <div className={`w-full max-w-5xl ${compact ? "space-y-4" : "space-y-10"}`}>
+    <div className={compact ? GROUPS_ROW : "w-full max-w-5xl space-y-10"}>
       {groups
         .filter((g) => g.apps.length > 0)
         .map(({ group, apps }) => (
@@ -56,7 +59,7 @@ export function AppGrid({ variant = "tiles" }: { variant?: "tiles" | "compact" }
             >
               {group.name}
             </h2>
-            <div className={compact ? COMPACT_GRID : ROOMY_GRID}>
+            <div className={compact ? COMPACT_TILES : ROOMY_GRID}>
               {apps.map((app) => (
                 <AppTile key={app.id} app={app} compact={compact} />
               ))}
@@ -69,8 +72,11 @@ export function AppGrid({ variant = "tiles" }: { variant?: "tiles" | "compact" }
 
 const ROOMY_GRID =
   "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-x-4 gap-y-6";
-const COMPACT_GRID =
-  "grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-x-3 gap-y-3";
+/** Groups across the row, so the launcher is as wide as the dashboard below. */
+const GROUPS_ROW =
+  "w-full max-w-5xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4";
+/** Tiles pack and wrap inside their group column, whatever the app count. */
+const COMPACT_TILES = "flex flex-wrap gap-x-4 gap-y-3";
 
 function AppTile({ app, compact = false }: { app: App; compact?: boolean }) {
   const [, navigate] = useLocation();
@@ -149,7 +155,7 @@ function AppIcon({ app, small = false }: { app: App; small?: boolean }) {
 
 function AppGridSkeleton({ compact = false }: { compact?: boolean }) {
   return (
-    <div className={`w-full max-w-5xl ${compact ? "space-y-4" : "space-y-10"}`}>
+    <div className={compact ? GROUPS_ROW : "w-full max-w-5xl space-y-10"}>
       {[0, 1, 2].map((s) => (
         <section key={s}>
           <div
@@ -157,8 +163,8 @@ function AppGridSkeleton({ compact = false }: { compact?: boolean }) {
               compact ? "mb-2" : "mb-4"
             }`}
           />
-          <div className={compact ? COMPACT_GRID : ROOMY_GRID}>
-            {Array.from({ length: 6 }).map((_, i) => (
+          <div className={compact ? COMPACT_TILES : ROOMY_GRID}>
+            {Array.from({ length: compact ? 3 : 6 }).map((_, i) => (
               <div key={i} className={`app-icon${compact ? " app-icon--sm" : ""}`}>
                 <div className="app-icon-tile bg-tmc-silver/40 animate-pulse" />
                 <div className="h-3 w-12 bg-tmc-silver/40 rounded mt-1 animate-pulse" />
