@@ -14,6 +14,8 @@ import {
   ArrowRight,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Inbox,
   Users,
@@ -369,14 +371,16 @@ function Row({
 // ─── Block 3: content pipeline ───────────────────────────────────────────
 
 function ContentPipeline({ data }: { data: DashboardData }) {
-  const rows = useMemo(() => {
+  const [expanded, setExpanded] = useState(false);
+
+  const { rows, totals } = useMemo(() => {
     const byClient = new Map<number, ContentPost[]>();
     for (const p of data.weekPosts) {
       const list = byClient.get(p.clientId) ?? [];
       list.push(p);
       byClient.set(p.clientId, list);
     }
-    return data.clientOptions
+    const rows = data.clientOptions
       .filter((c) => c.isActive && (c.weeklyPostTarget ?? 0) > 0)
       .map((c) => {
         const posts = byClient.get(c.id) ?? [];
@@ -392,7 +396,26 @@ function ContentPipeline({ data }: { data: DashboardData }) {
         const missing = Math.max(0, target - posts.length);
         return { client: c, target, counts, missing, done: counts.completed };
       })
+      // Furthest behind first, so expanding starts with whoever needs chasing.
       .sort((a, b) => a.done / (a.target || 1) - b.done / (b.target || 1));
+
+    const totals = rows.reduce(
+      (acc, r) => {
+        acc.target += r.target;
+        acc.missing += r.missing;
+        for (const s of STATUSES) acc.counts[s.id] += r.counts[s.id];
+        return acc;
+      },
+      {
+        target: 0,
+        missing: 0,
+        counts: { idea: 0, drafting: 0, review: 0, completed: 0 } as Record<
+          PostStatus,
+          number
+        >,
+      },
+    );
+    return { rows, totals };
   }, [data]);
 
   if (rows.length === 0) {
@@ -403,58 +426,115 @@ function ContentPipeline({ data }: { data: DashboardData }) {
     );
   }
 
+  const behind = rows.filter((r) => r.done < r.target).length;
+
   return (
     <Card
       title="Content pipeline"
       icon={<Clock size={13} />}
       action={{ label: "Planner", href: "/content" }}
     >
-      <p className="text-[11px] text-muted-foreground -mt-1">
-        Production week of {data.weekStart}
-      </p>
-      <div className="space-y-2.5">
-        {rows.map((r) => (
-          <div key={r.client.id} className="space-y-1">
-            <div className="flex items-baseline justify-between gap-3 text-sm">
-              <span className="truncate text-tmc-dark">{r.client.name}</span>
-              <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-                {r.done}/{r.target} done
-              </span>
-            </div>
-            <div className="flex h-2 rounded overflow-hidden bg-muted">
-              {STATUSES.map((s) =>
-                r.counts[s.id] > 0 ? (
-                  <div
-                    key={s.id}
-                    style={{
-                      backgroundColor: s.color,
-                      width: `${(r.counts[s.id] / r.target) * 100}%`,
-                    }}
-                    title={`${r.counts[s.id]} ${s.label}`}
-                  />
-                ) : null,
-              )}
-            </div>
-            {r.missing > 0 && (
-              <p className="text-[11px] text-amber-700">
-                {r.missing} not created yet
-              </p>
-            )}
-          </div>
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1">
-        {STATUSES.map((s) => (
-          <span key={s.id} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-            <span
-              className="w-2 h-2 rounded-sm"
-              style={{ backgroundColor: statusMeta(s.id).color }}
-            />
-            {s.label}
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-sm">
+          <span className="text-2xl font-bold text-tmc-dark tabular-nums">
+            {totals.counts.completed}
           </span>
-        ))}
+          <span className="text-muted-foreground"> of {totals.target} done</span>
+        </p>
+        <p className="text-[11px] text-muted-foreground">
+          Week of {data.weekStart}
+        </p>
       </div>
+
+      <StatusBar counts={totals.counts} target={totals.target} />
+      <Legend />
+
+      {(totals.missing > 0 || behind > 0) && (
+        <p className="text-[11px] text-muted-foreground">
+          {behind > 0 && `${behind} ${behind === 1 ? "client" : "clients"} not finished`}
+          {behind > 0 && totals.missing > 0 && " · "}
+          {totals.missing > 0 && (
+            <span className="text-amber-700">
+              {totals.missing} not created yet
+            </span>
+          )}
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="text-[11px] text-tmc-gold-dark hover:underline inline-flex items-center gap-1"
+      >
+        {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        {expanded ? "Hide by client" : "Show by client"}
+      </button>
+
+      {expanded && (
+        <div className="space-y-2.5 pt-1">
+          {rows.map((r) => (
+            <div key={r.client.id} className="space-y-1">
+              <div className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="truncate text-tmc-dark">{r.client.name}</span>
+                <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                  {r.done}/{r.target} done
+                  {r.missing > 0 && (
+                    <span className="text-amber-700"> · {r.missing} to create</span>
+                  )}
+                </span>
+              </div>
+              <StatusBar counts={r.counts} target={r.target} />
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
+  );
+}
+
+/** Segmented bar; the unfilled remainder is slots with no post yet. */
+function StatusBar({
+  counts,
+  target,
+}: {
+  counts: Record<PostStatus, number>;
+  target: number;
+}) {
+  if (target <= 0) return null;
+  return (
+    <div className="flex h-2 rounded overflow-hidden bg-muted">
+      {STATUSES.map((s) =>
+        counts[s.id] > 0 ? (
+          <div
+            key={s.id}
+            style={{
+              backgroundColor: s.color,
+              width: `${(counts[s.id] / target) * 100}%`,
+            }}
+            title={`${counts[s.id]} ${s.label}`}
+          />
+        ) : null,
+      )}
+    </div>
+  );
+}
+
+function Legend() {
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1">
+      {STATUSES.map((s) => (
+        <span
+          key={s.id}
+          className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+        >
+          <span
+            className="w-2 h-2 rounded-sm"
+            style={{ backgroundColor: statusMeta(s.id).color }}
+          />
+          {s.label}
+        </span>
+      ))}
+    </div>
   );
 }
 

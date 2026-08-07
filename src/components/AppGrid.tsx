@@ -8,10 +8,9 @@ function isInternalPath(url: string | null): boolean {
 }
 
 /**
- * "tiles" is the original springboard: big icons, one section per group.
- * "compact" is a dense chip row for the dashboard homepage, where the
- * launcher has to stay reachable without pushing everything else below the
- * fold. Same links, a fifth of the height.
+ * "tiles" is the original roomy springboard. "compact" is the same springboard
+ * at 52px with the section spacing pulled in, for the dashboard homepage where
+ * the launcher has to share the screen with the week's work.
  */
 export function AppGrid({ variant = "tiles" }: { variant?: "tiles" | "compact" }) {
   const [groups, setGroups] = useState<GroupWithApps[] | null>(null);
@@ -32,7 +31,7 @@ export function AppGrid({ variant = "tiles" }: { variant?: "tiles" | "compact" }
   }
 
   if (!groups) {
-    return variant === "compact" ? <CompactSkeleton /> : <AppGridSkeleton />;
+    return <AppGridSkeleton compact={variant === "compact"} />;
   }
 
   if (groups.every((g) => g.apps.length === 0)) {
@@ -43,31 +42,23 @@ export function AppGrid({ variant = "tiles" }: { variant?: "tiles" | "compact" }
     );
   }
 
-  if (variant === "compact") {
-    return (
-      <div className="w-full flex flex-wrap gap-1.5">
-        {groups
-          .filter((g) => g.apps.length > 0)
-          .flatMap(({ apps }) => apps)
-          .map((app) => (
-            <AppChip key={app.id} app={app} />
-          ))}
-      </div>
-    );
-  }
-
+  const compact = variant === "compact";
   return (
-    <div className="w-full max-w-5xl space-y-10">
+    <div className={`w-full max-w-5xl ${compact ? "space-y-4" : "space-y-10"}`}>
       {groups
         .filter((g) => g.apps.length > 0)
         .map(({ group, apps }) => (
           <section key={group.id}>
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-tmc-slate mb-4">
+            <h2
+              className={`text-xs font-semibold uppercase tracking-widest text-tmc-slate ${
+                compact ? "mb-2" : "mb-4"
+              }`}
+            >
               {group.name}
             </h2>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-x-4 gap-y-6">
+            <div className={compact ? COMPACT_GRID : ROOMY_GRID}>
               {apps.map((app) => (
-                <AppTile key={app.id} app={app} />
+                <AppTile key={app.id} app={app} compact={compact} />
               ))}
             </div>
           </section>
@@ -76,7 +67,12 @@ export function AppGrid({ variant = "tiles" }: { variant?: "tiles" | "compact" }
   );
 }
 
-function AppTile({ app }: { app: App }) {
+const ROOMY_GRID =
+  "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-x-4 gap-y-6";
+const COMPACT_GRID =
+  "grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-x-3 gap-y-3";
+
+function AppTile({ app, compact = false }: { app: App; compact?: boolean }) {
   const [, navigate] = useLocation();
   const internal = isInternalPath(app.webUrl);
 
@@ -96,7 +92,7 @@ function AppTile({ app }: { app: App }) {
   return (
     <button
       type="button"
-      className="app-icon group"
+      className={`app-icon group${compact ? " app-icon--sm" : ""}`}
       onClick={handleClick}
       disabled={app.isComingSoon}
       aria-label={app.name}
@@ -110,7 +106,7 @@ function AppTile({ app }: { app: App }) {
           } as React.CSSProperties
         }
       >
-        <AppIcon app={app} />
+        <AppIcon app={app} small={compact} />
       </div>
       <div className="app-icon-label">
         {app.name}
@@ -121,51 +117,6 @@ function AppTile({ app }: { app: App }) {
         )}
       </div>
     </button>
-  );
-}
-
-/** Dense launcher chip: small icon + name, sized for a wrapping row. */
-function AppChip({ app }: { app: App }) {
-  const [, navigate] = useLocation();
-  const internal = isInternalPath(app.webUrl);
-
-  const handleClick = () => {
-    if (app.isComingSoon) return;
-    if (internal && app.webUrl) {
-      recordLaunch(app.id, "web");
-      navigate(app.webUrl);
-      return;
-    }
-    launchApp(app);
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={app.isComingSoon}
-      aria-label={app.name}
-      title={app.isComingSoon ? `${app.name} (coming soon)` : app.name}
-      className="inline-flex items-center gap-1.5 rounded-md border bg-card pl-1 pr-2.5 py-1 text-xs font-medium text-tmc-dark transition hover:border-tmc-gold hover:bg-tmc-gold/5 disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-card"
-    >
-      <span
-        className="w-5 h-5 rounded flex items-center justify-center text-[11px] shrink-0 overflow-hidden"
-        style={{ background: app.iconBgColor ? `#${app.iconBgColor}` : "#404E5C" }}
-      >
-        <AppIcon app={app} small />
-      </span>
-      <span className="truncate max-w-32">{app.name}</span>
-    </button>
-  );
-}
-
-function CompactSkeleton() {
-  return (
-    <div className="w-full flex flex-wrap gap-1.5">
-      {Array.from({ length: 10 }).map((_, i) => (
-        <div key={i} className="h-7 w-24 rounded-md bg-tmc-silver/40 animate-pulse" />
-      ))}
-    </div>
   );
 }
 
@@ -196,15 +147,19 @@ function AppIcon({ app, small = false }: { app: App; small?: boolean }) {
   );
 }
 
-function AppGridSkeleton() {
+function AppGridSkeleton({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="w-full max-w-5xl space-y-10">
+    <div className={`w-full max-w-5xl ${compact ? "space-y-4" : "space-y-10"}`}>
       {[0, 1, 2].map((s) => (
         <section key={s}>
-          <div className="h-3 w-32 bg-tmc-silver/40 rounded mb-4 animate-pulse" />
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-x-4 gap-y-6">
+          <div
+            className={`h-3 w-32 bg-tmc-silver/40 rounded animate-pulse ${
+              compact ? "mb-2" : "mb-4"
+            }`}
+          />
+          <div className={compact ? COMPACT_GRID : ROOMY_GRID}>
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="app-icon">
+              <div key={i} className={`app-icon${compact ? " app-icon--sm" : ""}`}>
                 <div className="app-icon-tile bg-tmc-silver/40 animate-pulse" />
                 <div className="h-3 w-12 bg-tmc-silver/40 rounded mt-1 animate-pulse" />
               </div>
