@@ -1,4 +1,5 @@
 // Types + math for the package pricing calculator. Pure functions; no React.
+import { DEFAULT_TERMS, type EngagementTerms } from "./agreement";
 
 export interface CalculatorSettings {
   id: number;
@@ -147,6 +148,8 @@ export interface PackageState {
   discountValue: number; // dollars when flat, percent (0–100) when pct
   /** Hand-set monthly quote, overriding the calculated price. null = calculated. */
   priceOverride: number | null;
+  /** Start date, term and signer details for Schedule A. */
+  terms: EngagementTerms;
 }
 
 export const WEBSITE_DESIGN_STANDARD = 3000;
@@ -186,6 +189,7 @@ export const DEFAULT_PACKAGE: PackageState = {
   discountType: "flat",
   discountValue: 0,
   priceOverride: null,
+  terms: DEFAULT_TERMS,
 };
 
 // ─── Pre-made packages ───────────────────────────────────────────────────

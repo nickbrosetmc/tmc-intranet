@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CalendarClock, MessageSquare } from "lucide-react";
+import { CalendarClock, LifeBuoy, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,10 +16,13 @@ import { useUser } from "@/lib/useUser";
 import { content } from "@/lib/content";
 import { usePollingRefresh } from "@/lib/usePollingRefresh";
 import {
+  SEVERITY_TONE,
   STATUS_LABELS,
   submissions,
+  TYPE_LABELS,
   type AdminSubmission,
   type SubmissionStatus,
+  type SubmissionType,
 } from "@/lib/clientSubmissions";
 
 type Filter = "all" | "new" | "in_progress" | "done";
@@ -36,6 +39,7 @@ export function RequestsPage() {
   const [rows, setRows] = useState<AdminSubmission[] | null>(null);
   const [notifyEmails, setNotifyEmails] = useState("");
   const [filter, setFilter] = useState<Filter>("new");
+  const [typeFilter, setTypeFilter] = useState<SubmissionType | "all">("all");
   const [clientFilter, setClientFilter] = useState<number | "all">("all");
 
   async function refresh() {
@@ -65,11 +69,15 @@ export function RequestsPage() {
     return rows.filter(
       (r) =>
         (filter === "all" || r.status === filter) &&
+        (typeFilter === "all" || r.type === typeFilter) &&
         (clientFilter === "all" || r.clientId === clientFilter),
     );
-  }, [rows, filter, clientFilter]);
+  }, [rows, filter, typeFilter, clientFilter]);
 
   const newCount = rows?.filter((r) => r.status === "new").length ?? 0;
+  // Open tickets are the ones that page someone, so they get their own count.
+  const openTickets =
+    rows?.filter((r) => r.type === "support" && r.status !== "done").length ?? 0;
 
   if (!isTeam) {
     return (
@@ -111,6 +119,22 @@ export function RequestsPage() {
             >
               {f === "all" ? "All" : STATUS_LABELS[f]}
               {f === "new" && newCount > 0 ? ` (${newCount})` : ""}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {(["all", "request", "event", "support"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTypeFilter(t)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                typeFilter === t
+                  ? "bg-tmc-dark text-tmc-gold"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              {t === "all" ? "All types" : TYPE_LABELS[t]}
+              {t === "support" && openTickets > 0 ? ` (${openTickets})` : ""}
             </button>
           ))}
         </div>
@@ -207,6 +231,7 @@ function SubmissionCard({
 }) {
   const [notes, setNotes] = useState(sub.adminNotes ?? "");
   const isEvent = sub.type === "event";
+  const isSupport = sub.type === "support";
 
   async function setStatus(status: SubmissionStatus) {
     try {
@@ -233,15 +258,33 @@ function SubmissionCard({
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider bg-muted px-1.5 py-0.5 rounded">
-              {isEvent ? <CalendarClock size={11} /> : <MessageSquare size={11} />}
-              {isEvent ? "Event" : "Request"}
+              {isEvent ? (
+                <CalendarClock size={11} />
+              ) : isSupport ? (
+                <LifeBuoy size={11} />
+              ) : (
+                <MessageSquare size={11} />
+              )}
+              {TYPE_LABELS[sub.type]}
             </span>
+            {sub.severity && (
+              <span
+                className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${SEVERITY_TONE[sub.severity]}`}
+              >
+                {sub.severity}
+              </span>
+            )}
             <h3 className="text-base font-semibold text-tmc-dark">{sub.subject}</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             {sub.clientName} · {sub.submitterName} ·{" "}
             {new Date(sub.createdAt).toLocaleString()}
           </p>
+          {sub.affectedUrl && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Affected: <span className="text-tmc-dark">{sub.affectedUrl}</span>
+            </p>
+          )}
         </div>
         <Select value={sub.status} onValueChange={(v) => setStatus(v as SubmissionStatus)}>
           <SelectTrigger className="h-8 w-36 text-xs shrink-0">

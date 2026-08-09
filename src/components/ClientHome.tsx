@@ -4,6 +4,7 @@ import {
   CalendarPlus,
   FolderOpen,
   KeyRound,
+  LifeBuoy,
   MessageSquarePlus,
   Pencil,
   Zap,
@@ -30,9 +31,11 @@ import {
 } from "@/components/ui/select";
 import type { ClientUser } from "@/lib/useUser";
 import {
+  SEVERITIES,
   STATUS_LABELS,
   submissions,
   type ClientSubmission,
+  type Severity,
   type SubmissionStatus,
   type SubmissionType,
 } from "@/lib/clientSubmissions";
@@ -142,7 +145,7 @@ function ClientHomeInner({ user }: { user: ClientUser }) {
           trigger={
             <ActionTile
               label="Submit a Request"
-              description="Ask us for something or flag an issue"
+              description="Ask us for something new"
               icon={<MessageSquarePlus size={32} strokeWidth={1.75} />}
               bg="bg-tmc-gold-dark"
             />
@@ -157,6 +160,18 @@ function ClientHomeInner({ user }: { user: ClientUser }) {
               description="Tell us about an event to market"
               icon={<CalendarPlus size={32} strokeWidth={1.75} />}
               bg="bg-tmc-dark"
+            />
+          }
+        />
+        <SubmissionDialog
+          type="support"
+          onSubmitted={refresh}
+          trigger={
+            <ActionTile
+              label="Report an Issue"
+              description="Something broken? Get us on it"
+              icon={<LifeBuoy size={32} strokeWidth={1.75} />}
+              bg="bg-tmc-slate"
             />
           }
         />
@@ -268,11 +283,14 @@ function SubmissionDialog({
   onSubmitted: () => void;
 }) {
   const isEvent = type === "event";
+  const isSupport = type === "support";
   const [open, setOpen] = useState(false);
   const [subject, setSubject] = useState("");
   const [details, setDetails] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [location, setLocation] = useState("");
+  const [severity, setSeverity] = useState<Severity>("normal");
+  const [affectedUrl, setAffectedUrl] = useState("");
   const [busy, setBusy] = useState(false);
 
   function reset() {
@@ -280,11 +298,19 @@ function SubmissionDialog({
     setDetails("");
     setEventDate("");
     setLocation("");
+    setSeverity("normal");
+    setAffectedUrl("");
   }
 
   async function submit() {
     if (!subject.trim()) {
-      toast.error(isEvent ? "Event name is required." : "Subject is required.");
+      toast.error(
+        isEvent
+          ? "Event name is required."
+          : isSupport
+            ? "Please summarize the issue."
+            : "Subject is required.",
+      );
       return;
     }
     if (!details.trim()) {
@@ -299,6 +325,8 @@ function SubmissionDialog({
         details: details.trim(),
         eventDate: isEvent && eventDate ? eventDate : null,
         location: isEvent && location.trim() ? location.trim() : null,
+        severity: isSupport ? severity : null,
+        affectedUrl: isSupport && affectedUrl.trim() ? affectedUrl.trim() : null,
       });
       toast.success("Sent to the TMC team.");
       setOpen(false);
@@ -323,21 +351,35 @@ function SubmissionDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {isEvent ? "Submit an event" : "Submit a request"}
+            {isEvent
+              ? "Submit an event"
+              : isSupport
+                ? "Report a technical issue"
+                : "Submit a request"}
           </DialogTitle>
           <DialogDescription>
             {isEvent
               ? "Tell us about an event you'd like marketed. The team gets notified right away."
-              : "Send the TMC team a request. We'll get an email and follow up."}
+              : isSupport
+                ? "Something broken? Tell us what's happening and we'll get an email straight away."
+                : "Send the TMC team a request. We'll get an email and follow up."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label>{isEvent ? "Event name *" : "Subject *"}</Label>
+            <Label>
+              {isEvent ? "Event name *" : isSupport ? "What's wrong? *" : "Subject *"}
+            </Label>
             <Input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder={isEvent ? "Summer Kickoff Party" : "What do you need?"}
+              placeholder={
+                isEvent
+                  ? "Summer Kickoff Party"
+                  : isSupport
+                    ? "Contact form isn't sending"
+                    : "What do you need?"
+              }
             />
           </div>
           {isEvent && (
@@ -360,9 +402,47 @@ function SubmissionDialog({
               </div>
             </div>
           )}
+          {isSupport && (
+            <>
+              <div className="space-y-1">
+                <Label>How urgent is it?</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {SEVERITIES.map((sv) => (
+                    <button
+                      key={sv.id}
+                      type="button"
+                      onClick={() => setSeverity(sv.id)}
+                      className={`text-left rounded-md border px-2.5 py-2 transition ${
+                        severity === sv.id
+                          ? "border-tmc-gold bg-tmc-gold/10"
+                          : "hover:border-tmc-gold/50"
+                      }`}
+                    >
+                      <div className="text-sm font-medium text-tmc-dark">{sv.label}</div>
+                      <div className="text-[11px] text-muted-foreground leading-tight">
+                        {sv.hint}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>Where is it happening?</Label>
+                <Input
+                  value={affectedUrl}
+                  onChange={(e) => setAffectedUrl(e.target.value)}
+                  placeholder="Page URL, or the tool that's broken"
+                />
+              </div>
+            </>
+          )}
           <div className="space-y-1">
             <Label>
-              {isEvent ? "Details & what you'd like us to do *" : "Details *"}
+              {isEvent
+                ? "Details & what you'd like us to do *"
+                : isSupport
+                  ? "What happens, and what did you expect? *"
+                  : "Details *"}
             </Label>
             <textarea
               className="w-full min-h-[110px] rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -371,7 +451,9 @@ function SubmissionDialog({
               placeholder={
                 isEvent
                   ? "What's the event, who's it for, and how can we help promote it?"
-                  : "Give us the details so we can help."
+                  : isSupport
+                    ? "What you did, what happened, and anything you've already tried. Screenshots can follow by email."
+                    : "Give us the details so we can help."
               }
             />
           </div>

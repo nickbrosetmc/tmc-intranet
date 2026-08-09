@@ -1,7 +1,29 @@
-// Types + API wrappers for client requests / event briefs.
+// Types + API wrappers for client requests, event briefs, and support tickets.
 
-export type SubmissionType = "request" | "event";
+export type SubmissionType = "request" | "event" | "support";
 export type SubmissionStatus = "new" | "in_progress" | "done";
+export type Severity = "low" | "normal" | "high" | "urgent";
+
+export const TYPE_LABELS: Record<SubmissionType, string> = {
+  request: "Request",
+  event: "Event",
+  support: "Support",
+};
+
+/** Client-facing wording; deliberately about impact, not jargon. */
+export const SEVERITIES: { id: Severity; label: string; hint: string }[] = [
+  { id: "low", label: "Low", hint: "Minor annoyance, no rush" },
+  { id: "normal", label: "Normal", hint: "Something's wrong but we can work around it" },
+  { id: "high", label: "High", hint: "A key feature is broken" },
+  { id: "urgent", label: "Urgent", hint: "Site down or losing business right now" },
+];
+
+export const SEVERITY_TONE: Record<Severity, string> = {
+  low: "bg-muted text-muted-foreground",
+  normal: "bg-blue-100 text-blue-800",
+  high: "bg-amber-100 text-amber-800",
+  urgent: "bg-red-100 text-red-800",
+};
 
 export interface ClientSubmission {
   id: number;
@@ -12,6 +34,8 @@ export interface ClientSubmission {
   details: string;
   eventDate: string | null;
   location: string | null;
+  severity: Severity | null;
+  affectedUrl: string | null;
   status: SubmissionStatus;
   adminNotes: string | null;
   createdAt: string;
@@ -58,6 +82,8 @@ export const submissions = {
     details: string;
     eventDate?: string | null;
     location?: string | null;
+    severity?: Severity | null;
+    affectedUrl?: string | null;
   }) =>
     jsonReq<{ submission: ClientSubmission }>("/api/client/submissions", {
       method: "POST",

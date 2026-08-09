@@ -57,6 +57,8 @@ export interface QuoteDoc {
       oneTime?: number;
     }[];
   }[];
+  /** Start date / term / renewal, shown as its own block on the proposal. */
+  engagement?: { label: string; value: string }[];
   /** Optional fine print at the bottom. */
   footnote?: string;
 }
@@ -86,6 +88,26 @@ function fileName(doc: QuoteDoc): string {
   return `TMC-Quote-${who}.pdf`;
 }
 
+export interface ScheduleADoc {
+  clientName: string;
+  dateLabel: string;
+  tcVersion: string;
+  tcEffective: string;
+  /** Field / entry pairs, in the order the signed Schedule A lists them. */
+  rows: { field: string; entry: string }[];
+  /** Plain-language date summary shown above the signature blocks. */
+  keyDates: { label: string; value: string }[];
+  /** Render the Guarantor signature block (Section 15). */
+  personalGuarantee: boolean;
+}
+
+function scheduleAFileName(doc: ScheduleADoc): string {
+  const who = (doc.clientName || "Client")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-|-$/g, "");
+  return `TMC-Schedule-A-${who}.pdf`;
+}
+
 /**
  * Render the branded quote in an off-screen iframe, rasterize it, and
  * trigger a real PDF download. Falls back to a print window if the PDF
@@ -94,8 +116,20 @@ function fileName(doc: QuoteDoc): string {
  */
 export async function downloadQuotePdf(doc: QuoteDoc): Promise<void> {
   const logoUrl = new URL(tmcLogo, window.location.origin).href;
-  const html = buildHtml(doc, logoUrl);
+  await renderPdf(buildHtml(doc, logoUrl), fileName(doc));
+}
 
+/**
+ * Schedule A: the engagement summary that gets attached to the Service
+ * Agreement. Shares this module's rasterize/paginate/compress pipeline.
+ */
+export async function downloadScheduleAPdf(doc: ScheduleADoc): Promise<void> {
+  const logoUrl = new URL(tmcLogo, window.location.origin).href;
+  await renderPdf(buildScheduleAHtml(doc, logoUrl), scheduleAFileName(doc));
+}
+
+/** Rasterize an HTML document off-screen and save it as a letter-size PDF. */
+async function renderPdf(html: string, name: string): Promise<void> {
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
   iframe.style.cssText =
@@ -145,7 +179,7 @@ export async function downloadQuotePdf(doc: QuoteDoc): Promise<void> {
     } else {
       paginateCanvas(pdf, canvas, pageW, pageH);
     }
-    pdf.save(fileName(doc));
+    pdf.save(name);
   } catch {
     // Fallback: open a print window the user can "Save as PDF" from.
     printFallback(html);
@@ -800,12 +834,199 @@ function buildHtml(doc: QuoteDoc, logoUrl: string): string {
             .join("")}</div>`
         : ""
     }
+    ${
+      doc.engagement && doc.engagement.length
+        ? `<div class="options"><div class="opt-block">
+            <div class="opt-heading">Engagement terms</div>
+            <table class="lines">
+              ${doc.engagement
+                .map(
+                  (e) => `<tr>
+                    <td class="line-label">${esc(e.label)}</td>
+                    <td class="line-amt">${esc(e.value)}</td>
+                  </tr>`,
+                )
+                .join("")}
+            </table>
+          </div></div>`
+        : ""
+    }
     ${doc.footnote ? `<div class="footnote">${esc(doc.footnote)}</div>` : ""}
 
     <div class="footer">
       MARKETINGTMC.COM
       <div class="contact">info@marketingtmc.com</div>
     </div>
+  </div>
+</body>
+</html>`;
+}
+
+
+/**
+ * Schedule A: Engagement Summary. Mirrors the table in the Terms document so
+ * a signed copy and a generated copy line up field for field, with the key
+ * dates spelled out above the signature blocks. The Terms themselves are not
+ * regenerated here: this attaches to them and cites the governing version.
+ */
+function buildScheduleAHtml(doc: ScheduleADoc, logoUrl: string): string {
+  const rows = doc.rows
+    .map(
+      (r) => `
+      <tr>
+        <td class="sa-field">${esc(r.field)}</td>
+        <td class="sa-entry">${esc(r.entry)}</td>
+      </tr>`,
+    )
+    .join("");
+
+  const dates = doc.keyDates.length
+    ? `<div class="block">
+        <h2 class="block-heading">Key dates</h2>
+        <table class="lines">
+          ${doc.keyDates
+            .map(
+              (d) => `<tr>
+                <td class="line-label">${esc(d.label)}</td>
+                <td class="line-amt">${esc(d.value)}</td>
+              </tr>`,
+            )
+            .join("")}
+        </table>
+      </div>`
+    : "";
+
+  const guarantee = doc.personalGuarantee
+    ? `<div class="sa-sign" style="margin-top:26px">
+        <div class="block-heading">Personal Guarantee (Section 15)</div>
+        <p class="sa-note">By signing below, I am signing in my individual capacity and
+        personally guarantee payment of all amounts owed by the Client under this
+        Agreement, on the terms set out in Section 15. I acknowledge that I may be
+        pursued directly for these amounts and that this guarantee continues through
+        renewal terms.</p>
+        <div class="sa-line">Guarantor signature: <span></span> Date: <span class="short"></span></div>
+        <div class="sa-line">Printed name: <span></span></div>
+      </div>`
+    : "";
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Schedule A${doc.clientName ? " — " + esc(doc.clientName) : ""}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,700;0,800&family=Libre+Franklin:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --cream: ${BRAND.cream};
+    --gold: ${BRAND.gold};
+    --gold-dark: ${BRAND.goldDark};
+    --slate: ${BRAND.slate};
+    --light-gray: ${BRAND.lightGray};
+    --navy: ${BRAND.navy};
+  }
+  html, body { background: #fff; }
+  body { font-family: "Libre Franklin", system-ui, sans-serif; color: var(--navy); }
+  .page { width: 7.5in; margin: 0 auto; }
+  .header {
+    background: var(--navy); color: var(--cream);
+    padding: 28px 40px; display: flex; align-items: center; gap: 20px;
+  }
+  .header img { width: 56px; height: 56px; object-fit: contain; }
+  .header .eyebrow {
+    font-family: "Montserrat", sans-serif; font-weight: 600; font-size: 11px;
+    letter-spacing: 2.5px; text-transform: uppercase; color: var(--gold);
+  }
+  .header .title {
+    font-family: "Montserrat", sans-serif; font-weight: 800; font-size: 24px;
+    line-height: 1.1; margin-top: 4px;
+  }
+  .meta {
+    display: flex; justify-content: space-between;
+    padding: 16px 40px; border-bottom: 2px solid var(--gold);
+    font-size: 12px; color: var(--slate);
+  }
+  .body { padding: 22px 40px 8px; }
+  .intro { font-size: 12px; color: var(--slate); line-height: 1.5; margin-bottom: 16px; }
+  .block { margin-bottom: 18px; }
+  .block-heading {
+    font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 11px;
+    letter-spacing: 1.5px; text-transform: uppercase; color: var(--slate);
+    padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--light-gray);
+  }
+  table { width: 100%; border-collapse: collapse; }
+  table.lines td { padding: 5px 0; font-size: 13px; vertical-align: top; }
+  .line-label { color: var(--navy); }
+  .line-amt { text-align: right; font-weight: 600; white-space: nowrap; padding-left: 24px; }
+  .sa-field {
+    width: 45%; padding: 7px 12px 7px 0; font-size: 12px; color: var(--slate);
+    border-bottom: 1px solid var(--light-gray); vertical-align: top;
+  }
+  .sa-entry {
+    padding: 7px 0; font-size: 13px; font-weight: 600;
+    border-bottom: 1px solid var(--light-gray); vertical-align: top;
+  }
+  .sa-sign { padding: 4px 40px 0; }
+  .sa-note { font-size: 11px; color: var(--slate); line-height: 1.5; margin-bottom: 12px; }
+  .sa-line { font-size: 12px; margin-top: 16px; display: flex; align-items: baseline; gap: 8px; }
+  .sa-line span {
+    flex: 1; border-bottom: 1px solid var(--navy); height: 14px; display: inline-block;
+  }
+  .sa-line span.short { flex: 0 0 120px; }
+  .footnote { padding: 16px 40px 0; font-size: 10px; color: var(--slate); line-height: 1.5; }
+  .footer {
+    margin-top: 24px; background: var(--gold); color: var(--navy);
+    text-align: center; padding: 12px 40px;
+    font-family: "Montserrat", sans-serif; font-weight: 700;
+    letter-spacing: 1.5px; text-transform: uppercase; font-size: 11px;
+  }
+  html.dense-1 .body { padding-top: 16px; }
+  html.dense-1 .sa-field, html.dense-1 .sa-entry { padding-top: 5px; padding-bottom: 5px; }
+  html.dense-1 .sa-line { margin-top: 12px; }
+  html.dense-2 .header { padding: 22px 40px; }
+  html.dense-2 .body { padding-top: 14px; }
+  html.dense-2 .sa-field, html.dense-2 .sa-entry { padding-top: 4px; padding-bottom: 4px; }
+  html.dense-2 .sa-line { margin-top: 10px; }
+  html.dense-3 .header { padding: 16px 40px; }
+  html.dense-3 .body { padding-top: 10px; }
+  html.dense-3 .sa-field, html.dense-3 .sa-entry { padding-top: 3px; padding-bottom: 3px; }
+  html.dense-3 .sa-line { margin-top: 8px; }
+  html.dense-3 .footer { margin-top: 14px; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <img src="${logoUrl}" alt="TMC Marketing" />
+      <div>
+        <div class="eyebrow">TMC Marketing</div>
+        <div class="title">Schedule A: Engagement Summary</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div>${doc.clientName ? esc(doc.clientName) : "Client"}</div>
+      <div>Terms and Conditions Version ${esc(doc.tcVersion)} &middot; Effective ${esc(doc.tcEffective)}</div>
+    </div>
+    <div class="body">
+      <p class="intro">This Schedule is completed for every engagement and attached to the
+      Service Agreement or Order Form. It exists so that both parties have a single,
+      unambiguous record of the dates and commitments that govern the Agreement.</p>
+      <table>${rows}</table>
+    </div>
+    <div class="body" style="padding-top:14px">${dates}</div>
+    <div class="sa-sign">
+      <div class="sa-line">Client signature: <span></span> Date: <span class="short"></span></div>
+      <div class="sa-line">Printed name and title: <span></span></div>
+      <div class="sa-line">TMC Marketing: <span></span> Date: <span class="short"></span></div>
+    </div>
+    ${guarantee}
+    <div class="footnote">Prepared ${esc(doc.dateLabel)}. Dates shown are calculated from the
+    Start Date and Initial Term under Sections 3.1 to 3.6 of the Terms and Conditions.
+    Where this Schedule and the Terms conflict, the Terms control except where this
+    Schedule expressly identifies the section it modifies.</div>
+    <div class="footer">marketingtmc.com</div>
   </div>
 </body>
 </html>`;

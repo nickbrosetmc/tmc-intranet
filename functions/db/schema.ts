@@ -224,11 +224,14 @@ export const clientSubmissions = sqliteTable("client_submissions", {
   clientUserId: integer("client_user_id")
     .notNull()
     .references(() => clientUsers.id),
-  type: text("type", { enum: ["request", "event"] }).notNull(),
+  type: text("type", { enum: ["request", "event", "support"] }).notNull(),
   subject: text("subject").notNull(),
   details: text("details").notNull(),
   eventDate: text("event_date"),
   location: text("location"),
+  /** Support tickets only. */
+  severity: text("severity", { enum: ["low", "normal", "high", "urgent"] }),
+  affectedUrl: text("affected_url"),
   status: text("status", { enum: ["new", "in_progress", "done"] })
     .notNull()
     .default("new"),
