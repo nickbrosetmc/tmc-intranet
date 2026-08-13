@@ -3,6 +3,8 @@ import { toast } from "sonner";
 import {
   CalendarPlus,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Circle,
   Link2,
   Pencil,
@@ -47,6 +49,10 @@ import { Toaster } from "@/components/ui/sonner";
 import {
   buildAllItems,
   buildItemsForUser,
+  clientIdOf,
+  clientNameOf,
+  groupByClient,
+  NO_CLIENT,
   daysUntilDue,
   elapsedMinutes,
   formatDueDate,
@@ -79,6 +85,7 @@ const VIEWS = [
   { id: "my-week", label: "My Week", adminOnly: false },
   { id: "mine", label: "My Tasks", adminOnly: false },
   { id: "all", label: "All Tasks", adminOnly: false },
+  { id: "by-client", label: "By Client", adminOnly: false },
   { id: "by-person", label: "By Person", adminOnly: true },
 ] as const;
 type View = (typeof VIEWS)[number]["id"];
@@ -92,6 +99,8 @@ export function TasksPage() {
   const [data, setData] = useState<TasksDashboard | null>(null);
   const [view, setView] = useState<View>("my-week");
   const [focusedUserId, setFocusedUserId] = useState<number | null>(null);
+  // "all" shows every client; a client id narrows the list-style views.
+  const [clientFilter, setClientFilter] = useState<number | "all">("all");
   const [includeCompleted, setIncludeCompleted] = useState(false);
   const [tick, setTick] = useState(0);
 
@@ -189,21 +198,36 @@ export function TasksPage() {
       </div>
 
       {view === "my-week" && (
-        <MyWeekView data={data} myUserId={data.user.id} onChanged={refresh} />
+        <MyWeekView
+          data={data}
+          myUserId={data.user.id}
+          onChanged={refresh}
+          clientFilter={clientFilter}
+          onClientFilter={setClientFilter}
+        />
       )}
       {view === "mine" && (
-        <TaskList
-          items={buildItemsForUser(data, data.user.id)}
-          data={data}
-          onChanged={refresh}
-        />
+        <>
+          <ClientFilter data={data} value={clientFilter} onChange={setClientFilter} />
+          <TaskList
+            items={filterByClient(buildItemsForUser(data, data.user.id), data, clientFilter)}
+            data={data}
+            onChanged={refresh}
+          />
+        </>
       )}
       {view === "all" && (
-        <TaskList
-          items={buildAllItems(data)}
-          data={data}
-          onChanged={refresh}
-        />
+        <>
+          <ClientFilter data={data} value={clientFilter} onChange={setClientFilter} />
+          <TaskList
+            items={filterByClient(buildAllItems(data), data, clientFilter)}
+            data={data}
+            onChanged={refresh}
+          />
+        </>
+      )}
+      {view === "by-client" && (
+        <ByClientView data={data} onChanged={refresh} />
       )}
       {view === "by-person" && isAdmin && (
         <ByPersonView
@@ -211,10 +235,146 @@ export function TasksPage() {
           focusedUserId={focusedUserId ?? data.user.id}
           onPickUser={setFocusedUserId}
           onChanged={refresh}
+          clientFilter={clientFilter}
+          onClientFilter={setClientFilter}
         />
       )}
 
       <Toaster />
+    </div>
+  );
+}
+
+// ─── By Client ───────────────────────────────────────────────────────────
+
+function filterByClient(
+  items: WeekItem[],
+  data: TasksDashboard,
+  clientId: number | "all",
+): WeekItem[] {
+  if (clientId === "all") return items;
+  return items.filter((it) => clientIdOf(it, data) === clientId);
+}
+
+/** Narrows a flat list to one client. Only lists clients that have work. */
+function ClientFilter({
+  data,
+  value,
+  onChange,
+}: {
+  data: TasksDashboard;
+  value: number | "all";
+  onChange: (v: number | "all") => void;
+}) {
+  const present = useMemo(() => {
+    const ids = new Set(buildAllItems(data).map((it) => clientIdOf(it, data)));
+    const list = data.clientOptions
+      .filter((c) => ids.has(c.id))
+      .map((c) => ({ id: c.id as number, name: c.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (ids.has(NO_CLIENT)) {
+      list.push({ id: NO_CLIENT, name: clientNameOf(NO_CLIENT, data) });
+    }
+    return list;
+  }, [data]);
+
+  if (present.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground shrink-0">
+        Client
+      </Label>
+      <div className="min-w-[220px]">
+        <Select
+          value={value === "all" ? "all" : String(value)}
+          onValueChange={(v) => onChange(v === "all" ? "all" : Number(v))}
+        >
+          <SelectTrigger className="h-8 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All clients</SelectItem>
+            {present.map((c) => (
+              <SelectItem key={c.id} value={String(c.id)}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Everything open, split into one section per client, so a whole client's
+ * work can be batched in one sitting. Clients with overdue work come first.
+ */
+function ByClientView({
+  data,
+  onChanged,
+}: {
+  data: TasksDashboard;
+  onChanged: () => void;
+}) {
+  const groups = useMemo(() => groupByClient(buildAllItems(data), data), [data]);
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+
+  const toggle = (id: number) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  if (groups.length === 0) {
+    return (
+      <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+        Nothing here yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {groups.map((g) => {
+        const isOpen = !collapsed.has(g.clientId);
+        return (
+          <section key={g.clientId} className="space-y-2">
+            <button
+              type="button"
+              onClick={() => toggle(g.clientId)}
+              className="w-full flex items-center justify-between gap-3 text-left"
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                {isOpen ? (
+                  <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+                ) : (
+                  <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
+                )}
+                <span
+                  className={`font-semibold truncate ${
+                    g.clientId === NO_CLIENT ? "text-muted-foreground" : "text-tmc-dark"
+                  }`}
+                >
+                  {g.clientName}
+                </span>
+              </span>
+              <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+                {g.overdue > 0 && (
+                  <span className="text-red-700 font-medium">{g.overdue} late · </span>
+                )}
+                {g.open} open · {formatMinutes(g.estimatedMinutes)}
+              </span>
+            </button>
+            {isOpen && (
+              <TaskList items={g.items} data={data} onChanged={onChanged} />
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -226,11 +386,15 @@ function ByPersonView({
   focusedUserId,
   onPickUser,
   onChanged,
+  clientFilter,
+  onClientFilter,
 }: {
   data: TasksDashboard;
   focusedUserId: number;
   onPickUser: (id: number) => void;
   onChanged: () => void;
+  clientFilter: number | "all";
+  onClientFilter: (v: number | "all") => void;
 }) {
   const focused =
     data.userOptions.find((u) => u.id === focusedUserId) ?? data.userOptions[0];
@@ -269,6 +433,8 @@ function ByPersonView({
         data={data}
         myUserId={focusedUserId}
         onChanged={onChanged}
+        clientFilter={clientFilter}
+        onClientFilter={onClientFilter}
       />
     </div>
   );
@@ -280,14 +446,18 @@ function MyWeekView({
   data,
   myUserId,
   onChanged,
+  clientFilter = "all",
+  onClientFilter,
 }: {
   data: TasksDashboard;
   myUserId: number;
   onChanged: () => void;
+  clientFilter?: number | "all";
+  onClientFilter?: (v: number | "all") => void;
 }) {
   const mine = useMemo(
-    () => buildItemsForUser(data, myUserId),
-    [data, myUserId],
+    () => filterByClient(buildItemsForUser(data, myUserId), data, clientFilter),
+    [data, myUserId, clientFilter],
   );
 
   // Bucket: overdue, today, this week (next 7d), later, no date, completed.
@@ -321,16 +491,26 @@ function MyWeekView({
     buckets.noDate.length === 0 &&
     buckets.done.length === 0;
 
+  const filter = onClientFilter ? (
+    <ClientFilter data={data} value={clientFilter} onChange={onClientFilter} />
+  ) : null;
+
   if (empty) {
     return (
-      <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
-        Nothing on your list. Hit "New task" to start.
+      <div className="space-y-4">
+        {filter}
+        <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+          {clientFilter === "all"
+            ? 'Nothing on your list. Hit "New task" to start.'
+            : "Nothing for that client."}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-5">
+      {filter}
       <SummaryStrip items={mine} data={data} />
       {buckets.overdue.length > 0 && (
         <WeekBucket

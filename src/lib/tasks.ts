@@ -377,3 +377,79 @@ export function estimatedMinutesFor(
   }
   return total;
 }
+
+// ─── Grouping by client ───────────────────────────────────────────────────
+
+/** Sentinel key for work that belongs to no client (internal tasks). */
+export const NO_CLIENT = -1;
+
+/**
+ * Which client a week item belongs to.
+ *
+ * Posts and placeholders carry a client directly. A manual task does not: it
+ * only reaches a client through a linked content post, so an unlinked task is
+ * genuinely internal rather than unassigned, and lands under NO_CLIENT.
+ */
+export function clientIdOf(it: WeekItem, data: TasksDashboard): number {
+  if (it.kind === "post") return it.post.clientId;
+  if (it.kind === "placeholder") return it.clientId;
+  const postId = it.task.contentPostId;
+  if (postId == null) return NO_CLIENT;
+  return data.postOptions.find((p) => p.id === postId)?.clientId ?? NO_CLIENT;
+}
+
+export function clientNameOf(clientId: number, data: TasksDashboard): string {
+  if (clientId === NO_CLIENT) return "Internal / no client";
+  return (
+    data.clientOptions.find((c) => c.id === clientId)?.name ?? "Unknown client"
+  );
+}
+
+export interface ClientGroup {
+  clientId: number;
+  clientName: string;
+  items: WeekItem[];
+  open: number;
+  overdue: number;
+  estimatedMinutes: number;
+}
+
+/**
+ * Split items into per-client groups. Ordered by what needs attention first:
+ * clients with overdue work, then by how much is open, then alphabetically so
+ * the list is stable when everything is healthy. Internal work sorts last
+ * regardless, since it is not a client commitment.
+ */
+export function groupByClient(
+  items: WeekItem[],
+  data: TasksDashboard,
+): ClientGroup[] {
+  const byClient = new Map<number, WeekItem[]>();
+  for (const it of items) {
+    const id = clientIdOf(it, data);
+    const list = byClient.get(id) ?? [];
+    list.push(it);
+    byClient.set(id, list);
+  }
+
+  const groups: ClientGroup[] = [];
+  for (const [clientId, list] of byClient) {
+    const b = bucketByUrgency(list);
+    groups.push({
+      clientId,
+      clientName: clientNameOf(clientId, data),
+      items: sortItems(list),
+      open: b.overdue.length + b.today.length + b.upcoming.length,
+      overdue: b.overdue.length,
+      estimatedMinutes: estimatedMinutesFor(list, data.defaultPostEstimatedMinutes),
+    });
+  }
+
+  return groups.sort((a, b) => {
+    if (a.clientId === NO_CLIENT) return 1;
+    if (b.clientId === NO_CLIENT) return -1;
+    if (a.overdue !== b.overdue) return b.overdue - a.overdue;
+    if (a.open !== b.open) return b.open - a.open;
+    return a.clientName.localeCompare(b.clientName);
+  });
+}
