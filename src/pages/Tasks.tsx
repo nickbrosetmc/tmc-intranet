@@ -640,6 +640,13 @@ function WeekBucket({
   data: TasksDashboard;
   onChanged: () => void;
 }) {
+  // Urgency stays the outer axis so overdue work keeps its place at the top,
+  // and each bucket is then split by client so a person can work one client
+  // at a time. A bucket that only touches one client stays flat: a lone
+  // subheading is noise, not organization.
+  const groups = useMemo(() => groupByClient(items, data), [items, data]);
+  const split = groups.length > 1;
+
   return (
     <section className={`rounded-lg border ${tone ?? "bg-card"}`}>
       <div className="px-4 py-2 border-b text-xs font-semibold uppercase tracking-widest text-tmc-slate flex items-center justify-between">
@@ -647,9 +654,32 @@ function WeekBucket({
         <span className="text-muted-foreground">{items.length}</span>
       </div>
       <ul className="divide-y">
-        {sortItems(items).map((it) => (
-          <ItemRow key={itemKey(it)} it={it} data={data} onChanged={onChanged} />
-        ))}
+        {split
+          ? groups.flatMap((g) => [
+              <li
+                key={`h-${g.clientId}`}
+                className="px-4 py-1.5 bg-muted/60 flex items-baseline justify-between gap-3"
+              >
+                <span
+                  className={`text-[11px] font-semibold uppercase tracking-wider truncate ${
+                    g.clientId === NO_CLIENT ? "text-muted-foreground" : "text-tmc-dark"
+                  }`}
+                >
+                  {g.clientName}
+                </span>
+                <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums">
+                  {g.items.length}
+                  {/* Completed work has no time left to spend. */}
+                  {g.estimatedMinutes > 0 && ` · ${formatMinutes(g.estimatedMinutes)}`}
+                </span>
+              </li>,
+              ...g.items.map((it) => (
+                <ItemRow key={itemKey(it)} it={it} data={data} onChanged={onChanged} />
+              )),
+            ])
+          : sortItems(items).map((it) => (
+              <ItemRow key={itemKey(it)} it={it} data={data} onChanged={onChanged} />
+            ))}
       </ul>
     </section>
   );
