@@ -916,7 +916,8 @@ function ResultsPanel({
 
   const [pdfBusy, setPdfBusy] = useState(false);
   async function downloadPackagePdf() {
-    const breakdown = proposalServiceLines(pkg, results);
+    // Allocate from the standard the quote prints, so the lines add up to it.
+    const breakdown = proposalServiceLines(pkg, results, totals.standard);
     if (breakdown.length === 0) {
       toast.error("Toggle on at least one service first.");
       return;

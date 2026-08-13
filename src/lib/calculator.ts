@@ -381,21 +381,31 @@ export interface ProposalLine {
 }
 
 /**
- * Client-facing proposal lines: the monthly price allocated across visible
+ * Client-facing proposal lines: the quoted price allocated across visible
  * service groups (software overhead is folded in proportionally, never shown
  * as its own line), each with a "what's included" list.
  *
- * Only the cost-based portion of targetPrice gets allocated. Manually-priced
- * items (a flat or per-unit custom line, the flat website fee) are appended
- * verbatim, so they're subtracted from the allocation base first, otherwise
- * their price would be counted twice.
+ * `standardTotal` is the "Standard investment" the quote prints, which is the
+ * quoted price plus any itemized savings. Allocating from it rather than from
+ * results.targetPrice is what makes a hand-set price flow into the line items:
+ * quoting $1,000 for SEO used to leave the SEO line showing the calculated
+ * $934 while the total said $1,150, so the itemization and the total described
+ * two different quotes.
+ *
+ * Only the cost-based portion gets allocated. Manually-priced items (a flat or
+ * per-unit custom line, the flat website fee) are appended verbatim, so they
+ * are subtracted from the allocation base first, otherwise their price would
+ * be counted twice.
  */
 export function proposalServiceLines(
   pkg: PackageState,
   results: PackageResults,
+  standardTotal: number = results.targetPrice,
 ): ProposalLine[] {
-  const monthlyPrice =
-    results.targetPrice - results.websiteMonthly - results.customFlat;
+  const monthlyPrice = Math.max(
+    0,
+    Math.round(standardTotal) - results.websiteMonthly - results.customFlat,
+  );
   const HIDDEN = "Tools & software";
   const byService = new Map<string, number>();
   for (const l of results.lines) {

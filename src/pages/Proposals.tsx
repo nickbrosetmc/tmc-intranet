@@ -203,11 +203,6 @@ export function ProposalsPage() {
     }
 
     const results = computePackage(pkg, settings);
-    const breakdown = proposalServiceLines(pkg, results);
-    if (breakdown.length === 0) {
-      toast.error("That package has no services turned on.");
-      return;
-    }
     const disc = applyPackageDiscount(
       results.targetPrice,
       pkg.discountType,
@@ -231,6 +226,14 @@ export function ProposalsPage() {
           : []),
       ],
     );
+
+    // Allocate from the standard the proposal prints, so a hand-set price
+    // reaches the service lines instead of leaving them on the calculated one.
+    const breakdown = proposalServiceLines(pkg, results, totals.standard);
+    if (breakdown.length === 0) {
+      toast.error("That package has no services turned on.");
+      return;
+    }
 
     const alts = pkg.options.filter((o) => o.kind === "alternative");
     const addons = pkg.options.filter((o) => o.kind === "addon");
