@@ -356,6 +356,9 @@ export const calculatorSettings = sqliteTable("calculator_settings", {
   rateDayHalf: integer("rate_day_half").notNull().default(1800),
   rateDayFull: integer("rate_day_full").notNull().default(2800),
   rateDayExtra: integer("rate_day_extra").notNull().default(2500),
+  /** Terms and Conditions version cited on generated proposals. */
+  tcVersion: text("tc_version").notNull().default("2026.1"),
+  tcEffective: text("tc_effective").notNull().default("August 3, 2026"),
   updatedBy: integer("updated_by").references(() => users.id),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

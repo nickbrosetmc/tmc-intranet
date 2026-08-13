@@ -1,5 +1,4 @@
 // Types + math for the package pricing calculator. Pure functions; no React.
-import { DEFAULT_TERMS, type EngagementTerms } from "./agreement";
 
 export interface CalculatorSettings {
   id: number;
@@ -15,6 +14,9 @@ export interface CalculatorSettings {
   rateDayHalf: number;
   rateDayFull: number;
   rateDayExtra: number;
+  /** Terms and Conditions version cited on generated proposals. */
+  tcVersion: string;
+  tcEffective: string;
   updatedBy: number | null;
   updatedAt: string;
 }
@@ -115,10 +117,16 @@ export interface PackageState {
   };
   seo: { enabled: boolean; pagesPerMonth: number; hoursPerPage: number; tier: Tier };
   ppc: { enabled: boolean; platform: "one" | "both"; hoursPerMonth: number; tier: Tier };
-  /** Interim flat website model: one-time design (slider-discountable from
-   *  $3,000 standard) + flat monthly management/hosting with up to 5
-   *  changes per month. Not part of the margin engine. */
-  web: { enabled: boolean; designPrice: number; monthlyFee: number };
+  /** Flat website model: one-time design (slider-discountable from the
+   *  standard) + flat monthly management/hosting with up to 5 changes per
+   *  month. An online store adds a fixed amount to the design baseline, since
+   *  it is meaningfully more build time. Not part of the margin engine. */
+  web: {
+    enabled: boolean;
+    designPrice: number;
+    monthlyFee: number;
+    ecommerce: boolean;
+  };
   email: { enabled: boolean; campaignsPerMonth: number; hoursPerCampaign: number; tier: Tier };
   video: { enabled: boolean; hoursPerMonth: number; tier: Tier };
   /** Custom line item. "hours" runs through the margin engine; "flat" and
@@ -148,11 +156,17 @@ export interface PackageState {
   discountValue: number; // dollars when flat, percent (0–100) when pct
   /** Hand-set monthly quote, overriding the calculated price. null = calculated. */
   priceOverride: number | null;
-  /** Start date, term and signer details for Schedule A. */
-  terms: EngagementTerms;
 }
 
-export const WEBSITE_DESIGN_STANDARD = 3000;
+export const WEBSITE_DESIGN_STANDARD = 3500;
+export const WEBSITE_HOSTING_STANDARD = 165;
+/** Added to the design baseline when the build includes an online store. */
+export const WEBSITE_ECOMMERCE_ADDON = 1000;
+
+/** Standard one-time design price for this build, before any discount. */
+export function websiteDesignStandard(web: PackageState["web"]): number {
+  return WEBSITE_DESIGN_STANDARD + (web.ecommerce ? WEBSITE_ECOMMERCE_ADDON : 0);
+}
 
 export const DEFAULT_PACKAGE: PackageState = {
   clientName: "",
@@ -167,7 +181,12 @@ export const DEFAULT_PACKAGE: PackageState = {
   },
   seo: { enabled: false, pagesPerMonth: 2, hoursPerPage: 2.5, tier: "admin" },
   ppc: { enabled: false, platform: "one", hoursPerMonth: 4, tier: "admin" },
-  web: { enabled: false, designPrice: WEBSITE_DESIGN_STANDARD, monthlyFee: 150 },
+  web: {
+    enabled: false,
+    designPrice: WEBSITE_DESIGN_STANDARD,
+    monthlyFee: WEBSITE_HOSTING_STANDARD,
+    ecommerce: false,
+  },
   email: { enabled: false, campaignsPerMonth: 2, hoursPerCampaign: 2, tier: "ft" },
   video: { enabled: false, hoursPerMonth: 8, tier: "admin" },
   custom: {
@@ -189,7 +208,6 @@ export const DEFAULT_PACKAGE: PackageState = {
   discountType: "flat",
   discountValue: 0,
   priceOverride: null,
-  terms: DEFAULT_TERMS,
 };
 
 // ─── Pre-made packages ───────────────────────────────────────────────────
@@ -247,7 +265,7 @@ export const PACKAGE_PRESETS: PackagePreset[] = [
       seo: { enabled: true, pagesPerMonth: 4, hoursPerPage: 2.5, tier: "admin" },
       ppc: { enabled: true, platform: "both", hoursPerMonth: 6, tier: "admin" },
       email: { enabled: true, campaignsPerMonth: 4, hoursPerCampaign: 2, tier: "ft" },
-      web: { enabled: true, designPrice: 0, monthlyFee: 150 },
+      web: { enabled: true, designPrice: 0, monthlyFee: WEBSITE_HOSTING_STANDARD, ecommerce: false },
       targetMargin: 45,
     }),
   },
@@ -272,7 +290,12 @@ function servicesOff(): Pick<
     social: { enabled: false, postsPerWeek: 3, minsPerPost: 45, strategyHours: 2, contentTier: "ft", strategyTier: "admin", onSiteFilming: true },
     seo: { enabled: false, pagesPerMonth: 2, hoursPerPage: 2.5, tier: "admin" },
     ppc: { enabled: false, platform: "one", hoursPerMonth: 4, tier: "admin" },
-    web: { enabled: false, designPrice: WEBSITE_DESIGN_STANDARD, monthlyFee: 150 },
+    web: {
+    enabled: false,
+    designPrice: WEBSITE_DESIGN_STANDARD,
+    monthlyFee: WEBSITE_HOSTING_STANDARD,
+    ecommerce: false,
+  },
     email: { enabled: false, campaignsPerMonth: 2, hoursPerCampaign: 2, tier: "ft" },
     video: { enabled: false, hoursPerMonth: 8, tier: "admin" },
     custom: {
@@ -491,6 +514,8 @@ export interface PackageResults {
   hostingComped: boolean;
   /** One-time website design price from the slider (0 when disabled). */
   websiteDesignPrice: number;
+  /** Undiscounted design price for this build, including any store add-on. */
+  websiteDesignStandardPrice: number;
   verdict: "go" | "caution" | "stop" | "empty";
   verdictText: string;
 }
@@ -637,6 +662,9 @@ export function computePackage(
   const websiteDesignPrice = pkg.web.enabled
     ? Math.max(0, Math.round(pkg.web.designPrice))
     : 0;
+  const websiteDesignStandardPrice = pkg.web.enabled
+    ? websiteDesignStandard(pkg.web)
+    : 0;
 
   const marginPrice = totalCost > 0 ? Math.round(totalCost / (1 - tm)) : 0;
   const targetPrice = marginPrice + websiteMonthly + customFlat;
@@ -677,6 +705,7 @@ export function computePackage(
     customSetup,
     hostingComped,
     websiteDesignPrice,
+    websiteDesignStandardPrice,
     verdict,
     verdictText,
   };

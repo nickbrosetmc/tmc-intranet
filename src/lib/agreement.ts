@@ -19,6 +19,11 @@
 //   §8    Six-Month Performance Review is 12-month terms only, requested
 //         within 5 business days of the six-month mark
 
+/**
+ * Fallbacks only. The live values come from the shared calculator settings
+ * (Admin > Calculator settings > Terms and Conditions) so a new version of
+ * the Terms does not need a code change to appear on signed documents.
+ */
 export const TC_VERSION = "2026.1";
 export const TC_EFFECTIVE = "August 3, 2026";
 export const NOTICE_DAYS = 30;
@@ -222,6 +227,7 @@ export function scheduleARows(
   monthlyRetainer: number,
   derived: DerivedAgreement,
   services: string[],
+  tcVersion: string = TC_VERSION,
 ): { field: string; entry: string }[] {
   const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
   return [
@@ -277,6 +283,6 @@ export function scheduleARows(
       field: "Guarantor name (if yes)",
       entry: terms.personalGuarantee ? terms.guarantorName || "—" : "Not applicable",
     },
-    { field: "Terms and Conditions version governing", entry: `Version ${TC_VERSION}` },
+    { field: "Terms and Conditions version governing", entry: `Version ${tcVersion}` },
   ];
 }

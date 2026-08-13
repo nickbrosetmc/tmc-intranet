@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Settings as Gear, FileSignature, FileText } from "lucide-react";
+import { Settings as Gear, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +26,6 @@ import {
   computePackage,
   customManualMonthly,
   DEFAULT_PACKAGE,
-  enabledServiceLabels,
   fetchSettings,
   optionDetail,
   optionMonthly,
@@ -35,25 +34,14 @@ import {
   proposalServiceLines,
   quoteTotals,
   TIERS,
-  WEBSITE_DESIGN_STANDARD,
+  WEBSITE_ECOMMERCE_ADDON,
+  websiteDesignStandard,
   type CalculatorSettings,
   type PackageState,
   type ProposalOption,
   type Tier,
 } from "@/lib/calculator";
-import { downloadQuotePdf, downloadScheduleAPdf } from "@/lib/quote-pdf";
-import {
-  deriveAgreement,
-  earlyTerminationFee,
-  formatLongDate,
-  scheduleARows,
-  TC_EFFECTIVE,
-  TC_VERSION,
-  TERM_OPTIONS,
-  termLabel,
-  type EngagementTerms,
-  type TermLength,
-} from "@/lib/agreement";
+import { downloadQuotePdf } from "@/lib/quote-pdf";
 
 const PKG_STORAGE_KEY = "tmc.calculator.package.v1";
 
@@ -74,7 +62,6 @@ function loadPackage(): PackageState {
         email: { ...DEFAULT_PACKAGE.email, ...(parsed.email ?? {}) },
         video: { ...DEFAULT_PACKAGE.video, ...(parsed.video ?? {}) },
         custom: { ...DEFAULT_PACKAGE.custom, ...(parsed.custom ?? {}) },
-        terms: { ...DEFAULT_PACKAGE.terms, ...(parsed.terms ?? {}) },
         options: parsed.options ?? [],
       };
     }
@@ -207,13 +194,6 @@ export function CalculatorPage() {
       </header>
 
       <BuildPackagePanel pkg={pkg} setPkg={setPkg} settings={settings} />
-      <EngagementTermsCard
-        pkg={pkg}
-        setPkg={setPkg}
-        monthlyRetainer={
-          pkg.priceOverride != null ? pkg.priceOverride : results.targetPrice
-        }
-      />
       <ResultsPanel pkg={pkg} setPkg={setPkg} results={results} settings={settings} />
 
       {isAdmin && (
@@ -607,21 +587,51 @@ function ServiceWeb({
   settings: CalculatorSettings;
 }) {
   const s = pkg.web;
-  const discounted = s.designPrice < WEBSITE_DESIGN_STANDARD;
+  const standard = websiteDesignStandard(s);
+  const discounted = s.designPrice < standard;
+
+  /**
+   * Toggling the store shifts the baseline, so shift the quoted price with it.
+   * Moving by the add-on rather than resetting to the new standard preserves
+   * whatever discount is already on the slider.
+   */
+  function setEcommerce(on: boolean) {
+    setPkg((p) => {
+      const delta = (on ? 1 : -1) * WEBSITE_ECOMMERCE_ADDON;
+      return {
+        ...p,
+        web: {
+          ...p.web,
+          ecommerce: on,
+          designPrice: Math.max(0, p.web.designPrice + delta),
+        },
+      };
+    });
+  }
+
   return (
     <ServiceRow
       enabled={s.enabled}
       onToggle={(v) => setPkg((p) => ({ ...p, web: { ...p.web, enabled: v } }))}
       title="Website Design & Management"
-      description={`$${WEBSITE_DESIGN_STANDARD.toLocaleString()} design one-time · $${s.monthlyFee}/mo hosting + up to 5 changes`}
+      description={`$${standard.toLocaleString()} design one-time · $${s.monthlyFee}/mo hosting + up to 5 changes`}
       cost={s.enabled ? Math.round(s.monthlyFee) : 0}
     >
+      <div className="flex items-center gap-3 flex-wrap">
+        <Toggle checked={s.ecommerce} onChange={setEcommerce} />
+        <Label className="text-sm">
+          Includes an online store
+          <span className="text-xs text-muted-foreground font-normal">
+            {" "}(+${WEBSITE_ECOMMERCE_ADDON.toLocaleString()} build)
+          </span>
+        </Label>
+      </div>
       <div className="flex items-center gap-3 bg-muted rounded-md p-3">
         <Label className="whitespace-nowrap text-sm font-semibold">Design price (one-time):</Label>
         <input
           type="range"
           min={0}
-          max={WEBSITE_DESIGN_STANDARD}
+          max={standard}
           step={50}
           value={s.designPrice}
           onChange={(e) =>
@@ -632,7 +642,7 @@ function ServiceWeb({
         <span className="min-w-28 text-right">
           {discounted && (
             <span className="text-xs text-muted-foreground line-through mr-1">
-              ${WEBSITE_DESIGN_STANDARD.toLocaleString()}
+              ${standard.toLocaleString()}
             </span>
           )}
           <span className="font-bold text-tmc-gold-dark text-lg tabular-nums">
@@ -642,7 +652,7 @@ function ServiceWeb({
       </div>
       {discounted && (
         <p className="text-[11px] text-tmc-gold-dark">
-          Design discounted by ${(WEBSITE_DESIGN_STANDARD - s.designPrice).toLocaleString()} — shows as savings on the proposal.
+          Design discounted by ${(standard - s.designPrice).toLocaleString()}. Shows as savings on the proposal.
         </p>
       )}
       <div className="flex items-center gap-3">
@@ -861,233 +871,6 @@ function ServiceCustom({
   );
 }
 
-// ─── Engagement terms (Schedule A inputs) ────────────────────────────────
-
-/**
- * The fields Schedule A of the Terms asks for. Dates that the Terms derive
- * rather than ask for (Renewal Date, notice deadlines, the six-month review
- * window, the Setup Fee) are computed and shown read-only, so they cannot be
- * typed inconsistently with the Start Date and term.
- */
-function EngagementTermsCard({
-  pkg,
-  setPkg,
-  monthlyRetainer,
-}: {
-  pkg: PackageState;
-  setPkg: React.Dispatch<React.SetStateAction<PackageState>>;
-  monthlyRetainer: number;
-}) {
-  const t = pkg.terms;
-  const derived = deriveAgreement(t, monthlyRetainer);
-  const etf = earlyTerminationFee(t, monthlyRetainer);
-  const set = (patch: Partial<EngagementTerms>) =>
-    setPkg((p) => ({ ...p, terms: { ...p.terms, ...patch } }));
-
-  return (
-    <div className="rounded-lg border bg-card p-5 space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-tmc-slate flex items-center gap-2">
-          <span className="bg-tmc-gold text-tmc-dark text-xs w-7 h-7 rounded inline-flex items-center justify-center">
-            <FileSignature size={14} />
-          </span>
-          Engagement terms
-        </h2>
-        <span className="text-[11px] text-muted-foreground">
-          Terms Version {TC_VERSION} · Effective {TC_EFFECTIVE}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Field label="Client legal name">
-          <Input
-            value={t.clientLegalName}
-            placeholder={pkg.clientName || "Acme LLC"}
-            onChange={(e) => set({ clientLegalName: e.target.value })}
-          />
-        </Field>
-        <Field label="Location or entity">
-          <Input
-            value={t.locationEntity}
-            placeholder="If multi-location"
-            onChange={(e) => set({ locationEntity: e.target.value })}
-          />
-        </Field>
-        <Field label="Authorized signer">
-          <Input
-            value={t.signerName}
-            onChange={(e) => set({ signerName: e.target.value })}
-          />
-        </Field>
-        <Field label="Signer title">
-          <Input
-            value={t.signerTitle}
-            placeholder="Owner"
-            onChange={(e) => set({ signerTitle: e.target.value })}
-          />
-        </Field>
-        <Field label="Billing contact">
-          <Input
-            value={t.billingContact}
-            onChange={(e) => set({ billingContact: e.target.value })}
-          />
-        </Field>
-        <Field label="Billing email">
-          <Input
-            type="email"
-            value={t.billingEmail}
-            onChange={(e) => set({ billingEmail: e.target.value })}
-          />
-        </Field>
-        <Field label="Notice email on file">
-          <Input
-            type="email"
-            value={t.noticeEmail}
-            placeholder="Where renewal notices go"
-            onChange={(e) => set({ noticeEmail: e.target.value })}
-          />
-        </Field>
-        <Field label="Start date">
-          <Input
-            type="date"
-            value={t.startDate}
-            onChange={(e) => set({ startDate: e.target.value })}
-          />
-        </Field>
-        <Field label="Initial term">
-          <Select
-            value={t.termLength}
-            onValueChange={(v) => set({ termLength: v as TermLength })}
-          >
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {TERM_OPTIONS.map((o) => (
-                <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="Content approval window">
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={1}
-              max={30}
-              value={t.approvalWindowDays}
-              onChange={(e) =>
-                set({ approvalWindowDays: Math.max(1, Number(e.target.value) || 1) })
-              }
-              className="w-20 tabular-nums"
-            />
-            <span className="text-xs text-muted-foreground">business days</span>
-          </div>
-        </Field>
-      </div>
-
-      <div className="flex flex-wrap gap-4">
-        <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
-          <Toggle checked={t.rawFileAccess} onChange={(v) => set({ rawFileAccess: v })} />
-          Raw file access during term
-        </label>
-        <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
-          <Toggle
-            checked={t.personalGuarantee}
-            onChange={(v) => set({ personalGuarantee: v })}
-          />
-          Personal guarantee required
-        </label>
-      </div>
-      {t.personalGuarantee && (
-        <Field label="Guarantor name">
-          <Input
-            value={t.guarantorName}
-            onChange={(e) => set({ guarantorName: e.target.value })}
-            className="sm:max-w-xs"
-          />
-        </Field>
-      )}
-
-      {/* Everything below is derived from the Start Date and term. */}
-      <div className="rounded-md bg-muted p-3 space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-tmc-slate">
-          Calculated from the Terms
-        </p>
-        {!t.startDate ? (
-          <p className="text-xs text-muted-foreground">
-            Set a start date to see the renewal and notice dates. Without one,
-            Section 2 makes the Start Date the date of first payment.
-          </p>
-        ) : (
-          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
-            <DerivedRow
-              label="Renews"
-              value={
-                derived.renewalDate
-                  ? formatLongDate(derived.renewalDate)
-                  : "Monthly, until cancelled"
-              }
-            />
-            {derived.nonRenewalNoticeBy && (
-              <DerivedRow
-                label="Notice by, to stop renewal"
-                value={formatLongDate(derived.nonRenewalNoticeBy)}
-              />
-            )}
-            {derived.penaltyFreeWindowEnds && (
-              <DerivedRow
-                label="Penalty-free window closes"
-                value={formatLongDate(derived.penaltyFreeWindowEnds)}
-              />
-            )}
-            {derived.sixMonthRequestBy && (
-              <DerivedRow
-                label="Six-month review, request by"
-                value={formatLongDate(derived.sixMonthRequestBy)}
-              />
-            )}
-            {derived.setupFee > 0 && (
-              <DerivedRow
-                label="Setup fee (non-refundable)"
-                value={`$${derived.setupFee.toLocaleString()}`}
-              />
-            )}
-            {etf && (
-              <DerivedRow
-                label="Early termination fee today"
-                value={`$${etf.fee.toLocaleString()} (${etf.monthsRemaining} mo left)`}
-              />
-            )}
-          </dl>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <Label className="text-[11px] text-muted-foreground">{label}</Label>
-      {children}
-    </div>
-  );
-}
-
-function DerivedRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="font-medium text-tmc-dark tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
 // ─── Results ──────────────────────────────────────────────────────────────
 
 function ResultsPanel({
@@ -1132,100 +915,6 @@ function ResultsPanel({
   const quotedMonthly = totals.final;
 
   const [pdfBusy, setPdfBusy] = useState(false);
-  const [scheduleBusy, setScheduleBusy] = useState(false);
-
-  const derived = deriveAgreement(pkg.terms, quotedMonthly);
-  const services = enabledServiceLabels(pkg);
-
-  /** Start date / term / renewal, in the client's words, for the proposal. */
-  function engagementLines(): { label: string; value: string }[] {
-    const t = pkg.terms;
-    const out: { label: string; value: string }[] = [
-      {
-        label: "Start date",
-        value: t.startDate
-          ? formatLongDate(t.startDate)
-          : "On first payment",
-      },
-      { label: "Initial term", value: termLabel(t.termLength) },
-    ];
-    if (derived.renewalDate) {
-      out.push({ label: "Renews", value: formatLongDate(derived.renewalDate) });
-      out.push({
-        label: "Cancel by (to prevent renewal)",
-        value: formatLongDate(derived.nonRenewalNoticeBy),
-      });
-    } else {
-      out.push({ label: "Renews", value: "Monthly, until cancelled" });
-    }
-    if (derived.setupFee > 0) {
-      out.push({
-        label: "Setup fee (one-time, non-refundable)",
-        value: `$${derived.setupFee.toLocaleString()}`,
-      });
-    }
-    out.push({ label: "Notice required to cancel", value: "30 days, in writing" });
-    return out;
-  }
-
-  async function downloadSchedulePdf() {
-    if (!pkg.terms.clientLegalName.trim() && !pkg.clientName.trim()) {
-      toast.error("Add a client name first.");
-      return;
-    }
-    setScheduleBusy(true);
-    try {
-      const keyDates: { label: string; value: string }[] = [];
-      if (derived.renewalDate) {
-        keyDates.push({
-          label: "Renewal Date (Section 3.3)",
-          value: formatLongDate(derived.renewalDate),
-        });
-        keyDates.push({
-          label: "Give notice by, to prevent renewal (Section 3.5)",
-          value: formatLongDate(derived.nonRenewalNoticeBy),
-        });
-        keyDates.push({
-          label: "Penalty-free cancellation window closes (Section 3.5)",
-          value: formatLongDate(derived.penaltyFreeWindowEnds),
-        });
-      }
-      if (derived.sixMonthMark) {
-        keyDates.push({
-          label: "Six-month mark (Section 8)",
-          value: formatLongDate(derived.sixMonthMark),
-        });
-        keyDates.push({
-          label: "Review must be requested by (Section 8.1)",
-          value: formatLongDate(derived.sixMonthRequestBy),
-        });
-      }
-      keyDates.push({
-        label: "Early Termination Fee floor (Section 3.6b)",
-        value: `$${derived.earlyTerminationFloor.toLocaleString()}`,
-      });
-
-      await downloadScheduleAPdf({
-        clientName: pkg.terms.clientLegalName.trim() || pkg.clientName.trim(),
-        dateLabel: new Date().toLocaleDateString("en-US", {
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        }),
-        tcVersion: TC_VERSION,
-        tcEffective: TC_EFFECTIVE,
-        rows: scheduleARows(pkg.terms, quotedMonthly, derived, services),
-        keyDates,
-        personalGuarantee: pkg.terms.personalGuarantee,
-      });
-      toast.success("Schedule A downloaded");
-    } catch {
-      toast.error("Couldn't generate Schedule A. Try again.");
-    } finally {
-      setScheduleBusy(false);
-    }
-  }
-
   async function downloadPackagePdf() {
     const breakdown = proposalServiceLines(pkg, results);
     if (breakdown.length === 0) {
@@ -1260,8 +949,10 @@ function ResultsPanel({
           ...(pkg.web.enabled
             ? [
                 {
-                  label: "Website design",
-                  standard: WEBSITE_DESIGN_STANDARD,
+                  label: pkg.web.ecommerce
+                    ? "Website design with online store"
+                    : "Website design",
+                  standard: results.websiteDesignStandardPrice,
                   final: results.websiteDesignPrice,
                 },
               ]
@@ -1277,7 +968,6 @@ function ResultsPanel({
             : []),
         ],
         extraSections: buildOptionSections(pkg.options),
-        engagement: engagementLines(),
         footnote:
           "Proposed monthly retainer. 30-day terms. Final scope confirmed in the service agreement.",
       });
@@ -1380,26 +1070,14 @@ function ResultsPanel({
           <h3 className="text-xs font-semibold uppercase tracking-widest text-tmc-slate">
             Client quote
           </h3>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={downloadSchedulePdf}
-              disabled={scheduleBusy}
-              className="gap-1"
-            >
-              <FileSignature size={14} />{" "}
-              {scheduleBusy ? "Generating…" : "Schedule A"}
-            </Button>
-            <Button
-              size="sm"
-              onClick={downloadPackagePdf}
-              disabled={pdfBusy}
-              className="gap-1 bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
-            >
-              <FileText size={14} /> {pdfBusy ? "Generating…" : "Download PDF"}
-            </Button>
-          </div>
+          <Button
+            size="sm"
+            onClick={downloadPackagePdf}
+            disabled={pdfBusy}
+            className="gap-1 bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
+          >
+            <FileText size={14} /> {pdfBusy ? "Generating…" : "Download PDF"}
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -1521,9 +1199,9 @@ function ResultsPanel({
           <div className="flex items-center justify-between pt-1 border-t text-sm">
             <span className="text-tmc-dark font-medium">Website design (one-time)</span>
             <span className="tabular-nums">
-              {results.websiteDesignPrice < WEBSITE_DESIGN_STANDARD && (
+              {results.websiteDesignPrice < results.websiteDesignStandardPrice && (
                 <span className="line-through text-muted-foreground mr-2">
-                  ${WEBSITE_DESIGN_STANDARD.toLocaleString()}
+                  ${results.websiteDesignStandardPrice.toLocaleString()}
                 </span>
               )}
               <span className="font-bold text-tmc-gold-dark">
@@ -1650,6 +1328,8 @@ export function AdminSettingsDialog({
         rateDayHalf: draft.rateDayHalf,
         rateDayFull: draft.rateDayFull,
         rateDayExtra: draft.rateDayExtra,
+        tcVersion: draft.tcVersion,
+        tcEffective: draft.tcEffective,
       });
       onSaved(fresh);
       onOpenChange(false);
@@ -1722,6 +1402,32 @@ export function AdminSettingsDialog({
               onChange={(v) => set("rateDayFull", v)} />
             <NumRow label="Each extra day:" value={draft.rateDayExtra}
               onChange={(v) => set("rateDayExtra", v)} />
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold">Terms and Conditions</h3>
+            <p className="text-xs text-muted-foreground">
+              Cited on every generated proposal and its Schedule A. Update this
+              when a new version of the Terms takes effect.
+            </p>
+            <div className="flex items-center gap-3">
+              <Label className="text-sm text-muted-foreground min-w-40">Version:</Label>
+              <Input
+                value={draft.tcVersion}
+                onChange={(e) => set("tcVersion", e.target.value)}
+                className="w-32"
+                placeholder="2026.1"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Label className="text-sm text-muted-foreground min-w-40">Effective:</Label>
+              <Input
+                value={draft.tcEffective}
+                onChange={(e) => set("tcEffective", e.target.value)}
+                className="w-52"
+                placeholder="August 3, 2026"
+              />
+            </div>
           </div>
 
           <div className="space-y-2">

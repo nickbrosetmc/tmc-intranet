@@ -30,11 +30,11 @@ import {
   optionMonthly,
   proposalServiceLines,
   quoteTotals,
-  WEBSITE_DESIGN_STANDARD,
   type CalculatorSettings,
   type PackageState,
 } from "@/lib/calculator";
 import {
+  DEFAULT_TERMS,
   deriveAgreement,
   formatLongDate,
   scheduleARows,
@@ -81,7 +81,7 @@ const EMPTY: ProposalState = {
   discounts: [],
   oneTimes: [],
   optionBlocks: [],
-  terms: DEFAULT_PACKAGE.terms,
+  terms: DEFAULT_TERMS,
 };
 
 function load(): ProposalState {
@@ -163,6 +163,10 @@ export function ProposalsPage() {
     );
   }
 
+  // Cite whatever the team has configured; the constants are only a fallback
+  // for the moment before settings load.
+  const tcVersion = settings?.tcVersion?.trim() || TC_VERSION;
+  const tcEffective = settings?.tcEffective?.trim() || TC_EFFECTIVE;
   const derived = deriveAgreement(p.terms, p.monthlyFinal);
   const setTerms = (patch: Partial<EngagementTerms>) =>
     setP((s) => ({ ...s, terms: { ...s.terms, ...patch } }));
@@ -191,7 +195,6 @@ export function ProposalsPage() {
         email: { ...DEFAULT_PACKAGE.email, ...(parsed.email ?? {}) },
         video: { ...DEFAULT_PACKAGE.video, ...(parsed.video ?? {}) },
         custom: { ...DEFAULT_PACKAGE.custom, ...(parsed.custom ?? {}) },
-        terms: { ...DEFAULT_PACKAGE.terms, ...(parsed.terms ?? {}) },
         options: parsed.options ?? [],
       };
     } catch {
@@ -271,8 +274,10 @@ export function ProposalsPage() {
         ...(pkg.web.enabled
           ? [
               {
-                label: "Website design",
-                standard: WEBSITE_DESIGN_STANDARD,
+                label: pkg.web.ecommerce
+                  ? "Website design with online store"
+                  : "Website design",
+                standard: results.websiteDesignStandardPrice,
                 final: results.websiteDesignPrice,
               },
             ]
@@ -288,8 +293,6 @@ export function ProposalsPage() {
           : []),
       ],
       optionBlocks: blocks,
-      // Terms carry over too, so a package priced with a start date keeps it.
-      terms: { ...s.terms, ...pkg.terms },
     }));
     toast.success("Pulled from the calculator.");
   }
@@ -357,8 +360,8 @@ export function ProposalsPage() {
           enabledServiceLabelsFrom(p.services),
         ),
         keyDates,
-        tcVersion: TC_VERSION,
-        tcEffective: TC_EFFECTIVE,
+        tcVersion,
+        tcEffective,
         personalGuarantee: p.terms.personalGuarantee,
         notes: p.notes,
       });
