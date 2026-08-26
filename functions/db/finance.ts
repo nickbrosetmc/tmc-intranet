@@ -1,5 +1,7 @@
 import { asc, eq, sql } from "drizzle-orm";
 import {
+  contentPosts,
+  contentSeedLog,
   expenseCategories,
   financeSettings,
   oneOffInvoices,
@@ -160,8 +162,38 @@ export async function updateRecurringClient(
     .where(eq(recurringClients.id, id))
     .run();
 }
-export async function deleteRecurringClient(db: DB, id: number): Promise<void> {
+export type DeleteClientResult =
+  | { ok: true }
+  | { ok: false; reason: "has_posts"; posts: number };
+
+/**
+ * Remove a recurring client.
+ *
+ * content_posts.client_id and content_seed_log.client_id both reference this
+ * table and D1 enforces foreign keys, so a bare DELETE on a client with any
+ * content throws a constraint failure. Refusing up front with a count is more
+ * useful than a 500, and protects real content history: a finance client and
+ * a content-planner client are the same row, so deleting one to tidy the MRR
+ * table would take the posts with it.
+ *
+ * The seed log is internal bookkeeping about which weeks were auto-seeded, so
+ * it is cleared alongside the client rather than blocking the delete.
+ */
+export async function deleteRecurringClient(
+  db: DB,
+  id: number,
+): Promise<DeleteClientResult> {
+  const row = await db
+    .select({ c: sql<number>`COUNT(*)` })
+    .from(contentPosts)
+    .where(eq(contentPosts.clientId, id))
+    .get();
+  const posts = row?.c ?? 0;
+  if (posts > 0) return { ok: false, reason: "has_posts", posts };
+
+  await db.delete(contentSeedLog).where(eq(contentSeedLog.clientId, id)).run();
   await db.delete(recurringClients).where(eq(recurringClients.id, id)).run();
+  return { ok: true };
 }
 
 // Recurring expenses

@@ -531,6 +531,7 @@ function RecurringClientsTable({
                       <ClientDialog mode="edit" client={c} d={d} onSaved={onChanged} />
                       <DeleteAlert
                         title={`Remove ${c.name}?`}
+                        description="This only works if the client has no posts in the content planner. Otherwise edit it and untick Active, which keeps the history and drops it out of MRR."
                         onConfirm={async () => {
                           await finance.deleteClient(c.id);
                           toast.success("Deleted");
@@ -1856,8 +1857,27 @@ function DeleteAlert({
   description?: string;
   onConfirm: () => Promise<void>;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  // onConfirm was passed straight to onClick, so a rejected delete closed the
+  // dialog and vanished as an unhandled rejection: the row stayed put and
+  // nothing said why. Every delete on this page goes through here.
+  async function run(e: React.MouseEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await onConfirm();
+      setOpen(false);
+    } catch (err) {
+      toast.error((err as Error).message || "Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <AlertDialog>
+    <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
         <Button size="sm" variant="ghost" className="text-destructive">Delete</Button>
       </AlertDialogTrigger>
@@ -1867,8 +1887,10 @@ function DeleteAlert({
           {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>Delete</AlertDialogAction>
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={run} disabled={busy}>
+            {busy ? "Deleting…" : "Delete"}
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
