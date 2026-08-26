@@ -512,7 +512,11 @@ function RecurringClientsTable({
                 </TableCell>
               </TableRow>
             ) : (
-              d.recurringClients.map((c) => {
+              // Retired clients drop to the bottom so the live roster reads
+              // first; they stay listed because their history is still real.
+              [...d.recurringClients]
+                .sort((a, b) => Number(b.isActive) - Number(a.isActive))
+                .map((c) => {
                 const pm = c.paymentMethodId != null ? pmById.get(c.paymentMethodId) : null;
                 const net = netAfterFees(c.monthlyAmount, pm);
                 return (
@@ -525,13 +529,13 @@ function RecurringClientsTable({
                     </TableCell>
                     <TableCell className="text-sm">{c.invoiceDay ?? "—"}</TableCell>
                     <TableCell className="text-sm">
-                      {c.isActive ? "Active" : "Inactive"}
+                      <ActiveToggle client={c} onChanged={onChanged} />
                     </TableCell>
                     <TableCell className="text-right space-x-1">
                       <ClientDialog mode="edit" client={c} d={d} onSaved={onChanged} />
                       <DeleteAlert
                         title={`Remove ${c.name}?`}
-                        description="This only works if the client has no posts in the content planner. Otherwise edit it and untick Active, which keeps the history and drops it out of MRR."
+                        description="Only possible if the client has no posts in the content planner. For a client that has left, set the status to Inactive instead: that keeps the history and takes them out of MRR, cash flow, the planner and task lists."
                         onConfirm={async () => {
                           await finance.deleteClient(c.id);
                           toast.success("Deleted");
@@ -1845,6 +1849,60 @@ function CatPill({ cat }: { cat: ExpenseCategory }) {
     >
       {cat.name}
     </span>
+  );
+}
+
+/**
+ * One-click retire. A client who has left still owns their content history, so
+ * they cannot be deleted; inactive is the real answer and it was buried in the
+ * edit dialog. Flipping this drops them out of MRR, the cash-flow calendar,
+ * content seeding, planner targets and task placeholders, all of which already
+ * key off isActive.
+ */
+function ActiveToggle({
+  client,
+  onChanged,
+}: {
+  client: RecurringClient;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function flip() {
+    setBusy(true);
+    try {
+      await finance.updateClient(client.id, { isActive: !client.isActive });
+      toast.success(
+        client.isActive
+          ? `${client.name} moved to inactive`
+          : `${client.name} reactivated`,
+      );
+      onChanged();
+    } catch (e) {
+      toast.error(`Couldn't update: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={flip}
+      disabled={busy}
+      title={
+        client.isActive
+          ? "Click to retire this client. Keeps their history, drops them from MRR."
+          : "Click to make this client active again."
+      }
+      className={`px-2 py-0.5 rounded text-xs font-medium transition ${
+        client.isActive
+          ? "bg-green-100 text-green-800 hover:bg-green-200"
+          : "bg-muted text-muted-foreground hover:bg-muted/70"
+      } disabled:opacity-50`}
+    >
+      {busy ? "…" : client.isActive ? "Active" : "Inactive"}
+    </button>
   );
 }
 
