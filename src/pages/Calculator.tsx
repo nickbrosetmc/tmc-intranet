@@ -24,6 +24,7 @@ import { useUser } from "@/lib/useUser";
 import {
   applyPackageDiscount,
   computePackage,
+  customManualMonthly,
   DEFAULT_PACKAGE,
   fetchSettings,
   optionDetail,
@@ -31,14 +32,16 @@ import {
   PACKAGE_PRESETS,
   patchSettings,
   proposalServiceLines,
+  quoteTotals,
   TIERS,
-  WEBSITE_DESIGN_STANDARD,
+  WEBSITE_ECOMMERCE_ADDON,
+  websiteDesignStandard,
   type CalculatorSettings,
   type PackageState,
   type ProposalOption,
   type Tier,
 } from "@/lib/calculator";
-import { downloadQuotePdf, type QuoteDiscount } from "@/lib/quote-pdf";
+import { downloadQuotePdf } from "@/lib/quote-pdf";
 
 const PKG_STORAGE_KEY = "tmc.calculator.package.v1";
 
@@ -584,21 +587,51 @@ function ServiceWeb({
   settings: CalculatorSettings;
 }) {
   const s = pkg.web;
-  const discounted = s.designPrice < WEBSITE_DESIGN_STANDARD;
+  const standard = websiteDesignStandard(s);
+  const discounted = s.designPrice < standard;
+
+  /**
+   * Toggling the store shifts the baseline, so shift the quoted price with it.
+   * Moving by the add-on rather than resetting to the new standard preserves
+   * whatever discount is already on the slider.
+   */
+  function setEcommerce(on: boolean) {
+    setPkg((p) => {
+      const delta = (on ? 1 : -1) * WEBSITE_ECOMMERCE_ADDON;
+      return {
+        ...p,
+        web: {
+          ...p.web,
+          ecommerce: on,
+          designPrice: Math.max(0, p.web.designPrice + delta),
+        },
+      };
+    });
+  }
+
   return (
     <ServiceRow
       enabled={s.enabled}
       onToggle={(v) => setPkg((p) => ({ ...p, web: { ...p.web, enabled: v } }))}
       title="Website Design & Management"
-      description={`$${WEBSITE_DESIGN_STANDARD.toLocaleString()} design one-time · $${s.monthlyFee}/mo hosting + up to 5 changes`}
+      description={`$${standard.toLocaleString()} design one-time · $${s.monthlyFee}/mo hosting + up to 5 changes`}
       cost={s.enabled ? Math.round(s.monthlyFee) : 0}
     >
+      <div className="flex items-center gap-3 flex-wrap">
+        <Toggle checked={s.ecommerce} onChange={setEcommerce} />
+        <Label className="text-sm">
+          Includes an online store
+          <span className="text-xs text-muted-foreground font-normal">
+            {" "}(+${WEBSITE_ECOMMERCE_ADDON.toLocaleString()} build)
+          </span>
+        </Label>
+      </div>
       <div className="flex items-center gap-3 bg-muted rounded-md p-3">
         <Label className="whitespace-nowrap text-sm font-semibold">Design price (one-time):</Label>
         <input
           type="range"
           min={0}
-          max={WEBSITE_DESIGN_STANDARD}
+          max={standard}
           step={50}
           value={s.designPrice}
           onChange={(e) =>
@@ -609,7 +642,7 @@ function ServiceWeb({
         <span className="min-w-28 text-right">
           {discounted && (
             <span className="text-xs text-muted-foreground line-through mr-1">
-              ${WEBSITE_DESIGN_STANDARD.toLocaleString()}
+              ${standard.toLocaleString()}
             </span>
           )}
           <span className="font-bold text-tmc-gold-dark text-lg tabular-nums">
@@ -619,7 +652,7 @@ function ServiceWeb({
       </div>
       {discounted && (
         <p className="text-[11px] text-tmc-gold-dark">
-          Design discounted by ${(WEBSITE_DESIGN_STANDARD - s.designPrice).toLocaleString()} — shows as savings on the proposal.
+          Design discounted by ${(standard - s.designPrice).toLocaleString()}. Shows as savings on the proposal.
         </p>
       )}
       <div className="flex items-center gap-3">
@@ -719,12 +752,14 @@ function ServiceCustom({
 }) {
   const s = pkg.custom;
   const rate = s.tier === "admin" ? settings.rateAdmin : s.tier === "ft" ? settings.rateFt : settings.ratePt;
-  const flat = s.pricingMode === "flat";
+  const manual = s.pricingMode !== "hours";
   const cost = !s.enabled
     ? 0
-    : flat
-      ? Math.max(0, Math.round(s.flatPrice))
+    : manual
+      ? customManualMonthly(s)
       : Math.round(s.hoursPerMonth * rate);
+  const set = (patch: Partial<PackageState["custom"]>) =>
+    setPkg((p) => ({ ...p, custom: { ...p.custom, ...patch } }));
   return (
     <ServiceRow
       enabled={s.enabled}
@@ -748,42 +783,88 @@ function ServiceCustom({
         <Label className="text-sm text-muted-foreground min-w-40">Pricing:</Label>
         <Select
           value={s.pricingMode}
-          onValueChange={(v) =>
-            setPkg((p) => ({ ...p, custom: { ...p.custom, pricingMode: v as "hours" | "flat" } }))
-          }
+          onValueChange={(v) => set({ pricingMode: v as typeof s.pricingMode })}
         >
           <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="hours">Hours x tier rate (costed)</SelectItem>
             <SelectItem value="flat">Set price manually</SelectItem>
+            <SelectItem value="perUnit">Per unit (e.g. per episode)</SelectItem>
           </SelectContent>
         </Select>
       </div>
-      {flat ? (
+      {s.pricingMode === "flat" && (
+        <div className="flex items-center gap-3">
+          <Label className="text-sm text-muted-foreground min-w-40">Price ($/mo):</Label>
+          <Input
+            type="number"
+            min={0}
+            value={s.flatPrice || ""}
+            onChange={(e) => set({ flatPrice: Number(e.target.value) || 0 })}
+            className="w-32 tabular-nums"
+          />
+        </div>
+      )}
+      {s.pricingMode === "perUnit" && (
         <>
-          <div className="flex items-center gap-3">
-            <Label className="text-sm text-muted-foreground min-w-40">Price ($/mo):</Label>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Label className="text-sm text-muted-foreground min-w-40">Price per unit ($):</Label>
             <Input
               type="number"
               min={0}
-              value={s.flatPrice || ""}
-              onChange={(e) =>
-                setPkg((p) => ({ ...p, custom: { ...p.custom, flatPrice: Number(e.target.value) || 0 } }))
-              }
-              className="w-32 tabular-nums"
+              value={s.unitPrice || ""}
+              onChange={(e) => set({ unitPrice: Number(e.target.value) || 0 })}
+              className="w-28 tabular-nums"
+            />
+            <span className="text-sm text-muted-foreground">per</span>
+            <Input
+              className="w-32"
+              placeholder="episode"
+              value={s.unitLabel}
+              onChange={(e) => set({ unitLabel: e.target.value })}
             />
           </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Label className="text-sm text-muted-foreground min-w-40">Units per month:</Label>
+            <Input
+              type="number"
+              min={1}
+              value={s.quantity || ""}
+              onChange={(e) => set({ quantity: Math.max(1, Number(e.target.value) || 1) })}
+              className="w-24 tabular-nums"
+            />
+            <span className="text-sm text-muted-foreground">
+              {s.unitPrice > 0
+                ? `= $${customManualMonthly(s).toLocaleString()}/mo on the proposal`
+                : "Set a unit price to see the monthly total"}
+            </span>
+          </div>
+        </>
+      )}
+      {manual ? (
+        <>
+          <div className="flex items-center gap-3">
+            <Label className="text-sm text-muted-foreground min-w-40">Setup fee ($):</Label>
+            <Input
+              type="number"
+              min={0}
+              value={s.setupFee || ""}
+              onChange={(e) => set({ setupFee: Number(e.target.value) || 0 })}
+              className="w-32 tabular-nums"
+            />
+            <span className="text-xs text-muted-foreground">One-time, optional</span>
+          </div>
           <p className="text-xs text-muted-foreground bg-muted rounded p-2">
-            Manually-priced items bypass the margin engine — they're added to
+            Manually-priced items bypass the margin engine. They're added to
             the quote as-is, so sanity-check the margin yourself.
           </p>
         </>
       ) : (
         <>
           <RangeRow label="Hours/month:" value={s.hoursPerMonth} min={1} max={40}
-            onChange={(v) => setPkg((p) => ({ ...p, custom: { ...p.custom, hoursPerMonth: v } }))} />
+            onChange={(v) => set({ hoursPerMonth: v })} />
           <TierSelect label="Performed by:" value={s.tier}
-            onChange={(v) => setPkg((p) => ({ ...p, custom: { ...p.custom, tier: v } }))} />
+            onChange={(v) => set({ tier: v })} />
         </>
       )}
     </ServiceRow>
@@ -816,29 +897,31 @@ function ResultsPanel({
     pkg.discountValue,
   );
 
-  const [pdfBusy, setPdfBusy] = useState(false);
+  const hostingComp = results.hostingComped ? results.websiteMonthly : 0;
+  const calculatedMonthly = Math.max(0, disc.final - hostingComp);
+  // A hand-set price wins over the calculated one. The standard rate is then
+  // restated around it, so nudging the number never reads as a discount.
+  const totals = quoteTotals(
+    pkg.priceOverride != null ? pkg.priceOverride : calculatedMonthly,
+    [
+      ...(hostingComp > 0
+        ? [{ label: "Hosting free with your monthly service package", amount: hostingComp }]
+        : []),
+      ...(disc.off > 0
+        ? [{ label: pkg.discountName || "Discount applied", amount: disc.off }]
+        : []),
+    ],
+  );
+  const quotedMonthly = totals.final;
 
+  const [pdfBusy, setPdfBusy] = useState(false);
   async function downloadPackagePdf() {
-    const breakdown = proposalServiceLines(
-      pkg,
-      results,
-      results.targetPrice - results.websiteMonthly,
-    );
+    // Allocate from the standard the quote prints, so the lines add up to it.
+    const breakdown = proposalServiceLines(pkg, results, totals.standard);
     if (breakdown.length === 0) {
       toast.error("Toggle on at least one service first.");
       return;
     }
-    const discounts: QuoteDiscount[] = [];
-    if (results.hostingComped) {
-      discounts.push({
-        label: "Hosting free with your monthly service package",
-        amount: results.websiteMonthly,
-      });
-    }
-    if (disc.off > 0) {
-      discounts.push({ label: pkg.discountName || "Custom discount", amount: disc.off });
-    }
-    const hostingComp = results.hostingComped ? results.websiteMonthly : 0;
     setPdfBusy(true);
     try {
       await downloadQuotePdf({
@@ -859,17 +942,32 @@ function ResultsPanel({
             })),
           },
         ],
-        standardTotal: results.targetPrice,
-        discounts,
-        finalTotal: Math.max(0, disc.final - hostingComp),
+        standardTotal: totals.standard,
+        discounts: totals.discounts,
+        finalTotal: totals.final,
         priceUnit: "/mo",
-        oneTime: pkg.web.enabled
-          ? {
-              label: "Website design",
-              standard: WEBSITE_DESIGN_STANDARD,
-              final: results.websiteDesignPrice,
-            }
-          : undefined,
+        oneTimes: [
+          ...(pkg.web.enabled
+            ? [
+                {
+                  label: pkg.web.ecommerce
+                    ? "Website design with online store"
+                    : "Website design",
+                  standard: results.websiteDesignStandardPrice,
+                  final: results.websiteDesignPrice,
+                },
+              ]
+            : []),
+          ...(results.customSetup > 0
+            ? [
+                {
+                  label: `${pkg.custom.description || "Custom service"} setup`,
+                  standard: results.customSetup,
+                  final: results.customSetup,
+                },
+              ]
+            : []),
+        ],
         extraSections: buildOptionSections(pkg.options),
         footnote:
           "Proposed monthly retainer. 30-day terms. Final scope confirmed in the service agreement.",
@@ -1026,63 +1124,85 @@ function ResultsPanel({
           </div>
         </div>
 
-        {(() => {
-          const hostingComp = results.hostingComped ? results.websiteMonthly : 0;
-          const finalMonthly = Math.max(0, disc.final - hostingComp);
-          const anyDiscount = disc.off > 0 || hostingComp > 0;
-          return anyDiscount ? (
-            <div className="space-y-1 pt-1">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Standard rate</span>
-                <span className="line-through text-muted-foreground tabular-nums">
-                  ${results.targetPrice.toLocaleString()}/mo
-                </span>
-              </div>
-              {hostingComp > 0 && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-green-700 font-medium">
-                    Hosting free with monthly package
-                  </span>
-                  <span className="text-green-700 font-medium tabular-nums">
-                    −${hostingComp.toLocaleString()}/mo
-                  </span>
-                </div>
-              )}
-              {disc.off > 0 && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-tmc-gold-dark font-medium">
-                    {pkg.discountName || "Discount"}
-                  </span>
-                  <span className="text-tmc-gold-dark font-medium tabular-nums">
-                    −${disc.off.toLocaleString()}/mo
-                  </span>
-                </div>
-              )}
-              <div className="flex items-center justify-between pt-1 border-t">
-                <span className="font-bold text-tmc-dark">Your price</span>
-                <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
-                  ${finalMonthly.toLocaleString()}
-                  <span className="text-sm text-muted-foreground font-medium">/mo</span>
-                </span>
-              </div>
+        <FinalPriceRow
+          label="Final quoted price ($/mo)"
+          calculated={calculatedMonthly}
+          override={pkg.priceOverride}
+          onChange={(v) => setPkg((p) => ({ ...p, priceOverride: v }))}
+        />
+
+        {pkg.priceOverride != null &&
+          results.totalCost > 0 &&
+          (() => {
+            const margin =
+              quotedMonthly > 0
+                ? ((quotedMonthly - results.totalCost) / quotedMonthly) * 100
+                : 0;
+            const below = margin < settings.marginFloor;
+            return (
+              <p
+                className={`text-[11px] ${below ? "text-red-700 font-medium" : "text-muted-foreground"}`}
+              >
+                Margin at this price: {margin.toFixed(0)}% (floor {settings.marginFloor}%).
+                {below ? " Below the floor." : ""}
+              </p>
+            );
+          })()}
+
+        {totals.discounts.length > 0 ? (
+          <div className="space-y-1 pt-1">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Standard rate</span>
+              <span className="line-through text-muted-foreground tabular-nums">
+                ${totals.standard.toLocaleString()}/mo
+              </span>
             </div>
-          ) : (
+            {totals.discounts.map((d) => (
+              <div key={d.label} className="flex items-center justify-between text-sm">
+                <span
+                  className={
+                    d.label.startsWith("Hosting free")
+                      ? "text-green-700 font-medium"
+                      : "text-tmc-gold-dark font-medium"
+                  }
+                >
+                  {d.label}
+                </span>
+                <span
+                  className={
+                    d.label.startsWith("Hosting free")
+                      ? "text-green-700 font-medium tabular-nums"
+                      : "text-tmc-gold-dark font-medium tabular-nums"
+                  }
+                >
+                  −${d.amount.toLocaleString()}/mo
+                </span>
+              </div>
+            ))}
             <div className="flex items-center justify-between pt-1 border-t">
-              <span className="font-bold text-tmc-dark">Quote</span>
+              <span className="font-bold text-tmc-dark">Your price</span>
               <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
-                ${results.targetPrice.toLocaleString()}
+                ${quotedMonthly.toLocaleString()}
                 <span className="text-sm text-muted-foreground font-medium">/mo</span>
               </span>
             </div>
-          );
-        })()}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between pt-1 border-t">
+            <span className="font-bold text-tmc-dark">Quote</span>
+            <span className="text-2xl font-bold text-tmc-gold-dark tabular-nums">
+              ${quotedMonthly.toLocaleString()}
+              <span className="text-sm text-muted-foreground font-medium">/mo</span>
+            </span>
+          </div>
+        )}
         {pkg.web.enabled && (
           <div className="flex items-center justify-between pt-1 border-t text-sm">
             <span className="text-tmc-dark font-medium">Website design (one-time)</span>
             <span className="tabular-nums">
-              {results.websiteDesignPrice < WEBSITE_DESIGN_STANDARD && (
+              {results.websiteDesignPrice < results.websiteDesignStandardPrice && (
                 <span className="line-through text-muted-foreground mr-2">
-                  ${WEBSITE_DESIGN_STANDARD.toLocaleString()}
+                  ${results.websiteDesignStandardPrice.toLocaleString()}
                 </span>
               )}
               <span className="font-bold text-tmc-gold-dark">
@@ -1092,6 +1212,59 @@ function ResultsPanel({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Hand-set the number the client sees. Empty means "use the calculated price",
+ * so the field starts as a placeholder rather than a value the user has to
+ * clear before the calculator resumes driving it.
+ */
+export function FinalPriceRow({
+  label,
+  calculated,
+  override,
+  onChange,
+}: {
+  label: string;
+  calculated: number;
+  override: number | null;
+  onChange: (v: number | null) => void;
+}) {
+  const active = override != null;
+  const delta = active ? Math.round(override) - calculated : 0;
+  return (
+    <div className="space-y-1 pt-1">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <Label className="text-[11px] text-muted-foreground">{label}</Label>
+        {active && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-[11px] text-tmc-gold-dark hover:underline"
+          >
+            Reset to calculated
+          </button>
+        )}
+      </div>
+      <Input
+        type="number"
+        min={0}
+        value={active ? String(override) : ""}
+        placeholder={calculated.toLocaleString()}
+        onChange={(e) => {
+          const raw = e.target.value.trim();
+          onChange(raw === "" ? null : Math.max(0, Math.round(Number(raw) || 0)));
+        }}
+        className="h-8 text-sm tabular-nums"
+      />
+      {active && delta !== 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          {delta < 0 ? "−" : "+"}${Math.abs(delta).toLocaleString()} vs the calculated $
+          {calculated.toLocaleString()}
+        </p>
+      )}
     </div>
   );
 }
@@ -1156,6 +1329,8 @@ export function AdminSettingsDialog({
         rateDayHalf: draft.rateDayHalf,
         rateDayFull: draft.rateDayFull,
         rateDayExtra: draft.rateDayExtra,
+        tcVersion: draft.tcVersion,
+        tcEffective: draft.tcEffective,
       });
       onSaved(fresh);
       onOpenChange(false);
@@ -1228,6 +1403,32 @@ export function AdminSettingsDialog({
               onChange={(v) => set("rateDayFull", v)} />
             <NumRow label="Each extra day:" value={draft.rateDayExtra}
               onChange={(v) => set("rateDayExtra", v)} />
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold">Terms and Conditions</h3>
+            <p className="text-xs text-muted-foreground">
+              Cited on every generated proposal and its Schedule A. Update this
+              when a new version of the Terms takes effect.
+            </p>
+            <div className="flex items-center gap-3">
+              <Label className="text-sm text-muted-foreground min-w-40">Version:</Label>
+              <Input
+                value={draft.tcVersion}
+                onChange={(e) => set("tcVersion", e.target.value)}
+                className="w-32"
+                placeholder="2026.1"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Label className="text-sm text-muted-foreground min-w-40">Effective:</Label>
+              <Input
+                value={draft.tcEffective}
+                onChange={(e) => set("tcEffective", e.target.value)}
+                className="w-52"
+                placeholder="August 3, 2026"
+              />
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -1320,7 +1521,7 @@ function buildOptionSections(options: ProposalOption[]) {
   if (alts.length) {
     sections.push({
       heading: "Other ways we can scale this",
-      note: "Instead of the package above — same team, different volume.",
+      note: "Swap in place of the package above. Same team, different volume.",
       items: toItems(alts),
     });
   }

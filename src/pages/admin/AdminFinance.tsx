@@ -512,7 +512,11 @@ function RecurringClientsTable({
                 </TableCell>
               </TableRow>
             ) : (
-              d.recurringClients.map((c) => {
+              // Retired clients drop to the bottom so the live roster reads
+              // first; they stay listed because their history is still real.
+              [...d.recurringClients]
+                .sort((a, b) => Number(b.isActive) - Number(a.isActive))
+                .map((c) => {
                 const pm = c.paymentMethodId != null ? pmById.get(c.paymentMethodId) : null;
                 const net = netAfterFees(c.monthlyAmount, pm);
                 return (
@@ -525,12 +529,13 @@ function RecurringClientsTable({
                     </TableCell>
                     <TableCell className="text-sm">{c.invoiceDay ?? "—"}</TableCell>
                     <TableCell className="text-sm">
-                      {c.isActive ? "Active" : "Inactive"}
+                      <ActiveToggle client={c} onChanged={onChanged} />
                     </TableCell>
                     <TableCell className="text-right space-x-1">
                       <ClientDialog mode="edit" client={c} d={d} onSaved={onChanged} />
                       <DeleteAlert
                         title={`Remove ${c.name}?`}
+                        description="Only possible if the client has no posts in the content planner. For a client that has left, set the status to Inactive instead: that keeps the history and takes them out of MRR, cash flow, the planner and task lists."
                         onConfirm={async () => {
                           await finance.deleteClient(c.id);
                           toast.success("Deleted");
@@ -1847,6 +1852,60 @@ function CatPill({ cat }: { cat: ExpenseCategory }) {
   );
 }
 
+/**
+ * One-click retire. A client who has left still owns their content history, so
+ * they cannot be deleted; inactive is the real answer and it was buried in the
+ * edit dialog. Flipping this drops them out of MRR, the cash-flow calendar,
+ * content seeding, planner targets and task placeholders, all of which already
+ * key off isActive.
+ */
+function ActiveToggle({
+  client,
+  onChanged,
+}: {
+  client: RecurringClient;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function flip() {
+    setBusy(true);
+    try {
+      await finance.updateClient(client.id, { isActive: !client.isActive });
+      toast.success(
+        client.isActive
+          ? `${client.name} moved to inactive`
+          : `${client.name} reactivated`,
+      );
+      onChanged();
+    } catch (e) {
+      toast.error(`Couldn't update: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={flip}
+      disabled={busy}
+      title={
+        client.isActive
+          ? "Click to retire this client. Keeps their history, drops them from MRR."
+          : "Click to make this client active again."
+      }
+      className={`px-2 py-0.5 rounded text-xs font-medium transition ${
+        client.isActive
+          ? "bg-green-100 text-green-800 hover:bg-green-200"
+          : "bg-muted text-muted-foreground hover:bg-muted/70"
+      } disabled:opacity-50`}
+    >
+      {busy ? "…" : client.isActive ? "Active" : "Inactive"}
+    </button>
+  );
+}
+
 function DeleteAlert({
   title,
   description,
@@ -1856,8 +1915,27 @@ function DeleteAlert({
   description?: string;
   onConfirm: () => Promise<void>;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  // onConfirm was passed straight to onClick, so a rejected delete closed the
+  // dialog and vanished as an unhandled rejection: the row stayed put and
+  // nothing said why. Every delete on this page goes through here.
+  async function run(e: React.MouseEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await onConfirm();
+      setOpen(false);
+    } catch (err) {
+      toast.error((err as Error).message || "Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <AlertDialog>
+    <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
         <Button size="sm" variant="ghost" className="text-destructive">Delete</Button>
       </AlertDialogTrigger>
@@ -1867,8 +1945,10 @@ function DeleteAlert({
           {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>Delete</AlertDialogAction>
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={run} disabled={busy}>
+            {busy ? "Deleting…" : "Delete"}
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

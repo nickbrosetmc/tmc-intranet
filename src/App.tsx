@@ -19,6 +19,7 @@ import { RequestsPage } from "@/pages/Requests";
 import { ClientViewPage } from "@/pages/ClientView";
 import { ResetPasswordPage } from "@/pages/ResetPassword";
 import { CalculatorPage } from "@/pages/Calculator";
+import { ProposalsPage } from "@/pages/Proposals";
 import { ContentPage } from "@/pages/Content";
 import { WebsitePage } from "@/pages/Website";
 import { WebsitesPage } from "@/pages/Websites";
@@ -46,6 +47,7 @@ function App() {
           <Route path="/website" component={WebsitePage} />
           <Route path="/websites" component={WebsitesPage} />
           <Route path="/websites/:id" component={WebsiteEditorPage} />
+          <Route path="/proposals" component={ProposalsPage} />
           <Route path="/calculator" component={CalculatorPage} />
           <Route path="/video-calculator" component={VideoCalculatorPage} />
           <Route path="/content" component={ContentPage} />

@@ -37,6 +37,19 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params
   const id = parseId(params);
   if (!id) return Response.json({ error: "Invalid id" }, { status: 400 });
   const db = getDb(env.DB);
-  await deleteRecurringClient(db, id);
+  const result = await deleteRecurringClient(db, id);
+  if (!result.ok) {
+    // 409, not 500: the request is understood, the client just still has
+    // content hanging off it.
+    return Response.json(
+      {
+        error:
+          `This client has ${result.posts} content ${
+            result.posts === 1 ? "post" : "posts"
+          } in the planner. Mark it inactive instead, or remove its posts first.`,
+      },
+      { status: 409 },
+    );
+  }
   return Response.json({ ok: true });
 };

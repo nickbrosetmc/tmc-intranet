@@ -184,6 +184,18 @@
   color: #0E0F19;
 }
 
+/* Dense springboard, for the dashboard homepage where the launcher has to
+   share the screen with the week's work. Same tiles, smaller. */
+.app-icon--sm { gap: 4px; }
+.app-icon--sm .app-icon-tile {
+  width: 52px;
+  height: 52px;
+  border-radius: 13px;
+  font-size: 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.13), 0 1px 2px rgba(0,0,0,0.08);
+}
+.app-icon--sm .app-icon-label { font-size: 10px; max-width: 64px; }
+
 /* ── Glassmorphism header ────────────────────────────────────── */
 .glass-header {
   backdrop-filter: blur(20px) saturate(1.5);

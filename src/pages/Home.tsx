@@ -17,6 +17,7 @@ import { AnnouncementsPanel } from "@/components/AnnouncementsPanel";
 import { AppGrid } from "@/components/AppGrid";
 import { ClientHome } from "@/components/ClientHome";
 import { useUser, type TeamUser } from "@/lib/useUser";
+import { Dashboard } from "@/pages/Dashboard";
 
 export function HomePage() {
   const state = useUser();
@@ -239,18 +240,20 @@ function ForgotPasswordDialog({ initialUsername }: { initialUsername: string }) 
 }
 
 function TeamWelcome({ user }: { user: TeamUser }) {
+  // Order matters here: the launcher sits directly under the greeting so the
+  // links stay reachable without scrolling, which the full tile grid could
+  // not do once the dashboard was above it. The dashboard follows, and
+  // announcements render nothing when there are none.
   return (
-    <div className="w-full flex flex-col items-center gap-10">
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-tmc-dark">
+    <div className="w-full max-w-5xl space-y-5">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-tmc-dark">
           Hey, {user.name.split(" ")[0]}
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Pick a tool to get started.
-        </p>
       </div>
+      <AppGrid variant="compact" />
       <AnnouncementsPanel />
-      <AppGrid />
+      <Dashboard />
     </div>
   );
 }

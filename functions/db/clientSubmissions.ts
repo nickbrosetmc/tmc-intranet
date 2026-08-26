@@ -24,6 +24,8 @@ const withRefs = (db: DB) =>
       details: clientSubmissions.details,
       eventDate: clientSubmissions.eventDate,
       location: clientSubmissions.location,
+      severity: clientSubmissions.severity,
+      affectedUrl: clientSubmissions.affectedUrl,
       status: clientSubmissions.status,
       adminNotes: clientSubmissions.adminNotes,
       createdAt: clientSubmissions.createdAt,

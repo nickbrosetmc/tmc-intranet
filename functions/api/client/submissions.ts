@@ -1,4 +1,5 @@
-// Client-facing: submit a request or event brief, and list your own.
+// Client-facing: submit a request, event brief, or support ticket, and list
+// your own.
 // On create, emails the team (recipients from the client_notify_emails
 // setting) via Resend — best-effort, done after the response.
 
@@ -22,12 +23,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   return Response.json({ submissions: rows });
 };
 
+const TYPES = ["request", "event", "support"] as const;
+type SubmissionType = (typeof TYPES)[number];
+const SEVERITIES = ["low", "normal", "high", "urgent"] as const;
+type Severity = (typeof SEVERITIES)[number];
+
 interface CreateBody {
   type?: unknown;
   subject?: unknown;
   details?: unknown;
   eventDate?: unknown;
   location?: unknown;
+  severity?: unknown;
+  affectedUrl?: unknown;
 }
 
 export const onRequestPost: PagesFunction<Env> = async (ctx) => {
@@ -38,8 +46,13 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   const body = (await request.json().catch(() => null)) as CreateBody | null;
   if (!body) return Response.json({ error: "Invalid JSON" }, { status: 400 });
 
-  const type = body.type === "event" ? "event" : body.type === "request" ? "request" : null;
-  if (!type) return Response.json({ error: "type must be request or event" }, { status: 400 });
+  const type = TYPES.find((t) => t === body.type) as SubmissionType | undefined;
+  if (!type) {
+    return Response.json(
+      { error: "type must be request, event or support" },
+      { status: 400 },
+    );
+  }
 
   const subject = typeof body.subject === "string" ? body.subject.trim() : "";
   const details = typeof body.details === "string" ? body.details.trim() : "";
@@ -48,6 +61,19 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
 
   let eventDate: string | null = null;
   let location: string | null = null;
+  let severity: Severity | null = null;
+  let affectedUrl: string | null = null;
+  if (type === "support") {
+    // Default to normal rather than rejecting: a client reporting a broken
+    // site should never be blocked on picking a severity.
+    severity =
+      (SEVERITIES.find((x) => x === body.severity) as Severity | undefined) ??
+      "normal";
+    affectedUrl =
+      typeof body.affectedUrl === "string" && body.affectedUrl.trim()
+        ? body.affectedUrl.trim().slice(0, 500)
+        : null;
+  }
   if (type === "event") {
     if (typeof body.eventDate === "string" && body.eventDate) {
       if (!DATE_RE.test(body.eventDate)) {
@@ -70,11 +96,23 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
     details,
     eventDate,
     location,
+    severity,
+    affectedUrl,
     status: "new",
   });
 
   // Notify the team — after responding, best-effort.
-  ctx.waitUntil(notifyTeam(env, db, session, { type, subject, details, eventDate, location }));
+  ctx.waitUntil(
+    notifyTeam(env, db, session, {
+      type,
+      subject,
+      details,
+      eventDate,
+      location,
+      severity,
+      affectedUrl,
+    }),
+  );
 
   return Response.json({ submission: created }, { status: 201 });
 };
@@ -84,11 +122,13 @@ async function notifyTeam(
   db: ReturnType<typeof getDb>,
   session: { clientId: number; name: string },
   s: {
-    type: "request" | "event";
+    type: SubmissionType;
     subject: string;
     details: string;
     eventDate: string | null;
     location: string | null;
+    severity: Severity | null;
+    affectedUrl: string | null;
   },
 ): Promise<void> {
   try {
@@ -101,12 +141,27 @@ async function notifyTeam(
     if (to.length === 0) return;
 
     const clientName = client?.name ?? "A client";
-    const label = s.type === "event" ? "event brief" : "request";
+    const label =
+      s.type === "event"
+        ? "event brief"
+        : s.type === "support"
+          ? "support ticket"
+          : "request";
     const rows: string[] = [
       `<tr><td style="padding:4px 12px 4px 0;color:#404E5C;font-weight:600">Client</td><td>${esc(clientName)}</td></tr>`,
       `<tr><td style="padding:4px 12px 4px 0;color:#404E5C;font-weight:600">Submitted by</td><td>${esc(session.name)}</td></tr>`,
-      `<tr><td style="padding:4px 12px 4px 0;color:#404E5C;font-weight:600">${s.type === "event" ? "Event" : "Subject"}</td><td>${esc(s.subject)}</td></tr>`,
+      `<tr><td style="padding:4px 12px 4px 0;color:#404E5C;font-weight:600">${s.type === "event" ? "Event" : s.type === "support" ? "Issue" : "Subject"}</td><td>${esc(s.subject)}</td></tr>`,
     ];
+    if (s.severity) {
+      rows.push(
+        `<tr><td style="padding:4px 12px 4px 0;color:#404E5C;font-weight:600">Severity</td><td style="text-transform:capitalize">${esc(s.severity)}</td></tr>`,
+      );
+    }
+    if (s.affectedUrl) {
+      rows.push(
+        `<tr><td style="padding:4px 12px 4px 0;color:#404E5C;font-weight:600">Affected</td><td>${esc(s.affectedUrl)}</td></tr>`,
+      );
+    }
     if (s.eventDate) rows.push(`<tr><td style="padding:4px 12px 4px 0;color:#404E5C;font-weight:600">Date</td><td>${esc(s.eventDate)}</td></tr>`);
     if (s.location) rows.push(`<tr><td style="padding:4px 12px 4px 0;color:#404E5C;font-weight:600">Location</td><td>${esc(s.location)}</td></tr>`);
 
@@ -119,9 +174,13 @@ async function notifyTeam(
         <p style="margin-top:16px"><a href="https://portal.tmctechhub.com/requests" style="color:#A8884E;font-weight:600">View in the portal →</a></p>
       </div>`;
 
+    const flag =
+      s.type === "support" && (s.severity === "urgent" || s.severity === "high")
+        ? `[${s.severity.toUpperCase()}] `
+        : "";
     await sendEmail(env, {
       to,
-      subject: `New ${label} from ${clientName}: ${s.subject}`,
+      subject: `${flag}New ${label} from ${clientName}: ${s.subject}`,
       html,
     });
   } catch (e) {
