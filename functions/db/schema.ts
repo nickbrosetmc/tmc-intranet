@@ -307,6 +307,9 @@ export const oneOffInvoices = sqliteTable("one_off_invoices", {
   clientName: text("client_name").notNull(),
   grossAmount: integer("gross_amount").notNull(),
   paymentMethodId: integer("payment_method_id").references(() => paymentMethods.id),
+  /** YYYY-MM-DD the client was billed. Required by the API; null only on rows predating migration 0036. */
+  invoiceDate: text("invoice_date"),
+  /** YYYY-MM-DD the money lands in the bank. Drives the cash-flow calendar. */
   payoutDate: text("payout_date").notNull(),
   instantPayout: integer("instant_payout", { mode: "boolean" }).notNull().default(false),
   notes: text("notes"),

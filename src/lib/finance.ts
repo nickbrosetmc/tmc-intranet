@@ -55,6 +55,9 @@ export interface OneOffInvoice {
   clientName: string;
   grossAmount: number;
   paymentMethodId: number | null;
+  /** When the client was billed. Null only on invoices logged before this field existed. */
+  invoiceDate: string | null;
+  /** When the money lands. This is the date the cash-flow calendar uses. */
   payoutDate: string;
   instantPayout: boolean;
   notes: string | null;

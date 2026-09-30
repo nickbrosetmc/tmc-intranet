@@ -74,6 +74,13 @@ export async function listOneOffInvoices(db: DB): Promise<OneOffInvoiceRow[]> {
     .all();
 }
 
+export async function getOneOffInvoice(
+  db: DB,
+  id: number,
+): Promise<OneOffInvoiceRow | undefined> {
+  return db.select().from(oneOffInvoices).where(eq(oneOffInvoices.id, id)).get();
+}
+
 export async function createOneOffInvoice(
   db: DB,
   data: NewOneOffInvoiceRow,
