@@ -37,9 +37,30 @@ export interface ClientSubmission {
   severity: Severity | null;
   affectedUrl: string | null;
   status: SubmissionStatus;
+  statusChangedAt: string | null;
   adminNotes: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * What a client sees of their own submissions (/api/client/submissions).
+ * Deliberately has no adminNotes: those are the team's and never leave it.
+ */
+export interface MySubmission {
+  id: number;
+  type: SubmissionType;
+  subject: string;
+  details: string;
+  eventDate: string | null;
+  location: string | null;
+  severity: Severity | null;
+  affectedUrl: string | null;
+  status: SubmissionStatus;
+  /** Last status change; null while still new. */
+  statusChangedAt: string | null;
+  createdAt: string;
+  submitterName: string;
 }
 
 export interface AdminSubmission extends ClientSubmission {
@@ -51,6 +72,20 @@ export const STATUS_LABELS: Record<SubmissionStatus, string> = {
   new: "New",
   in_progress: "In progress",
   done: "Done",
+};
+
+/** The client's side of the same states. "New" is the team's word for it. */
+export const CLIENT_STATUS_LABELS: Record<SubmissionStatus, string> = {
+  new: "Received",
+  in_progress: "In progress",
+  done: "Done",
+};
+
+/** Matches the wording on the client's three submit tiles. */
+export const CLIENT_TYPE_LABELS: Record<SubmissionType, string> = {
+  request: "Request",
+  event: "Event",
+  support: "Issue",
 };
 
 async function jsonReq<T>(path: string, init?: RequestInit): Promise<T> {
@@ -75,7 +110,7 @@ async function jsonReq<T>(path: string, init?: RequestInit): Promise<T> {
 export const submissions = {
   // Client
   mine: () =>
-    jsonReq<{ submissions: ClientSubmission[] }>("/api/client/submissions"),
+    jsonReq<{ submissions: MySubmission[] }>("/api/client/submissions"),
   submit: (data: {
     type: SubmissionType;
     subject: string;

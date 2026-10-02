@@ -42,6 +42,10 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
       return Response.json({ error: "Bad status" }, { status: 400 });
     }
     patch.status = body.status as (typeof STATUSES)[number];
+    // Same format as SQLite's CURRENT_TIMESTAMP, which the other columns use.
+    if (patch.status !== row.status) {
+      patch.statusChangedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+    }
   }
   if ("adminNotes" in body) {
     patch.adminNotes =

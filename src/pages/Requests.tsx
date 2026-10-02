@@ -321,7 +321,9 @@ function SubmissionCard({
 
       <div className="flex items-end gap-2">
         <div className="flex-1 space-y-1">
-          <Label className="text-[11px] text-muted-foreground">Internal notes</Label>
+          <Label className="text-[11px] text-muted-foreground">
+            Internal notes (the client never sees these)
+          </Label>
           <Input
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

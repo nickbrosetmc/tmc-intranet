@@ -29,14 +29,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  ClientSubmissionsList,
+  scrollToClientSubmissions,
+} from "@/components/ClientSubmissionsList";
 import type { ClientUser } from "@/lib/useUser";
+import { usePollingRefresh } from "@/lib/usePollingRefresh";
 import {
   SEVERITIES,
-  STATUS_LABELS,
   submissions,
-  type ClientSubmission,
+  type MySubmission,
   type Severity,
-  type SubmissionStatus,
   type SubmissionType,
 } from "@/lib/clientSubmissions";
 
@@ -52,7 +55,7 @@ export function ClientHome({ user }: { user: ClientUser }) {
 
 function ClientHomeInner({ user }: { user: ClientUser }) {
   const client = user.client;
-  const [mine, setMine] = useState<ClientSubmission[]>([]);
+  const [mine, setMine] = useState<MySubmission[]>([]);
 
   async function refresh() {
     try {
@@ -65,6 +68,8 @@ function ClientHomeInner({ user }: { user: ClientUser }) {
   useEffect(() => {
     if (client) void refresh();
   }, [client?.id]);
+  // So a status the team just changed shows up without a reload.
+  usePollingRefresh(() => void refresh(), { enabled: !!client });
 
   if (!client) {
     return (
@@ -79,6 +84,8 @@ function ClientHomeInner({ user }: { user: ClientUser }) {
       </div>
     );
   }
+
+  const openCount = mine.filter((s) => s.status !== "done").length;
 
   const tiles: Tile[] = [
     {
@@ -125,6 +132,18 @@ function ClientHomeInner({ user }: { user: ClientUser }) {
         <p className="text-sm text-muted-foreground">
           {client.name}'s client portal — everything TMC has set up for you.
         </p>
+        {openCount > 0 && (
+          // The list sits below every tile, a long scroll on a phone, so
+          // anyone waiting on us gets a way straight to it.
+          <button
+            type="button"
+            onClick={scrollToClientSubmissions}
+            className="text-sm font-medium text-tmc-gold-dark hover:underline"
+          >
+            {openCount === 1 ? "1 open request" : `${openCount} open requests`}: see where{" "}
+            {openCount === 1 ? "it stands" : "they stand"}
+          </button>
+        )}
         {user.memberships.length > 1 && (
           <div className="flex justify-center pt-1">
             <AccountSwitcher
@@ -177,32 +196,10 @@ function ClientHomeInner({ user }: { user: ClientUser }) {
         />
       </div>
 
-      {mine.length > 0 && (
-        <section className="w-full space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-tmc-slate">
-            Your submissions
-          </h2>
-          <ul className="divide-y rounded-lg border bg-card">
-            {mine.map((s) => (
-              <li key={s.id} className="px-4 py-3 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider bg-muted px-1.5 py-0.5 rounded">
-                      {s.type === "event" ? "Event" : "Request"}
-                    </span>
-                    <span className="text-sm font-medium text-tmc-dark">{s.subject}</span>
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    {new Date(s.createdAt).toLocaleDateString()}
-                    {s.eventDate ? ` · event ${s.eventDate}` : ""}
-                  </div>
-                </div>
-                <StatusPill status={s.status} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <ClientSubmissionsList
+        items={mine}
+        emptyText="Nothing sent yet. Use the buttons above for a request, an event, or an issue, and you can follow it here."
+      />
     </div>
   );
 }
@@ -253,21 +250,6 @@ function AccountSwitcher({
         ))}
       </SelectContent>
     </Select>
-  );
-}
-
-function StatusPill({ status }: { status: SubmissionStatus }) {
-  const map: Record<SubmissionStatus, string> = {
-    new: "bg-blue-100 text-blue-800",
-    in_progress: "bg-yellow-100 text-yellow-800",
-    done: "bg-green-100 text-green-800",
-  };
-  return (
-    <span
-      className={`shrink-0 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${map[status]}`}
-    >
-      {STATUS_LABELS[status]}
-    </span>
   );
 }
 

@@ -19,6 +19,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const session = await requireClientSession(request, env);
   if (isResponse(session)) return session;
   const db = getDb(env.DB);
+  // Client-facing columns only: no internal notes.
   const rows = await listSubmissionsForClient(db, session.clientId);
   return Response.json({ submissions: rows });
 };

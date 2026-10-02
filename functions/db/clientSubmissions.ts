@@ -27,6 +27,7 @@ const withRefs = (db: DB) =>
       severity: clientSubmissions.severity,
       affectedUrl: clientSubmissions.affectedUrl,
       status: clientSubmissions.status,
+      statusChangedAt: clientSubmissions.statusChangedAt,
       adminNotes: clientSubmissions.adminNotes,
       createdAt: clientSubmissions.createdAt,
       updatedAt: clientSubmissions.updatedAt,
@@ -56,14 +57,48 @@ export async function getSubmissionById(
   return row ?? null;
 }
 
-/** A single client's submissions (both types), newest first. */
+/**
+ * What a client sees of their own submissions. Columns are listed rather
+ * than selecting the row, so the team's internal notes can't reach the
+ * client portal by accident when the table grows.
+ */
+export type ClientFacingSubmission = Pick<
+  ClientSubmissionRow,
+  | "id"
+  | "type"
+  | "subject"
+  | "details"
+  | "eventDate"
+  | "location"
+  | "severity"
+  | "affectedUrl"
+  | "status"
+  | "statusChangedAt"
+  | "createdAt"
+> & { submitterName: string };
+
+/** A single client's submissions (every type), newest first. */
 export async function listSubmissionsForClient(
   db: DB,
   clientId: number,
-): Promise<ClientSubmissionRow[]> {
+): Promise<ClientFacingSubmission[]> {
   return db
-    .select()
+    .select({
+      id: clientSubmissions.id,
+      type: clientSubmissions.type,
+      subject: clientSubmissions.subject,
+      details: clientSubmissions.details,
+      eventDate: clientSubmissions.eventDate,
+      location: clientSubmissions.location,
+      severity: clientSubmissions.severity,
+      affectedUrl: clientSubmissions.affectedUrl,
+      status: clientSubmissions.status,
+      statusChangedAt: clientSubmissions.statusChangedAt,
+      createdAt: clientSubmissions.createdAt,
+      submitterName: clientUsers.name,
+    })
     .from(clientSubmissions)
+    .innerJoin(clientUsers, eq(clientUsers.id, clientSubmissions.clientUserId))
     .where(eq(clientSubmissions.clientId, clientId))
     .orderBy(desc(clientSubmissions.createdAt))
     .all();

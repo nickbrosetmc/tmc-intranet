@@ -235,6 +235,9 @@ export const clientSubmissions = sqliteTable("client_submissions", {
   status: text("status", { enum: ["new", "in_progress", "done"] })
     .notNull()
     .default("new"),
+  /** Last status change; null while still "new". Unlike updatedAt, notes edits don't move it. */
+  statusChangedAt: text("status_changed_at"),
+  /** Team-only. Never sent to the client portal. */
   adminNotes: text("admin_notes"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),

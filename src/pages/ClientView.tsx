@@ -12,11 +12,8 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { useUser } from "@/lib/useUser";
 import { usePollingRefresh } from "@/lib/usePollingRefresh";
-import {
-  STATUS_LABELS,
-  submissions,
-  type AdminSubmission,
-} from "@/lib/clientSubmissions";
+import { ClientSubmissionsList } from "@/components/ClientSubmissionsList";
+import { submissions, type AdminSubmission } from "@/lib/clientSubmissions";
 
 interface OverviewClient {
   id: number;
@@ -138,40 +135,10 @@ export function ClientViewPage() {
             />
           </div>
 
-          <section className="space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-tmc-slate">
-              Their submissions
-            </h2>
-            {clientSubs.length === 0 ? (
-              <div className="rounded-lg border bg-card p-6 text-center text-sm text-muted-foreground">
-                {selected.name} hasn't submitted anything yet.
-              </div>
-            ) : (
-              <ul className="divide-y rounded-lg border bg-card">
-                {clientSubs.map((s) => (
-                  <li key={s.id} className="px-4 py-3 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider bg-muted px-1.5 py-0.5 rounded">
-                          {s.type === "event" ? "Event" : "Request"}
-                        </span>
-                        <span className="text-sm font-medium text-tmc-dark">
-                          {s.subject}
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {s.submitterName} · {new Date(s.createdAt).toLocaleDateString()}
-                        {s.eventDate ? ` · event ${s.eventDate}` : ""}
-                      </div>
-                    </div>
-                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider bg-muted px-1.5 py-0.5 rounded">
-                      {STATUS_LABELS[s.status]}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          <ClientSubmissionsList
+            items={clientSubs}
+            emptyText={`${selected.name} hasn't sent anything yet.`}
+          />
         </>
       ) : (
         <p className="text-sm text-muted-foreground">No active clients yet.</p>
