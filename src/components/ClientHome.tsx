@@ -4,6 +4,7 @@ import {
   CalendarPlus,
   FolderOpen,
   KeyRound,
+  LifeBuoy,
   MessageSquarePlus,
   Pencil,
   Zap,
@@ -28,12 +29,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ClientUser } from "@/lib/useUser";
 import {
-  STATUS_LABELS,
+  ClientSubmissionsList,
+  scrollToClientSubmissions,
+} from "@/components/ClientSubmissionsList";
+import type { ClientUser } from "@/lib/useUser";
+import { usePollingRefresh } from "@/lib/usePollingRefresh";
+import {
+  SEVERITIES,
   submissions,
-  type ClientSubmission,
-  type SubmissionStatus,
+  type MySubmission,
+  type Severity,
   type SubmissionType,
 } from "@/lib/clientSubmissions";
 
@@ -49,7 +55,7 @@ export function ClientHome({ user }: { user: ClientUser }) {
 
 function ClientHomeInner({ user }: { user: ClientUser }) {
   const client = user.client;
-  const [mine, setMine] = useState<ClientSubmission[]>([]);
+  const [mine, setMine] = useState<MySubmission[]>([]);
 
   async function refresh() {
     try {
@@ -62,6 +68,8 @@ function ClientHomeInner({ user }: { user: ClientUser }) {
   useEffect(() => {
     if (client) void refresh();
   }, [client?.id]);
+  // So a status the team just changed shows up without a reload.
+  usePollingRefresh(() => void refresh(), { enabled: !!client });
 
   if (!client) {
     return (
@@ -76,6 +84,8 @@ function ClientHomeInner({ user }: { user: ClientUser }) {
       </div>
     );
   }
+
+  const openCount = mine.filter((s) => s.status !== "done").length;
 
   const tiles: Tile[] = [
     {
@@ -122,6 +132,18 @@ function ClientHomeInner({ user }: { user: ClientUser }) {
         <p className="text-sm text-muted-foreground">
           {client.name}'s client portal — everything TMC has set up for you.
         </p>
+        {openCount > 0 && (
+          // The list sits below every tile, a long scroll on a phone, so
+          // anyone waiting on us gets a way straight to it.
+          <button
+            type="button"
+            onClick={scrollToClientSubmissions}
+            className="text-sm font-medium text-tmc-gold-dark hover:underline"
+          >
+            {openCount === 1 ? "1 open request" : `${openCount} open requests`}: see where{" "}
+            {openCount === 1 ? "it stands" : "they stand"}
+          </button>
+        )}
         {user.memberships.length > 1 && (
           <div className="flex justify-center pt-1">
             <AccountSwitcher
@@ -142,7 +164,7 @@ function ClientHomeInner({ user }: { user: ClientUser }) {
           trigger={
             <ActionTile
               label="Submit a Request"
-              description="Ask us for something or flag an issue"
+              description="Ask us for something new"
               icon={<MessageSquarePlus size={32} strokeWidth={1.75} />}
               bg="bg-tmc-gold-dark"
             />
@@ -160,34 +182,24 @@ function ClientHomeInner({ user }: { user: ClientUser }) {
             />
           }
         />
+        <SubmissionDialog
+          type="support"
+          onSubmitted={refresh}
+          trigger={
+            <ActionTile
+              label="Report an Issue"
+              description="Something broken? Get us on it"
+              icon={<LifeBuoy size={32} strokeWidth={1.75} />}
+              bg="bg-tmc-slate"
+            />
+          }
+        />
       </div>
 
-      {mine.length > 0 && (
-        <section className="w-full space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-tmc-slate">
-            Your submissions
-          </h2>
-          <ul className="divide-y rounded-lg border bg-card">
-            {mine.map((s) => (
-              <li key={s.id} className="px-4 py-3 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider bg-muted px-1.5 py-0.5 rounded">
-                      {s.type === "event" ? "Event" : "Request"}
-                    </span>
-                    <span className="text-sm font-medium text-tmc-dark">{s.subject}</span>
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    {new Date(s.createdAt).toLocaleDateString()}
-                    {s.eventDate ? ` · event ${s.eventDate}` : ""}
-                  </div>
-                </div>
-                <StatusPill status={s.status} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <ClientSubmissionsList
+        items={mine}
+        emptyText="Nothing sent yet. Use the buttons above for a request, an event, or an issue, and you can follow it here."
+      />
     </div>
   );
 }
@@ -241,21 +253,6 @@ function AccountSwitcher({
   );
 }
 
-function StatusPill({ status }: { status: SubmissionStatus }) {
-  const map: Record<SubmissionStatus, string> = {
-    new: "bg-blue-100 text-blue-800",
-    in_progress: "bg-yellow-100 text-yellow-800",
-    done: "bg-green-100 text-green-800",
-  };
-  return (
-    <span
-      className={`shrink-0 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${map[status]}`}
-    >
-      {STATUS_LABELS[status]}
-    </span>
-  );
-}
-
 // ─── Submission dialog (request or event) ────────────────────────────────
 
 function SubmissionDialog({
@@ -268,11 +265,14 @@ function SubmissionDialog({
   onSubmitted: () => void;
 }) {
   const isEvent = type === "event";
+  const isSupport = type === "support";
   const [open, setOpen] = useState(false);
   const [subject, setSubject] = useState("");
   const [details, setDetails] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [location, setLocation] = useState("");
+  const [severity, setSeverity] = useState<Severity>("normal");
+  const [affectedUrl, setAffectedUrl] = useState("");
   const [busy, setBusy] = useState(false);
 
   function reset() {
@@ -280,11 +280,19 @@ function SubmissionDialog({
     setDetails("");
     setEventDate("");
     setLocation("");
+    setSeverity("normal");
+    setAffectedUrl("");
   }
 
   async function submit() {
     if (!subject.trim()) {
-      toast.error(isEvent ? "Event name is required." : "Subject is required.");
+      toast.error(
+        isEvent
+          ? "Event name is required."
+          : isSupport
+            ? "Please summarize the issue."
+            : "Subject is required.",
+      );
       return;
     }
     if (!details.trim()) {
@@ -299,6 +307,8 @@ function SubmissionDialog({
         details: details.trim(),
         eventDate: isEvent && eventDate ? eventDate : null,
         location: isEvent && location.trim() ? location.trim() : null,
+        severity: isSupport ? severity : null,
+        affectedUrl: isSupport && affectedUrl.trim() ? affectedUrl.trim() : null,
       });
       toast.success("Sent to the TMC team.");
       setOpen(false);
@@ -323,21 +333,35 @@ function SubmissionDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {isEvent ? "Submit an event" : "Submit a request"}
+            {isEvent
+              ? "Submit an event"
+              : isSupport
+                ? "Report a technical issue"
+                : "Submit a request"}
           </DialogTitle>
           <DialogDescription>
             {isEvent
               ? "Tell us about an event you'd like marketed. The team gets notified right away."
-              : "Send the TMC team a request. We'll get an email and follow up."}
+              : isSupport
+                ? "Something broken? Tell us what's happening and we'll get an email straight away."
+                : "Send the TMC team a request. We'll get an email and follow up."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label>{isEvent ? "Event name *" : "Subject *"}</Label>
+            <Label>
+              {isEvent ? "Event name *" : isSupport ? "What's wrong? *" : "Subject *"}
+            </Label>
             <Input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder={isEvent ? "Summer Kickoff Party" : "What do you need?"}
+              placeholder={
+                isEvent
+                  ? "Summer Kickoff Party"
+                  : isSupport
+                    ? "Contact form isn't sending"
+                    : "What do you need?"
+              }
             />
           </div>
           {isEvent && (
@@ -360,9 +384,47 @@ function SubmissionDialog({
               </div>
             </div>
           )}
+          {isSupport && (
+            <>
+              <div className="space-y-1">
+                <Label>How urgent is it?</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {SEVERITIES.map((sv) => (
+                    <button
+                      key={sv.id}
+                      type="button"
+                      onClick={() => setSeverity(sv.id)}
+                      className={`text-left rounded-md border px-2.5 py-2 transition ${
+                        severity === sv.id
+                          ? "border-tmc-gold bg-tmc-gold/10"
+                          : "hover:border-tmc-gold/50"
+                      }`}
+                    >
+                      <div className="text-sm font-medium text-tmc-dark">{sv.label}</div>
+                      <div className="text-[11px] text-muted-foreground leading-tight">
+                        {sv.hint}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>Where is it happening?</Label>
+                <Input
+                  value={affectedUrl}
+                  onChange={(e) => setAffectedUrl(e.target.value)}
+                  placeholder="Page URL, or the tool that's broken"
+                />
+              </div>
+            </>
+          )}
           <div className="space-y-1">
             <Label>
-              {isEvent ? "Details & what you'd like us to do *" : "Details *"}
+              {isEvent
+                ? "Details & what you'd like us to do *"
+                : isSupport
+                  ? "What happens, and what did you expect? *"
+                  : "Details *"}
             </Label>
             <textarea
               className="w-full min-h-[110px] rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -371,7 +433,9 @@ function SubmissionDialog({
               placeholder={
                 isEvent
                   ? "What's the event, who's it for, and how can we help promote it?"
-                  : "Give us the details so we can help."
+                  : isSupport
+                    ? "What you did, what happened, and anything you've already tried. Screenshots can follow by email."
+                    : "Give us the details so we can help."
               }
             />
           </div>

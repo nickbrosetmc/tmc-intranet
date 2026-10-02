@@ -224,14 +224,20 @@ export const clientSubmissions = sqliteTable("client_submissions", {
   clientUserId: integer("client_user_id")
     .notNull()
     .references(() => clientUsers.id),
-  type: text("type", { enum: ["request", "event"] }).notNull(),
+  type: text("type", { enum: ["request", "event", "support"] }).notNull(),
   subject: text("subject").notNull(),
   details: text("details").notNull(),
   eventDate: text("event_date"),
   location: text("location"),
+  /** Support tickets only. */
+  severity: text("severity", { enum: ["low", "normal", "high", "urgent"] }),
+  affectedUrl: text("affected_url"),
   status: text("status", { enum: ["new", "in_progress", "done"] })
     .notNull()
     .default("new"),
+  /** Last status change; null while still "new". Unlike updatedAt, notes edits don't move it. */
+  statusChangedAt: text("status_changed_at"),
+  /** Team-only. Never sent to the client portal. */
   adminNotes: text("admin_notes"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -304,6 +310,9 @@ export const oneOffInvoices = sqliteTable("one_off_invoices", {
   clientName: text("client_name").notNull(),
   grossAmount: integer("gross_amount").notNull(),
   paymentMethodId: integer("payment_method_id").references(() => paymentMethods.id),
+  /** YYYY-MM-DD the client was billed. Required by the API; null only on rows predating migration 0036. */
+  invoiceDate: text("invoice_date"),
+  /** YYYY-MM-DD the money lands in the bank. Drives the cash-flow calendar. */
   payoutDate: text("payout_date").notNull(),
   instantPayout: integer("instant_payout", { mode: "boolean" }).notNull().default(false),
   notes: text("notes"),
@@ -353,6 +362,9 @@ export const calculatorSettings = sqliteTable("calculator_settings", {
   rateDayHalf: integer("rate_day_half").notNull().default(1800),
   rateDayFull: integer("rate_day_full").notNull().default(2800),
   rateDayExtra: integer("rate_day_extra").notNull().default(2500),
+  /** Terms and Conditions version cited on generated proposals. */
+  tcVersion: text("tc_version").notNull().default("2026.1"),
+  tcEffective: text("tc_effective").notNull().default("August 3, 2026"),
   updatedBy: integer("updated_by").references(() => users.id),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

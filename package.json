@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && tsc -p tsconfig.functions.json && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "db:create": "wrangler d1 create tmc-intranet-db",
@@ -13,7 +13,8 @@
     "db:migrate:remote": "wrangler d1 migrations apply tmc-intranet-db --remote",
     "db:console": "wrangler d1 execute tmc-intranet-db --remote --command",
     "db:console:local": "wrangler d1 execute tmc-intranet-db --local --command",
-    "icons:build": "node scripts/build-icon.mjs"
+    "icons:build": "node scripts/build-icon.mjs",
+    "typecheck:functions": "tsc -p tsconfig.functions.json"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",

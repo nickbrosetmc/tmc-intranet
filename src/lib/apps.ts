@@ -46,6 +46,26 @@ export function recordLaunch(appId: number, type: "desktop" | "web"): void {
   }).catch(() => {});
 }
 
+/** Internal SPA paths look like "/foo"; anything else is treated as external. */
+export function isInternalPath(url: string | null): boolean {
+  return !!url && url.startsWith("/") && !url.startsWith("//");
+}
+
+/**
+ * What clicking an app icon does, wherever the icon is drawn: in-portal
+ * pages navigate inside the SPA, everything else goes through launchApp().
+ */
+export function openApp(app: App, navigate: (path: string) => void): void {
+  if (app.isComingSoon) return;
+  if (isInternalPath(app.webUrl) && app.webUrl) {
+    // Log launch best-effort, then SPA-navigate
+    recordLaunch(app.id, "web");
+    navigate(app.webUrl);
+    return;
+  }
+  launchApp(app);
+}
+
 /**
  * Smart launcher: try desktop protocol via hidden iframe, fall back to opening
  * the web URL in a new tab if user is still on the page after a short delay.

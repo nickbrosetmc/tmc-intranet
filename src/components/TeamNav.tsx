@@ -23,6 +23,7 @@ const NAV: NavItem[] = [
   { href: "/client-view", label: "Client View" },
   { href: "/time-clock", label: "Time Clock" },
   { href: "/time-off", label: "Time Off" },
+  { href: "/proposals", label: "Proposals" },
   { href: "/calculator", label: "Package Calc" },
   { href: "/video-calculator", label: "Video Calc" },
 ];

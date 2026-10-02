@@ -20,6 +20,8 @@ interface PatchBody {
   rateDayHalf?: number;
   rateDayFull?: number;
   rateDayExtra?: number;
+  tcVersion?: string;
+  tcEffective?: string;
 }
 
 const NUMERIC_FIELDS: (keyof PatchBody)[] = [
@@ -37,6 +39,9 @@ const NUMERIC_FIELDS: (keyof PatchBody)[] = [
 ];
 
 const VALID_TIERS = new Set(["admin", "ft", "pt", "none"]);
+
+/** Free text, but it lands on signed contracts, so keep it short and clean. */
+const TEXT_FIELDS: (keyof PatchBody)[] = ["tcVersion", "tcEffective"];
 
 export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
   const session = await requireAdmin(request, env);
@@ -61,6 +66,14 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
       }
       updates[f] = Math.round(v);
     }
+  }
+  for (const f of TEXT_FIELDS) {
+    const v = body[f];
+    if (v === undefined) continue;
+    if (typeof v !== "string" || !v.trim()) {
+      return Response.json({ error: `${f} must not be empty` }, { status: 400 });
+    }
+    updates[f] = v.trim().slice(0, 80);
   }
   if (body.reviewTier !== undefined) {
     if (!VALID_TIERS.has(body.reviewTier)) {

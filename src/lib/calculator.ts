@@ -14,6 +14,9 @@ export interface CalculatorSettings {
   rateDayHalf: number;
   rateDayFull: number;
   rateDayExtra: number;
+  /** Terms and Conditions version cited on generated proposals. */
+  tcVersion: string;
+  tcEffective: string;
   updatedBy: number | null;
   updatedAt: string;
 }
@@ -64,11 +67,40 @@ export function optionMonthly(o: ProposalOption): number {
     : Math.round(o.monthlyPrice);
 }
 
-/** Human-readable pricing detail, e.g. "$350/episode x 4". */
+/**
+ * Per-unit pricing written as proposal copy rather than calculator notation:
+ * "4 episodes at $350 each". The old "$350/episode x 4" form read like a
+ * formula and the rasterizer swallowed the space before the "x".
+ */
+export function perUnitPhrase(
+  unitLabel: string,
+  quantity: number,
+  unitPrice: number,
+): string {
+  const unit = unitLabel.trim() || "unit";
+  const price = `$${Math.round(unitPrice).toLocaleString()}`;
+  if (quantity === 1) return `${price} per ${unit}`;
+  const noun = /s$/i.test(unit) ? unit : `${unit}s`;
+  return `${quantity} ${noun} at ${price} each`;
+}
+
+/** Human-readable pricing detail, e.g. "4 episodes at $350 each". */
 export function optionDetail(o: ProposalOption): string {
   if (o.pricingMode !== "perUnit") return "";
-  const unit = o.unitLabel.trim() || "unit";
-  return `$${Math.round(o.unitPrice).toLocaleString()}/${unit} x ${o.quantity}`;
+  return perUnitPhrase(o.unitLabel, o.quantity, o.unitPrice);
+}
+
+/**
+ * Monthly client price for a manually-priced custom line item. Returns 0 in
+ * "hours" mode, where the item is costed and priced by the margin engine
+ * instead.
+ */
+export function customManualMonthly(c: PackageState["custom"]): number {
+  if (!c.enabled) return 0;
+  if (c.pricingMode === "flat") return Math.max(0, Math.round(c.flatPrice));
+  if (c.pricingMode === "perUnit")
+    return Math.max(0, Math.round(c.unitPrice * c.quantity));
+  return 0;
 }
 
 export interface PackageState {
@@ -85,21 +117,34 @@ export interface PackageState {
   };
   seo: { enabled: boolean; pagesPerMonth: number; hoursPerPage: number; tier: Tier };
   ppc: { enabled: boolean; platform: "one" | "both"; hoursPerMonth: number; tier: Tier };
-  /** Interim flat website model: one-time design (slider-discountable from
-   *  $3,000 standard) + flat monthly management/hosting with up to 5
-   *  changes per month. Not part of the margin engine. */
-  web: { enabled: boolean; designPrice: number; monthlyFee: number };
+  /** Flat website model: one-time design (slider-discountable from the
+   *  standard) + flat monthly management/hosting with up to 5 changes per
+   *  month. An online store adds a fixed amount to the design baseline, since
+   *  it is meaningfully more build time. Not part of the margin engine. */
+  web: {
+    enabled: boolean;
+    designPrice: number;
+    monthlyFee: number;
+    ecommerce: boolean;
+  };
   email: { enabled: boolean; campaignsPerMonth: number; hoursPerCampaign: number; tier: Tier };
   video: { enabled: boolean; hoursPerMonth: number; tier: Tier };
-  /** Custom line item. "hours" runs through the margin engine; "flat" is a
-   *  manually-set monthly price that bypasses it. */
+  /** Custom line item. "hours" runs through the margin engine; "flat" and
+   *  "perUnit" are manually-set client prices that bypass it. "perUnit" is
+   *  for volume-priced work quoted as part of the package, e.g. podcast
+   *  production at $75 per episode, 4 episodes a month. */
   custom: {
     enabled: boolean;
     description: string;
-    pricingMode: "hours" | "flat";
+    pricingMode: "hours" | "flat" | "perUnit";
     hoursPerMonth: number;
     tier: Tier;
     flatPrice: number;
+    unitLabel: string;
+    unitPrice: number;
+    quantity: number;
+    /** One-time setup fee, quoted alongside the monthly price (0 = none). */
+    setupFee: number;
   };
   /** Extra proposal blocks: scaled-down alternatives and optional add-ons. */
   options: ProposalOption[];
@@ -109,9 +154,19 @@ export interface PackageState {
   discountName: string;
   discountType: "flat" | "pct";
   discountValue: number; // dollars when flat, percent (0–100) when pct
+  /** Hand-set monthly quote, overriding the calculated price. null = calculated. */
+  priceOverride: number | null;
 }
 
-export const WEBSITE_DESIGN_STANDARD = 3000;
+export const WEBSITE_DESIGN_STANDARD = 3500;
+export const WEBSITE_HOSTING_STANDARD = 165;
+/** Added to the design baseline when the build includes an online store. */
+export const WEBSITE_ECOMMERCE_ADDON = 1000;
+
+/** Standard one-time design price for this build, before any discount. */
+export function websiteDesignStandard(web: PackageState["web"]): number {
+  return WEBSITE_DESIGN_STANDARD + (web.ecommerce ? WEBSITE_ECOMMERCE_ADDON : 0);
+}
 
 export const DEFAULT_PACKAGE: PackageState = {
   clientName: "",
@@ -126,7 +181,12 @@ export const DEFAULT_PACKAGE: PackageState = {
   },
   seo: { enabled: false, pagesPerMonth: 2, hoursPerPage: 2.5, tier: "admin" },
   ppc: { enabled: false, platform: "one", hoursPerMonth: 4, tier: "admin" },
-  web: { enabled: false, designPrice: WEBSITE_DESIGN_STANDARD, monthlyFee: 150 },
+  web: {
+    enabled: false,
+    designPrice: WEBSITE_DESIGN_STANDARD,
+    monthlyFee: WEBSITE_HOSTING_STANDARD,
+    ecommerce: false,
+  },
   email: { enabled: false, campaignsPerMonth: 2, hoursPerCampaign: 2, tier: "ft" },
   video: { enabled: false, hoursPerMonth: 8, tier: "admin" },
   custom: {
@@ -136,6 +196,10 @@ export const DEFAULT_PACKAGE: PackageState = {
     hoursPerMonth: 4,
     tier: "ft",
     flatPrice: 0,
+    unitLabel: "episode",
+    unitPrice: 0,
+    quantity: 4,
+    setupFee: 0,
   },
   options: [],
   softwareAllocation: 167,
@@ -143,6 +207,7 @@ export const DEFAULT_PACKAGE: PackageState = {
   discountName: "",
   discountType: "flat",
   discountValue: 0,
+  priceOverride: null,
 };
 
 // ─── Pre-made packages ───────────────────────────────────────────────────
@@ -200,7 +265,7 @@ export const PACKAGE_PRESETS: PackagePreset[] = [
       seo: { enabled: true, pagesPerMonth: 4, hoursPerPage: 2.5, tier: "admin" },
       ppc: { enabled: true, platform: "both", hoursPerMonth: 6, tier: "admin" },
       email: { enabled: true, campaignsPerMonth: 4, hoursPerCampaign: 2, tier: "ft" },
-      web: { enabled: true, designPrice: 0, monthlyFee: 150 },
+      web: { enabled: true, designPrice: 0, monthlyFee: WEBSITE_HOSTING_STANDARD, ecommerce: false },
       targetMargin: 45,
     }),
   },
@@ -225,7 +290,12 @@ function servicesOff(): Pick<
     social: { enabled: false, postsPerWeek: 3, minsPerPost: 45, strategyHours: 2, contentTier: "ft", strategyTier: "admin", onSiteFilming: true },
     seo: { enabled: false, pagesPerMonth: 2, hoursPerPage: 2.5, tier: "admin" },
     ppc: { enabled: false, platform: "one", hoursPerMonth: 4, tier: "admin" },
-    web: { enabled: false, designPrice: WEBSITE_DESIGN_STANDARD, monthlyFee: 150 },
+    web: {
+    enabled: false,
+    designPrice: WEBSITE_DESIGN_STANDARD,
+    monthlyFee: WEBSITE_HOSTING_STANDARD,
+    ecommerce: false,
+  },
     email: { enabled: false, campaignsPerMonth: 2, hoursPerCampaign: 2, tier: "ft" },
     video: { enabled: false, hoursPerMonth: 8, tier: "admin" },
     custom: {
@@ -235,6 +305,10 @@ function servicesOff(): Pick<
       hoursPerMonth: 4,
       tier: "ft",
       flatPrice: 0,
+      unitLabel: "episode",
+      unitPrice: 0,
+      quantity: 4,
+      setupFee: 0,
     },
     targetMargin: 40,
   };
@@ -251,6 +325,38 @@ export function enabledServiceLabels(pkg: PackageState): string[] {
   if (pkg.video.enabled) out.push("Video production");
   if (pkg.custom.enabled) out.push(pkg.custom.description || "Custom service");
   return out;
+}
+
+export interface QuoteTotals {
+  /** "Standard investment" on the quote: the price before the listed reasons. */
+  standard: number;
+  /** What the client is asked to pay. */
+  final: number;
+  /** Itemized savings, exactly the reasons given. Rounded, zeroes dropped. */
+  discounts: { label: string; amount: number }[];
+}
+
+/**
+ * Totals for the client-facing quote, derived from the price being charged
+ * and the reasons for any saving.
+ *
+ * The standard rate is computed as final + reasons rather than the reasons
+ * being fitted to a pre-set standard. That way a hand-set price is treated as
+ * what it usually is, a tidier number, so rounding $778 to $750 quotes $750
+ * flat instead of inventing a $28 "discount". A discount only ever appears
+ * when there is a named reason for it; to show a bigger saving, raise the
+ * discount itself.
+ */
+export function quoteTotals(
+  final: number,
+  reasons: { label: string; amount: number }[],
+): QuoteTotals {
+  const discounts = reasons
+    .map((r) => ({ label: r.label, amount: Math.round(r.amount) }))
+    .filter((r) => r.amount > 0);
+  const f = Math.max(0, Math.round(final));
+  const saved = discounts.reduce((sum, d) => sum + d.amount, 0);
+  return { standard: f + saved, final: f, discounts };
 }
 
 /** Apply a custom discount to a monthly price; returns the post-discount price + the amount off. */
@@ -275,18 +381,31 @@ export interface ProposalLine {
 }
 
 /**
- * Client-facing proposal lines: the monthly price allocated across visible
- * service groups (software overhead is folded in proportionally, never
- * shown as its own line), each with a "what's included" list. The flat
- * website management fee is appended as its own line when enabled.
- * `monthlyPrice` should be the cost-based monthly price EXCLUDING the
- * website monthly fee (i.e. results.targetPrice - results.websiteMonthly).
+ * Client-facing proposal lines: the quoted price allocated across visible
+ * service groups (software overhead is folded in proportionally, never shown
+ * as its own line), each with a "what's included" list.
+ *
+ * `standardTotal` is the "Standard investment" the quote prints, which is the
+ * quoted price plus any itemized savings. Allocating from it rather than from
+ * results.targetPrice is what makes a hand-set price flow into the line items:
+ * quoting $1,000 for SEO used to leave the SEO line showing the calculated
+ * $934 while the total said $1,150, so the itemization and the total described
+ * two different quotes.
+ *
+ * Only the cost-based portion gets allocated. Manually-priced items (a flat or
+ * per-unit custom line, the flat website fee) are appended verbatim, so they
+ * are subtracted from the allocation base first, otherwise their price would
+ * be counted twice.
  */
 export function proposalServiceLines(
   pkg: PackageState,
   results: PackageResults,
-  monthlyPrice: number,
+  standardTotal: number = results.targetPrice,
 ): ProposalLine[] {
+  const monthlyPrice = Math.max(
+    0,
+    Math.round(standardTotal) - results.websiteMonthly - results.customFlat,
+  );
   const HIDDEN = "Tools & software";
   const byService = new Map<string, number>();
   for (const l of results.lines) {
@@ -309,11 +428,15 @@ export function proposalServiceLines(
     });
   }
 
-  if (pkg.custom.enabled && pkg.custom.pricingMode === "flat") {
+  if (pkg.custom.enabled && pkg.custom.pricingMode !== "hours") {
+    const c = pkg.custom;
     out.push({
-      label: pkg.custom.description || "Custom service",
-      amount: Math.max(0, Math.round(pkg.custom.flatPrice)),
-      sublines: [],
+      label: c.description || "Custom service",
+      amount: customManualMonthly(c),
+      sublines:
+        c.pricingMode === "perUnit"
+          ? [perUnitPhrase(c.unitLabel, c.quantity, c.unitPrice)]
+          : [],
     });
   }
 
@@ -393,12 +516,16 @@ export interface PackageResults {
   profit: number;
   /** Flat website monthly management/hosting fee (0 when disabled). */
   websiteMonthly: number;
-  /** Manually-priced custom line item (0 unless in flat mode). */
+  /** Manually-priced custom line item (0 unless in flat or per-unit mode). */
   customFlat: number;
+  /** One-time setup fee on a manually-priced custom line item (0 = none). */
+  customSetup: number;
   /** True when hosting is comped: website + at least one monthly service. */
   hostingComped: boolean;
   /** One-time website design price from the slider (0 when disabled). */
   websiteDesignPrice: number;
+  /** Undiscounted design price for this build, including any store add-on. */
+  websiteDesignStandardPrice: number;
   verdict: "go" | "caution" | "stop" | "empty";
   verdictText: string;
 }
@@ -501,8 +628,9 @@ export function computePackage(
       service: description || "Custom service",
     });
   }
-  // Flat-priced custom items are client-price-defined, so they sit outside
-  // the cost/margin engine and are added to the price after the fact.
+  // Flat- and per-unit-priced custom items are client-price-defined, so they
+  // sit outside the cost/margin engine and are added to the price after the
+  // fact.
 
   if (pkg.softwareAllocation > 0) {
     lines.push({
@@ -523,9 +651,10 @@ export function computePackage(
 
   // Flat website pricing sits outside the margin engine (interim model).
   const websiteMonthly = pkg.web.enabled ? Math.round(pkg.web.monthlyFee) : 0;
-  const customFlat =
-    pkg.custom.enabled && pkg.custom.pricingMode === "flat"
-      ? Math.max(0, Math.round(pkg.custom.flatPrice))
+  const customFlat = customManualMonthly(pkg.custom);
+  const customSetup =
+    pkg.custom.enabled && pkg.custom.pricingMode !== "hours"
+      ? Math.max(0, Math.round(pkg.custom.setupFee))
       : 0;
   // Bundle rule: pairing the website with ANY monthly service comps the
   // hosting fee. targetPrice still includes it (that's the standard rate);
@@ -542,6 +671,9 @@ export function computePackage(
     pkg.web.enabled && hasMonthlyServices && websiteMonthly > 0;
   const websiteDesignPrice = pkg.web.enabled
     ? Math.max(0, Math.round(pkg.web.designPrice))
+    : 0;
+  const websiteDesignStandardPrice = pkg.web.enabled
+    ? websiteDesignStandard(pkg.web)
     : 0;
 
   const marginPrice = totalCost > 0 ? Math.round(totalCost / (1 - tm)) : 0;
@@ -580,8 +712,10 @@ export function computePackage(
     profit,
     websiteMonthly,
     customFlat,
+    customSetup,
     hostingComped,
     websiteDesignPrice,
+    websiteDesignStandardPrice,
     verdict,
     verdictText,
   };

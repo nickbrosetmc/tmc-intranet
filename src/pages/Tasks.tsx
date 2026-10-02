@@ -3,6 +3,8 @@ import { toast } from "sonner";
 import {
   CalendarPlus,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Circle,
   Link2,
   Pencil,
@@ -45,12 +47,20 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Toaster } from "@/components/ui/sonner";
 import {
+  buildAllItems,
+  buildItemsForUser,
+  clientIdOf,
+  clientNameOf,
+  groupByClient,
+  NO_CLIENT,
   daysUntilDue,
   elapsedMinutes,
   formatDueDate,
   formatMinutes,
+  itemKey,
   PRIORITY_LABELS,
   PRIORITY_TONE,
+  sortItems,
   tasksApi,
   todayYmd,
   type PostOption,
@@ -60,10 +70,10 @@ import {
   type TaskStatus,
   type TaskWithRefs,
   type UserOption,
+  type WeekItem,
 } from "@/lib/tasks";
 import {
   content,
-  effectiveAssigneeId,
   statusMeta,
   STATUSES,
   workDueDate,
@@ -75,108 +85,10 @@ const VIEWS = [
   { id: "my-week", label: "My Week", adminOnly: false },
   { id: "mine", label: "My Tasks", adminOnly: false },
   { id: "all", label: "All Tasks", adminOnly: false },
+  { id: "by-client", label: "By Client", adminOnly: false },
   { id: "by-person", label: "By Person", adminOnly: true },
 ] as const;
 type View = (typeof VIEWS)[number]["id"];
-
-// A unified inbox item — either a manual task, an open content post
-// surfaced as work-to-do, or a placeholder slot for an unscheduled
-// weekly post. Bucketing logic treats all three the same.
-type WeekItem =
-  | { kind: "task"; task: TaskWithRefs; dueDate: string | null; done: boolean }
-  | { kind: "post"; post: ContentPost; dueDate: string }
-  | {
-      kind: "placeholder";
-      clientId: number;
-      clientName: string;
-      slotIndex: number;     // 1-based, used in title & key
-      slotsTotal: number;    // total needed for this client this week
-      dueDate: string;       // friday of current week
-    };
-
-/**
- * For each tracked client with a weekly target, return one placeholder
- * per missing post. They only show up if a default assignee is set and
- * we're inside the current week's display window.
- */
-function buildPlaceholders(data: TasksDashboard): WeekItem[] {
-  const out: WeekItem[] = [];
-  for (const c of data.clientOptions) {
-    if (!c.isActive) continue;
-    const target = c.weeklyPostTarget ?? 0;
-    if (target <= 0) continue;
-    const scheduled = data.weeklyPostsByClient[c.id] ?? 0;
-    const missing = Math.max(0, target - scheduled);
-    for (let i = 0; i < missing; i++) {
-      out.push({
-        kind: "placeholder",
-        clientId: c.id,
-        clientName: c.name,
-        slotIndex: i + 1,
-        slotsTotal: target,
-        dueDate: data.weekDueDate,
-      });
-    }
-  }
-  return out;
-}
-
-function buildItemsForUser(
-  data: TasksDashboard,
-  userId: number,
-): WeekItem[] {
-  const items: WeekItem[] = data.tasks
-    .filter((t) => t.assigneeId === userId)
-    .map((t) => ({
-      kind: "task" as const,
-      task: t,
-      dueDate: t.dueDate,
-      done: t.status === "completed",
-    }));
-  for (const p of data.openPosts) {
-    if (effectiveAssigneeId(p, data.defaultPostAssigneeId) !== userId) continue;
-    items.push({ kind: "post", post: p, dueDate: workDueDate(p.scheduledDate) });
-  }
-  // Placeholders only land on the default assignee's list.
-  if (data.defaultPostAssigneeId === userId) {
-    items.push(...buildPlaceholders(data));
-  }
-  return items;
-}
-
-function buildAllItems(data: TasksDashboard): WeekItem[] {
-  const items: WeekItem[] = data.tasks.map((t) => ({
-    kind: "task" as const,
-    task: t,
-    dueDate: t.dueDate,
-    done: t.status === "completed",
-  }));
-  for (const p of data.openPosts) {
-    items.push({ kind: "post", post: p, dueDate: workDueDate(p.scheduledDate) });
-  }
-  items.push(...buildPlaceholders(data));
-  return items;
-}
-
-function itemKey(it: WeekItem): string {
-  if (it.kind === "task") return `t-${it.task.id}`;
-  if (it.kind === "post") return `p-${it.post.id}`;
-  return `ph-${it.clientId}-${it.slotIndex}`;
-}
-
-/** Stable sort within a bucket. */
-function sortItems(items: WeekItem[]): WeekItem[] {
-  const kindRank = (k: WeekItem["kind"]) =>
-    k === "post" ? 0 : k === "placeholder" ? 1 : 2;
-  return [...items].sort((a, b) => {
-    const aDue = a.dueDate ?? "9999-12-31";
-    const bDue = b.dueDate ?? "9999-12-31";
-    if (aDue !== bDue) return aDue < bDue ? -1 : 1;
-    const kr = kindRank(a.kind) - kindRank(b.kind);
-    if (kr !== 0) return kr;
-    return 0;
-  });
-}
 
 export function TasksPage() {
   const userState = useUser();
@@ -187,6 +99,8 @@ export function TasksPage() {
   const [data, setData] = useState<TasksDashboard | null>(null);
   const [view, setView] = useState<View>("my-week");
   const [focusedUserId, setFocusedUserId] = useState<number | null>(null);
+  // "all" shows every client; a client id narrows the list-style views.
+  const [clientFilter, setClientFilter] = useState<number | "all">("all");
   const [includeCompleted, setIncludeCompleted] = useState(false);
   const [tick, setTick] = useState(0);
 
@@ -284,21 +198,36 @@ export function TasksPage() {
       </div>
 
       {view === "my-week" && (
-        <MyWeekView data={data} myUserId={data.user.id} onChanged={refresh} />
+        <MyWeekView
+          data={data}
+          myUserId={data.user.id}
+          onChanged={refresh}
+          clientFilter={clientFilter}
+          onClientFilter={setClientFilter}
+        />
       )}
       {view === "mine" && (
-        <TaskList
-          items={buildItemsForUser(data, data.user.id)}
-          data={data}
-          onChanged={refresh}
-        />
+        <>
+          <ClientFilter data={data} value={clientFilter} onChange={setClientFilter} />
+          <TaskList
+            items={filterByClient(buildItemsForUser(data, data.user.id), data, clientFilter)}
+            data={data}
+            onChanged={refresh}
+          />
+        </>
       )}
       {view === "all" && (
-        <TaskList
-          items={buildAllItems(data)}
-          data={data}
-          onChanged={refresh}
-        />
+        <>
+          <ClientFilter data={data} value={clientFilter} onChange={setClientFilter} />
+          <TaskList
+            items={filterByClient(buildAllItems(data), data, clientFilter)}
+            data={data}
+            onChanged={refresh}
+          />
+        </>
+      )}
+      {view === "by-client" && (
+        <ByClientView data={data} onChanged={refresh} />
       )}
       {view === "by-person" && isAdmin && (
         <ByPersonView
@@ -306,10 +235,146 @@ export function TasksPage() {
           focusedUserId={focusedUserId ?? data.user.id}
           onPickUser={setFocusedUserId}
           onChanged={refresh}
+          clientFilter={clientFilter}
+          onClientFilter={setClientFilter}
         />
       )}
 
       <Toaster />
+    </div>
+  );
+}
+
+// ─── By Client ───────────────────────────────────────────────────────────
+
+function filterByClient(
+  items: WeekItem[],
+  data: TasksDashboard,
+  clientId: number | "all",
+): WeekItem[] {
+  if (clientId === "all") return items;
+  return items.filter((it) => clientIdOf(it, data) === clientId);
+}
+
+/** Narrows a flat list to one client. Only lists clients that have work. */
+function ClientFilter({
+  data,
+  value,
+  onChange,
+}: {
+  data: TasksDashboard;
+  value: number | "all";
+  onChange: (v: number | "all") => void;
+}) {
+  const present = useMemo(() => {
+    const ids = new Set(buildAllItems(data).map((it) => clientIdOf(it, data)));
+    const list = data.clientOptions
+      .filter((c) => ids.has(c.id))
+      .map((c) => ({ id: c.id as number, name: c.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (ids.has(NO_CLIENT)) {
+      list.push({ id: NO_CLIENT, name: clientNameOf(NO_CLIENT, data) });
+    }
+    return list;
+  }, [data]);
+
+  if (present.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground shrink-0">
+        Client
+      </Label>
+      <div className="min-w-[220px]">
+        <Select
+          value={value === "all" ? "all" : String(value)}
+          onValueChange={(v) => onChange(v === "all" ? "all" : Number(v))}
+        >
+          <SelectTrigger className="h-8 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All clients</SelectItem>
+            {present.map((c) => (
+              <SelectItem key={c.id} value={String(c.id)}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Everything open, split into one section per client, so a whole client's
+ * work can be batched in one sitting. Clients with overdue work come first.
+ */
+function ByClientView({
+  data,
+  onChanged,
+}: {
+  data: TasksDashboard;
+  onChanged: () => void;
+}) {
+  const groups = useMemo(() => groupByClient(buildAllItems(data), data), [data]);
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+
+  const toggle = (id: number) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  if (groups.length === 0) {
+    return (
+      <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+        Nothing here yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {groups.map((g) => {
+        const isOpen = !collapsed.has(g.clientId);
+        return (
+          <section key={g.clientId} className="space-y-2">
+            <button
+              type="button"
+              onClick={() => toggle(g.clientId)}
+              className="w-full flex items-center justify-between gap-3 text-left"
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                {isOpen ? (
+                  <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+                ) : (
+                  <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
+                )}
+                <span
+                  className={`font-semibold truncate ${
+                    g.clientId === NO_CLIENT ? "text-muted-foreground" : "text-tmc-dark"
+                  }`}
+                >
+                  {g.clientName}
+                </span>
+              </span>
+              <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+                {g.overdue > 0 && (
+                  <span className="text-red-700 font-medium">{g.overdue} late · </span>
+                )}
+                {g.open} open · {formatMinutes(g.estimatedMinutes)}
+              </span>
+            </button>
+            {isOpen && (
+              <TaskList items={g.items} data={data} onChanged={onChanged} />
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -321,11 +386,15 @@ function ByPersonView({
   focusedUserId,
   onPickUser,
   onChanged,
+  clientFilter,
+  onClientFilter,
 }: {
   data: TasksDashboard;
   focusedUserId: number;
   onPickUser: (id: number) => void;
   onChanged: () => void;
+  clientFilter: number | "all";
+  onClientFilter: (v: number | "all") => void;
 }) {
   const focused =
     data.userOptions.find((u) => u.id === focusedUserId) ?? data.userOptions[0];
@@ -364,6 +433,8 @@ function ByPersonView({
         data={data}
         myUserId={focusedUserId}
         onChanged={onChanged}
+        clientFilter={clientFilter}
+        onClientFilter={onClientFilter}
       />
     </div>
   );
@@ -375,14 +446,18 @@ function MyWeekView({
   data,
   myUserId,
   onChanged,
+  clientFilter = "all",
+  onClientFilter,
 }: {
   data: TasksDashboard;
   myUserId: number;
   onChanged: () => void;
+  clientFilter?: number | "all";
+  onClientFilter?: (v: number | "all") => void;
 }) {
   const mine = useMemo(
-    () => buildItemsForUser(data, myUserId),
-    [data, myUserId],
+    () => filterByClient(buildItemsForUser(data, myUserId), data, clientFilter),
+    [data, myUserId, clientFilter],
   );
 
   // Bucket: overdue, today, this week (next 7d), later, no date, completed.
@@ -416,16 +491,26 @@ function MyWeekView({
     buckets.noDate.length === 0 &&
     buckets.done.length === 0;
 
+  const filter = onClientFilter ? (
+    <ClientFilter data={data} value={clientFilter} onChange={onClientFilter} />
+  ) : null;
+
   if (empty) {
     return (
-      <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
-        Nothing on your list. Hit "New task" to start.
+      <div className="space-y-4">
+        {filter}
+        <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+          {clientFilter === "all"
+            ? 'Nothing on your list. Hit "New task" to start.'
+            : "Nothing for that client."}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-5">
+      {filter}
       <SummaryStrip items={mine} data={data} />
       {buckets.overdue.length > 0 && (
         <WeekBucket
@@ -555,6 +640,13 @@ function WeekBucket({
   data: TasksDashboard;
   onChanged: () => void;
 }) {
+  // Urgency stays the outer axis so overdue work keeps its place at the top,
+  // and each bucket is then split by client so a person can work one client
+  // at a time. A bucket that only touches one client stays flat: a lone
+  // subheading is noise, not organization.
+  const groups = useMemo(() => groupByClient(items, data), [items, data]);
+  const split = groups.length > 1;
+
   return (
     <section className={`rounded-lg border ${tone ?? "bg-card"}`}>
       <div className="px-4 py-2 border-b text-xs font-semibold uppercase tracking-widest text-tmc-slate flex items-center justify-between">
@@ -562,9 +654,32 @@ function WeekBucket({
         <span className="text-muted-foreground">{items.length}</span>
       </div>
       <ul className="divide-y">
-        {sortItems(items).map((it) => (
-          <ItemRow key={itemKey(it)} it={it} data={data} onChanged={onChanged} />
-        ))}
+        {split
+          ? groups.flatMap((g) => [
+              <li
+                key={`h-${g.clientId}`}
+                className="px-4 py-1.5 bg-muted/60 flex items-baseline justify-between gap-3"
+              >
+                <span
+                  className={`text-[11px] font-semibold uppercase tracking-wider truncate ${
+                    g.clientId === NO_CLIENT ? "text-muted-foreground" : "text-tmc-dark"
+                  }`}
+                >
+                  {g.clientName}
+                </span>
+                <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums">
+                  {g.items.length}
+                  {/* Completed work has no time left to spend. */}
+                  {g.estimatedMinutes > 0 && ` · ${formatMinutes(g.estimatedMinutes)}`}
+                </span>
+              </li>,
+              ...g.items.map((it) => (
+                <ItemRow key={itemKey(it)} it={it} data={data} onChanged={onChanged} />
+              )),
+            ])
+          : sortItems(items).map((it) => (
+              <ItemRow key={itemKey(it)} it={it} data={data} onChanged={onChanged} />
+            ))}
       </ul>
     </section>
   );
