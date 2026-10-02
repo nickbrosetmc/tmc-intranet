@@ -1,18 +1,15 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { fetchApps, launchApp, recordLaunch, type App, type GroupWithApps } from "@/lib/apps";
-
-/** Internal SPA paths look like "/foo" — anything else is treated as external. */
-function isInternalPath(url: string | null): boolean {
-  return !!url && url.startsWith("/") && !url.startsWith("//");
-}
+import { AppDock } from "@/components/AppDock";
+import { fetchApps, openApp, type App, type GroupWithApps } from "@/lib/apps";
 
 /**
  * "tiles" is the original roomy springboard. "compact" is the same springboard
- * at 52px with the section spacing pulled in, for the dashboard homepage where
- * the launcher has to share the screen with the week's work.
+ * at 52px with the section spacing pulled in. "dock" is the dashboard
+ * homepage's single magnifying row, which falls back to "compact" on touch
+ * screens and in windows too narrow for it.
  */
-export function AppGrid({ variant = "tiles" }: { variant?: "tiles" | "compact" }) {
+export function AppGrid({ variant = "tiles" }: { variant?: "tiles" | "compact" | "dock" }) {
   const [groups, setGroups] = useState<GroupWithApps[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,6 +28,9 @@ export function AppGrid({ variant = "tiles" }: { variant?: "tiles" | "compact" }
   }
 
   if (!groups) {
+    if (variant === "dock") {
+      return <AppDock groups={null} fallback={<AppGridSkeleton compact />} />;
+    }
     return <AppGridSkeleton compact={variant === "compact"} />;
   }
 
@@ -42,30 +42,35 @@ export function AppGrid({ variant = "tiles" }: { variant?: "tiles" | "compact" }
     );
   }
 
-  const compact = variant === "compact";
+  const visible = groups.filter((g) => g.apps.length > 0);
+  if (variant === "dock") {
+    return <AppDock groups={visible} fallback={<Springboard groups={visible} compact />} />;
+  }
+  return <Springboard groups={visible} compact={variant === "compact"} />;
+}
+
+function Springboard({ groups, compact }: { groups: GroupWithApps[]; compact: boolean }) {
   // Compact lays the groups out side by side. Stacked, three groups of three
   // apps used a third of the width and 300px of height; in columns they fill
   // the row and cost about 100px.
   return (
     <div className={compact ? GROUPS_ROW : "w-full max-w-5xl space-y-10"}>
-      {groups
-        .filter((g) => g.apps.length > 0)
-        .map(({ group, apps }) => (
-          <section key={group.id}>
-            <h2
-              className={`text-xs font-semibold uppercase tracking-widest text-tmc-slate ${
-                compact ? "mb-2" : "mb-4"
-              }`}
-            >
-              {group.name}
-            </h2>
-            <div className={compact ? COMPACT_TILES : ROOMY_GRID}>
-              {apps.map((app) => (
-                <AppTile key={app.id} app={app} compact={compact} />
-              ))}
-            </div>
-          </section>
-        ))}
+      {groups.map(({ group, apps }) => (
+        <section key={group.id}>
+          <h2
+            className={`text-xs font-semibold uppercase tracking-widest text-tmc-slate ${
+              compact ? "mb-2" : "mb-4"
+            }`}
+          >
+            {group.name}
+          </h2>
+          <div className={compact ? COMPACT_TILES : ROOMY_GRID}>
+            {apps.map((app) => (
+              <AppTile key={app.id} app={app} compact={compact} />
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }
@@ -80,18 +85,7 @@ const COMPACT_TILES = "flex flex-wrap gap-x-4 gap-y-3";
 
 function AppTile({ app, compact = false }: { app: App; compact?: boolean }) {
   const [, navigate] = useLocation();
-  const internal = isInternalPath(app.webUrl);
-
-  const handleClick = () => {
-    if (app.isComingSoon) return;
-    if (internal && app.webUrl) {
-      // Log launch best-effort, then SPA-navigate
-      recordLaunch(app.id, "web");
-      navigate(app.webUrl);
-      return;
-    }
-    launchApp(app);
-  };
+  const handleClick = () => openApp(app, navigate);
 
   const tileBg = app.iconBgColor ? `#${app.iconBgColor}` : "#404E5C";
 

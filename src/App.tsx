@@ -119,6 +119,9 @@ function App() {
         </Switch>
       </main>
 
+      {/* The homepage dock renders here; see AppDock. */}
+      <div id="dock-slot" className="dock-slot" />
+
       <footer className="border-t border-tmc-gold/20 px-6 py-4 text-center">
         <p className="text-xs text-muted-foreground">
           © {new Date().getFullYear()} TMC Marketing

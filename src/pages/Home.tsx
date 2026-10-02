@@ -251,7 +251,7 @@ function TeamWelcome({ user }: { user: TeamUser }) {
           Hey, {user.name.split(" ")[0]}
         </h1>
       </div>
-      <AppGrid variant="compact" />
+      <AppGrid variant="dock" />
       <AnnouncementsPanel />
       <Dashboard />
     </div>
