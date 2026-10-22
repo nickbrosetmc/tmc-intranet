@@ -19,7 +19,7 @@ export function Header({ user }: { user: User | null }) {
         <div className="flex items-center gap-2 sm:gap-4 shrink-0">
           {isAdmin && (
             <Link
-              href="/admin/announcements"
+              href="/admin"
               className="text-xs text-tmc-slate hover:text-tmc-gold-dark font-medium uppercase tracking-wide"
             >
               Admin
