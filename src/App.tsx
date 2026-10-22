@@ -1,20 +1,11 @@
-import { Route, Switch } from "wouter";
+import { Route, Switch, useLocation } from "wouter";
 import { RefreshCw } from "lucide-react";
 import { Header } from "@/components/Header";
 import { TeamNav } from "@/components/TeamNav";
 import { useUser } from "@/lib/useUser";
 import { useAppVersion } from "@/lib/useAppVersion";
 import { HomePage } from "@/pages/Home";
-import { AdminLayout } from "@/pages/admin/AdminLayout";
-import { AdminUsers } from "@/pages/admin/AdminUsers";
-import { AdminApps } from "@/pages/admin/AdminApps";
-import { AdminGroups } from "@/pages/admin/AdminGroups";
-import { AdminAnalytics } from "@/pages/admin/AdminAnalytics";
-import { AdminAnnouncements } from "@/pages/admin/AdminAnnouncements";
-import { AdminClients } from "@/pages/admin/AdminClients";
-import { AdminFinance } from "@/pages/admin/AdminFinance";
-import { AdminTimeClock } from "@/pages/admin/AdminTimeClock";
-import { AdminTimeOff } from "@/pages/admin/AdminTimeOff";
+import { AdminApp } from "@/pages/admin/AdminApp";
 import { RequestsPage } from "@/pages/Requests";
 import { ClientViewPage } from "@/pages/ClientView";
 import { ResetPasswordPage } from "@/pages/ResetPassword";
@@ -33,6 +24,17 @@ function App() {
   const state = useUser();
   const user = state.status === "authenticated" ? state.user : null;
   const updateReady = useAppVersion();
+  const [location] = useLocation();
+
+  // The admin side has its own shell (sidebar, no team nav or footer).
+  if (location === "/admin" || location.startsWith("/admin/")) {
+    return (
+      <>
+        {updateReady && <UpdateBanner />}
+        <AdminApp />
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -56,58 +58,6 @@ function App() {
           <Route path="/client-view" component={ClientViewPage} />
           <Route path="/time-clock" component={TimeClockPage} />
           <Route path="/time-off" component={TimeOffPage} />
-          <Route path="/admin">
-            <AdminLayout>
-              <AdminAnnouncements />
-            </AdminLayout>
-          </Route>
-          <Route path="/admin/announcements">
-            <AdminLayout>
-              <AdminAnnouncements />
-            </AdminLayout>
-          </Route>
-          <Route path="/admin/clients">
-            <AdminLayout>
-              <AdminClients />
-            </AdminLayout>
-          </Route>
-          <Route path="/admin/finance">
-            <AdminLayout>
-              <AdminFinance />
-            </AdminLayout>
-          </Route>
-          <Route path="/admin/time-clock">
-            <AdminLayout>
-              <AdminTimeClock />
-            </AdminLayout>
-          </Route>
-          <Route path="/admin/time-off">
-            <AdminLayout>
-              <AdminTimeOff />
-            </AdminLayout>
-          </Route>
-          {/* /admin/content removed — content tracker is now a top-level team app
-              at /content. Admins see the Settings tab there too. */}
-          <Route path="/admin/users">
-            <AdminLayout>
-              <AdminUsers />
-            </AdminLayout>
-          </Route>
-          <Route path="/admin/apps">
-            <AdminLayout>
-              <AdminApps />
-            </AdminLayout>
-          </Route>
-          <Route path="/admin/groups">
-            <AdminLayout>
-              <AdminGroups />
-            </AdminLayout>
-          </Route>
-          <Route path="/admin/analytics">
-            <AdminLayout>
-              <AdminAnalytics />
-            </AdminLayout>
-          </Route>
           <Route>
             <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
               Page not found.{" "}

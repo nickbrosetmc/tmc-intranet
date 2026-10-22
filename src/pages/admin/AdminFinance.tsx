@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   CartesianGrid,
@@ -83,27 +83,32 @@ import {
   type Segment,
 } from "@/lib/clientLifetime";
 import { daysBetween } from "@/lib/renewal";
+import { AdminPageHeader } from "@/pages/admin/AdminPageHeader";
 
-const TABS = [
-  { id: "revenue", label: "Revenue" },
-  { id: "lifetime", label: "Client lifetime" },
-  { id: "operating", label: "Operating" },
-  { id: "payroll", label: "Payroll" },
-  { id: "planning", label: "Planning & Gear" },
-  { id: "budgets", label: "Budgets" },
-] as const;
-type Tab = (typeof TABS)[number]["id"];
+// ─── Data shared by every Finance page ───────────────────────────────────
 
-export function AdminFinance() {
+interface FinanceState {
+  d: FinanceDashboard | null;
+  setD: (d: FinanceDashboard) => void;
+  refresh: () => Promise<void>;
+  /** The month the Cash flow and Budgets pages show, kept across pages. */
+  monthIso: string;
+  setMonthIso: (m: string) => void;
+  startBalanceOverride: number | null;
+  setStartBalanceOverride: (n: number | null) => void;
+}
+
+const FinanceContext = createContext<FinanceState | null>(null);
+
+/** Loads the finance data once for all the Finance pages beneath it. */
+export function FinanceProvider({ children }: { children: ReactNode }) {
   const [d, setD] = useState<FinanceDashboard | null>(null);
-  const [tab, setTab] = useState<Tab>("revenue");
   const [monthIso, setMonthIso] = useState(thisMonthIso());
   const [startBalanceOverride, setStartBalanceOverride] = useState<number | null>(null);
 
   async function refresh() {
     try {
-      const data = await finance.dashboard();
-      setD(data);
+      setD(await finance.dashboard());
     } catch (e) {
       toast.error(`Failed to load: ${(e as Error).message}`);
     }
@@ -112,12 +117,41 @@ export function AdminFinance() {
     void refresh();
   }, []);
 
-  const startBalance = startBalanceOverride ?? d?.settings.currentBalance ?? 0;
-
-  const summary = useMemo(
-    () => (d ? computeSummary(d, monthIso) : null),
-    [d, monthIso],
+  return (
+    <FinanceContext.Provider
+      value={{
+        d,
+        setD,
+        refresh,
+        monthIso,
+        setMonthIso,
+        startBalanceOverride,
+        setStartBalanceOverride,
+      }}
+    >
+      {children}
+    </FinanceContext.Provider>
   );
+}
+
+function useFinance(): FinanceState {
+  const ctx = useContext(FinanceContext);
+  if (!ctx) throw new Error("Finance pages must render inside FinanceProvider");
+  return ctx;
+}
+
+function FinanceLoading() {
+  return <div className="text-muted-foreground text-sm">Loading finance…</div>;
+}
+
+// ─── Finance pages ───────────────────────────────────────────────────────
+
+export function FinanceCashflowPage() {
+  const f = useFinance();
+  const { d, monthIso } = f;
+  const startBalance = f.startBalanceOverride ?? d?.settings.currentBalance ?? 0;
+
+  const summary = useMemo(() => (d ? computeSummary(d, monthIso) : null), [d, monthIso]);
   const projection = useMemo(
     () =>
       d
@@ -138,9 +172,7 @@ export function AdminFinance() {
     [d, monthIso],
   );
 
-  if (!d) {
-    return <div className="text-muted-foreground text-sm">Loading finance…</div>;
-  }
+  if (!d || !summary) return <FinanceLoading />;
 
   const endBalance = projection.length > 0 ? projection[projection.length - 1].balance : startBalance;
   const lowestPoint = projection.length > 0 ? Math.min(...projection.map((p) => p.balance)) : startBalance;
@@ -148,112 +180,66 @@ export function AdminFinance() {
   return (
     <>
       <div className="space-y-6 print:hidden">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-tmc-dark">
-            Finance
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Recurring revenue, expenses, gear, and cashflow projection.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <MonthPicker value={monthIso} onChange={setMonthIso} />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.print()}
-            title="Save the full report as PDF via your browser's print dialog"
-          >
-            Export PDF
-          </Button>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <BalanceCard
-          settings={d.settings}
-          onUpdate={async (newBal) => {
-            const fresh = await finance.setBalance(newBal);
-            setD({ ...d, settings: fresh });
-            setStartBalanceOverride(null);
-            toast.success("Balance updated");
-          }}
-        />
-        <StatCard
-          label="MRR (net)"
-          value={fmtMoney(summary!.mrrNet)}
-          subtitle={
-            summary!.oneOffNetThisMonth > 0
-              ? `+ ${fmtMoney(summary!.oneOffNetThisMonth)} one-off this month`
-              : summary!.mrrGross !== summary!.mrrNet
-                ? `gross ${fmtMoney(summary!.mrrGross)}`
-                : "after fees"
+        <AdminPageHeader
+          title="Cash flow"
+          description="Where the money stands this month, and where it's headed."
+          actions={
+            <>
+              <MonthPicker value={monthIso} onChange={f.setMonthIso} />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.print()}
+                title="Save the full report as PDF via your browser's print dialog"
+              >
+                Export PDF
+              </Button>
+            </>
           }
         />
-        <StatCard
-          label="Monthly expenses"
-          value={fmtMoney(summary!.monthlyExpenses)}
-          subtitle={`${fmtMoney(summary!.monthlyOperating)} operating + ${fmtMoney(summary!.monthlyPayroll)} payroll`}
-        />
-        <StatCard
-          label="Projected end balance"
-          value={fmtMoney(endBalance)}
-          subtitle={`low: ${fmtMoney(lowestPoint)}`}
-          tone={endBalance >= startBalance ? "good" : "warn"}
-        />
-      </div>
 
-      {/* Cashflow chart */}
-      <CashflowCard
-        projection={projection}
-        startBalance={startBalance}
-        currentBalance={d.settings.currentBalance}
-        onChangeStart={setStartBalanceOverride}
-        monthIso={monthIso}
-      />
-
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-1 border-b">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
-              tab === t.id
-                ? "border-tmc-gold-dark text-tmc-dark"
-                : "border-transparent text-muted-foreground hover:text-tmc-dark"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "revenue" && (
-        <div className="space-y-4">
-          <RecurringClientsTable d={d} onChanged={refresh} />
-          <OneOffInvoicesTable d={d} onChanged={refresh} />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <BalanceCard
+            settings={d.settings}
+            onUpdate={async (newBal) => {
+              const fresh = await finance.setBalance(newBal);
+              f.setD({ ...d, settings: fresh });
+              f.setStartBalanceOverride(null);
+              toast.success("Balance updated");
+            }}
+          />
+          <StatCard
+            label="MRR (net)"
+            value={fmtMoney(summary.mrrNet)}
+            subtitle={
+              summary.oneOffNetThisMonth > 0
+                ? `+ ${fmtMoney(summary.oneOffNetThisMonth)} one-off this month`
+                : summary.mrrGross !== summary.mrrNet
+                  ? `gross ${fmtMoney(summary.mrrGross)}`
+                  : "after fees"
+            }
+          />
+          <StatCard
+            label="Monthly expenses"
+            value={fmtMoney(summary.monthlyExpenses)}
+            subtitle={`${fmtMoney(summary.monthlyOperating)} operating + ${fmtMoney(summary.monthlyPayroll)} payroll`}
+          />
+          <StatCard
+            label="Projected end balance"
+            value={fmtMoney(endBalance)}
+            subtitle={`low: ${fmtMoney(lowestPoint)}`}
+            tone={endBalance >= startBalance ? "good" : "warn"}
+          />
         </div>
-      )}
-      {tab === "lifetime" && <ClientLifetimeSection d={d} onChanged={refresh} />}
-      {tab === "operating" && (
-        <RecurringExpensesTable
-          d={d}
-          onChanged={refresh}
-          variant="operating"
+
+        <CashflowCard
+          projection={projection}
+          startBalance={startBalance}
+          currentBalance={d.settings.currentBalance}
+          onChangeStart={f.setStartBalanceOverride}
+          monthIso={monthIso}
         />
-      )}
-      {tab === "payroll" && (
-        <RecurringExpensesTable d={d} onChanged={refresh} variant="payroll" />
-      )}
-      {tab === "planning" && <PlanningSection d={d} onChanged={refresh} />}
-      {tab === "budgets" && (
-        <CategoriesTable status={budgetStatus} onChanged={refresh} />
-      )}
-    </div>
-    {summary && (
+      </div>
       <PrintableReport
         d={d}
         monthIso={monthIso}
@@ -262,8 +248,103 @@ export function AdminFinance() {
         projection={projection}
         budgetStatus={budgetStatus}
       />
-    )}
     </>
+  );
+}
+
+export function FinanceRevenuePage() {
+  const { d, monthIso, refresh } = useFinance();
+  const summary = useMemo(() => (d ? computeSummary(d, monthIso) : null), [d, monthIso]);
+  if (!d || !summary) return <FinanceLoading />;
+  const active = d.recurringClients.filter((c) => c.isActive && c.monthlyAmount > 0).length;
+  return (
+    <div className="space-y-6">
+      <AdminPageHeader
+        title="Revenue"
+        description="Retainer clients and one-off invoices."
+      />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard label="MRR (gross)" value={fmtMoney(summary.mrrGross)} subtitle="before payment fees" />
+        <StatCard label="MRR (net)" value={fmtMoney(summary.mrrNet)} subtitle="after payment fees" />
+        <StatCard
+          label="Paying clients"
+          value={String(active)}
+          subtitle={active ? `${fmtMoney(summary.mrrGross / active)} average a month` : "none yet"}
+        />
+        <StatCard
+          label="One-off this month"
+          value={fmtMoney(summary.oneOffNetThisMonth)}
+          subtitle="net, by payout date"
+        />
+      </div>
+      <RecurringClientsTable d={d} onChanged={refresh} />
+      <OneOffInvoicesTable d={d} onChanged={refresh} />
+    </div>
+  );
+}
+
+export function FinanceLifetimePage() {
+  const { d, refresh } = useFinance();
+  if (!d) return <FinanceLoading />;
+  return (
+    <div>
+      <AdminPageHeader
+        title="Client lifetime"
+        description="How long retainer clients stay, what each has been worth, and when they renew."
+      />
+      <ClientLifetimeSection d={d} onChanged={refresh} />
+    </div>
+  );
+}
+
+export function FinanceExpensesPage() {
+  const { d, monthIso, refresh } = useFinance();
+  const summary = useMemo(() => (d ? computeSummary(d, monthIso) : null), [d, monthIso]);
+  if (!d || !summary) return <FinanceLoading />;
+  return (
+    <div className="space-y-6">
+      <AdminPageHeader
+        title="Expenses"
+        description="What goes out every month: operating costs and payroll."
+      />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <StatCard label="Monthly expenses" value={fmtMoney(summary.monthlyExpenses)} subtitle="operating + payroll" />
+        <StatCard label="Operating" value={fmtMoney(summary.monthlyOperating)} subtitle="a month" />
+        <StatCard label="Payroll" value={fmtMoney(summary.monthlyPayroll)} subtitle="a month" />
+      </div>
+      <RecurringExpensesTable d={d} onChanged={refresh} variant="operating" />
+      <RecurringExpensesTable d={d} onChanged={refresh} variant="payroll" />
+    </div>
+  );
+}
+
+export function FinancePlanningPage() {
+  const { d, refresh } = useFinance();
+  if (!d) return <FinanceLoading />;
+  return (
+    <div>
+      <AdminPageHeader
+        title="Planning & gear"
+        description="One-time purchases, planned and paid."
+      />
+      <PlanningSection d={d} onChanged={refresh} />
+    </div>
+  );
+}
+
+export function FinanceBudgetsPage() {
+  const { d, monthIso, setMonthIso, refresh } = useFinance();
+  const status = useMemo(() => (d ? categoryBudgetStatus(d, monthIso) : []), [d, monthIso]);
+  if (!d) return <FinanceLoading />;
+  return (
+    <div>
+      <AdminPageHeader
+        title="Budgets"
+        description="Spending by category against each category's monthly budget."
+        actions={<MonthPicker value={monthIso} onChange={setMonthIso} />}
+      />
+      <CategoriesTable status={status} onChanged={refresh} />
+    </div>
   );
 }
 
@@ -289,7 +370,7 @@ function MonthPicker({
   );
 }
 
-function StatCard({
+export function StatCard({
   label,
   value,
   subtitle,
@@ -500,7 +581,7 @@ function RecurringClientsTable({
   const pmById = new Map(d.paymentMethods.map((p) => [p.id, p]));
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">Recurring revenue</CardTitle>
         <ClientDialog mode="create" d={d} onSaved={onChanged} />
       </CardHeader>
@@ -824,10 +905,10 @@ function ClientLifetimeSection({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <p className="text-sm text-muted-foreground">
-          How long retainer clients stay, what each has been worth, and when they renew.
-        </p>
+      <div className="flex items-center gap-3">
+        <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+          Showing
+        </span>
         <div className="inline-flex rounded-md border bg-card p-0.5" role="group" aria-label="Which clients">
           {SEGMENTS.map((sg) => (
             <button
@@ -1268,7 +1349,7 @@ function OneOffInvoicesTable({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center justify-between">
         <div>
           <CardTitle className="text-base">One-off invoices</CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
@@ -1612,7 +1693,7 @@ function RecurringExpensesTable({
       : "Software, services, and other recurring non-payroll costs.";
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center justify-between">
         <div>
           <CardTitle className="text-base">{title}</CardTitle>
           <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
@@ -1875,7 +1956,7 @@ function PlanningSection({
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-base">Planning & gear</CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
@@ -2208,7 +2289,7 @@ function CategoriesTable({
 }) {
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">Categories & monthly budget</CardTitle>
         <CategoryDialog mode="create" onSaved={onChanged} />
       </CardHeader>
