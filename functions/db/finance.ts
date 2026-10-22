@@ -8,6 +8,7 @@ import {
   oneTimeExpenses,
   paymentMethods,
   recurringClients,
+  renewalReminders,
   recurringExpenses,
   type ExpenseCategoryRow,
   type FinanceSettingsRow,
@@ -152,6 +153,13 @@ export async function deleteCategory(db: DB, id: number): Promise<void> {
 }
 
 // Recurring clients
+export async function getRecurringClient(
+  db: DB,
+  id: number,
+): Promise<RecurringClientRow | undefined> {
+  return db.select().from(recurringClients).where(eq(recurringClients.id, id)).get();
+}
+
 export async function createRecurringClient(
   db: DB,
   data: NewRecurringClientRow,
@@ -199,6 +207,7 @@ export async function deleteRecurringClient(
   if (posts > 0) return { ok: false, reason: "has_posts", posts };
 
   await db.delete(contentSeedLog).where(eq(contentSeedLog.clientId, id)).run();
+  await db.delete(renewalReminders).where(eq(renewalReminders.clientId, id)).run();
   await db.delete(recurringClients).where(eq(recurringClients.id, id)).run();
   return { ok: true };
 }

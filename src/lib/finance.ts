@@ -33,8 +33,23 @@ export interface RecurringClient {
   weeklyPostTarget: number | null;
   /** Lowercase 3-letter day codes joined by commas, e.g. "tue,fri". */
   postingDays: string | null;
+  /** YYYY-MM-DD the agreement was signed. Renewals count from here. */
+  signedDate: string | null;
+  /** 6 or 12 (auto-renewing), 0 for month-to-month, null if not recorded. */
+  termMonths: number | null;
+  /** YYYY-MM-DD last day of service, once the client has left. */
+  endedDate: string | null;
+  /** Whole dollars added to the estimated lifetime value; negative takes off. */
+  ltvAdjustment: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SentReminder {
+  clientName: string;
+  renewalDate: string;
+  daysBefore: number;
+  sentAt: string;
 }
 
 export interface RecurringExpense {
@@ -411,6 +426,20 @@ export const finance = {
     }),
   deleteClient: (id: number) =>
     jsonReq<{ ok: true }>(`/api/admin/finance/clients/${id}`, { method: "DELETE" }),
+
+  renewalReminders: () =>
+    jsonReq<{ recipients: string; recent: SentReminder[] }>(
+      "/api/admin/finance/renewal-reminders",
+    ),
+  setReminderRecipients: (recipients: string) =>
+    jsonReq<{ ok: true; recipients: string }>("/api/admin/finance/renewal-reminders", {
+      method: "PUT",
+      body: JSON.stringify({ recipients }),
+    }),
+  testReminder: () =>
+    jsonReq<{ ok: true; sentTo: string[] }>("/api/admin/finance/renewal-reminders", {
+      method: "POST",
+    }),
 
   // Recurring expenses
   createRecurringExpense: (data: Partial<RecurringExpense>) =>

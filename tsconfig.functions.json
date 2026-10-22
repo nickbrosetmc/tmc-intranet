@@ -11,5 +11,5 @@
     "noUnusedLocals": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["functions/**/*.ts"]
+  "include": ["functions/**/*.ts", "workers/**/*.ts"]
 }

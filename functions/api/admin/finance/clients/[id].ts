@@ -3,9 +3,10 @@ import type { Env } from "../../../../lib/auth";
 import { getDb } from "../../../../db";
 import {
   deleteRecurringClient,
+  getRecurringClient,
   updateRecurringClient,
 } from "../../../../db/finance";
-import type { NewRecurringClientRow } from "../../../../db/schema";
+import { datesInOrder, parseClientFields } from "../../../../lib/clientFields";
 
 function parseId(p: Record<string, string | string[]>): number | null {
   const raw = p.id;
@@ -20,14 +21,26 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
   const id = parseId(params);
   if (!id) return Response.json({ error: "Invalid id" }, { status: 400 });
 
-  let body: Partial<NewRecurringClientRow>;
+  let body: Record<string, unknown>;
   try {
-    body = (await request.json()) as Partial<NewRecurringClientRow>;
+    body = (await request.json()) as Record<string, unknown>;
   } catch {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
+  const parsed = parseClientFields(body);
+  if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
+
   const db = getDb(env.DB);
-  await updateRecurringClient(db, id, body);
+  const existing = await getRecurringClient(db, id);
+  if (!existing) return Response.json({ error: "Not found" }, { status: 404 });
+  // Editing one date alone mustn't leave the pair backwards.
+  const signed = parsed.fields.signedDate !== undefined ? parsed.fields.signedDate : existing.signedDate;
+  const ended = parsed.fields.endedDate !== undefined ? parsed.fields.endedDate : existing.endedDate;
+  if (!datesInOrder(signed, ended)) {
+    return Response.json({ error: "The end date can't be before the signed date" }, { status: 400 });
+  }
+
+  await updateRecurringClient(db, id, parsed.fields);
   return Response.json({ ok: true });
 };
 
