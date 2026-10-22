@@ -24,7 +24,7 @@ import {
 } from "../../src/lib/renewal";
 
 export const RECIPIENTS_KEY = "renewal_notify_emails";
-const PORTAL_URL = "https://portal.tmctechhub.com/admin/finance";
+const PORTAL_URL = "https://portal.tmctechhub.com/admin/finance/clients";
 
 export interface DueReminder {
   client: RecurringClientRow;
