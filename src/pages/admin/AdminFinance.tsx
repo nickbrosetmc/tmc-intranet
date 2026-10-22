@@ -71,11 +71,22 @@ import {
   type OneTimeExpense,
   type RecurringClient,
   type RecurringExpense,
+  type SentReminder,
 } from "@/lib/finance";
 import { todayYmd } from "@/lib/tasks";
+import {
+  clientLifetime,
+  formatTenure,
+  inSegment,
+  lifetimeAverages,
+  type ClientLifetime,
+  type Segment,
+} from "@/lib/clientLifetime";
+import { daysBetween } from "@/lib/renewal";
 
 const TABS = [
   { id: "revenue", label: "Revenue" },
+  { id: "lifetime", label: "Client lifetime" },
   { id: "operating", label: "Operating" },
   { id: "payroll", label: "Payroll" },
   { id: "planning", label: "Planning & Gear" },
@@ -226,6 +237,7 @@ export function AdminFinance() {
           <OneOffInvoicesTable d={d} onChanged={refresh} />
         </div>
       )}
+      {tab === "lifetime" && <ClientLifetimeSection d={d} onChanged={refresh} />}
       {tab === "operating" && (
         <RecurringExpensesTable
           d={d}
@@ -594,6 +606,10 @@ function ClientDialog({
     invoiceDay: client?.invoiceDay ?? 1,
     isActive: client?.isActive ?? true,
     notes: client?.notes ?? "",
+    signedDate: client?.signedDate ?? "",
+    termMonths: client?.termMonths ?? null,
+    endedDate: client?.endedDate ?? "",
+    ltvAdjustment: client?.ltvAdjustment ?? 0,
   });
   const [saving, setSaving] = useState(false);
 
@@ -611,6 +627,11 @@ function ClientDialog({
         invoiceDay: form.invoiceDay,
         isActive: form.isActive,
         notes: form.notes || null,
+        signedDate: form.signedDate || null,
+        termMonths: form.termMonths,
+        // Leaving dates the end of their lifetime; coming back clears it.
+        endedDate: form.isActive ? null : form.endedDate || todayYmd(),
+        ltvAdjustment: form.ltvAdjustment || null,
       };
       if (mode === "create") {
         await finance.createClient(payload);
@@ -697,6 +718,46 @@ function ClientDialog({
             <Label>Notes</Label>
             <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
+          <div className="space-y-1.5">
+            <Label>Signed</Label>
+            <Input
+              type="date"
+              value={form.signedDate}
+              onChange={(e) => setForm({ ...form, signedDate: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Term</Label>
+            <TermSelect
+              value={form.termMonths}
+              onChange={(termMonths) => setForm({ ...form, termMonths })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>LTV adjustment ($)</Label>
+            <Input
+              type="number"
+              value={form.ltvAdjustment || ""}
+              placeholder="0"
+              onChange={(e) => setForm({ ...form, ltvAdjustment: Number(e.target.value) || 0 })}
+            />
+          </div>
+          {!form.isActive && (
+            <div className="space-y-1.5">
+              <Label>Left on</Label>
+              <Input
+                type="date"
+                value={form.endedDate}
+                min={form.signedDate || undefined}
+                onChange={(e) => setForm({ ...form, endedDate: e.target.value })}
+              />
+            </div>
+          )}
+          <p className="col-span-2 text-xs text-muted-foreground -mt-1">
+            Lifetime value is estimated from the monthly amount and months billed,
+            plus one-off invoices under this name. Use the adjustment to add or take
+            off what that misses, like a past price change, a comped month, or a setup fee.
+          </p>
           <label className="flex items-center gap-2 col-span-2 text-sm">
             <input
               type="checkbox"
@@ -718,6 +779,466 @@ function ClientDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── Client lifetime ─────────────────────────────────────────────────────
+
+const SEGMENTS: { id: Segment; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "current", label: "Current" },
+  { id: "past", label: "Past" },
+];
+
+const TENURE_LABEL: Record<Segment, string> = {
+  all: "Average tenure",
+  current: "Average tenure so far",
+  past: "Average lifetime",
+};
+
+function ClientLifetimeSection({
+  d,
+  onChanged,
+}: {
+  d: FinanceDashboard;
+  onChanged: () => void;
+}) {
+  const today = todayYmd();
+  const [segment, setSegment] = useState<Segment>("all");
+  const rows = useMemo(
+    () => d.recurringClients.map((c) => clientLifetime(c, d.oneOffInvoices, today)),
+    [d, today],
+  );
+  const avg = lifetimeAverages(rows, segment);
+  const visible = rows.filter((r) => inSegment(r, segment)).sort(byLifetimeOrder);
+
+  async function save(c: RecurringClient, patch: Partial<RecurringClient>) {
+    try {
+      await finance.updateClient(c.id, patch);
+      onChanged();
+    } catch (e) {
+      toast.error(`Couldn't save: ${(e as Error).message}`);
+      onChanged();
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <p className="text-sm text-muted-foreground">
+          How long retainer clients stay, what each has been worth, and when they renew.
+        </p>
+        <div className="inline-flex rounded-md border bg-card p-0.5" role="group" aria-label="Which clients">
+          {SEGMENTS.map((sg) => (
+            <button
+              key={sg.id}
+              type="button"
+              onClick={() => setSegment(sg.id)}
+              aria-pressed={segment === sg.id}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                segment === sg.id
+                  ? "bg-tmc-dark text-white"
+                  : "text-muted-foreground hover:text-tmc-dark"
+              }`}
+            >
+              {sg.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard
+          label="Average LTV"
+          value={avg.avgLtv == null ? "—" : fmtMoney(avg.avgLtv)}
+          subtitle={avg.medianLtv == null ? "no dated clients yet" : `median ${fmtMoney(avg.medianLtv)}`}
+        />
+        <StatCard
+          label={TENURE_LABEL[segment]}
+          value={avg.avgTenure == null ? "—" : formatTenure(avg.avgTenure)}
+          subtitle={
+            avg.avgTenure == null
+              ? "no dated clients yet"
+              : `${avg.avgTenure.toFixed(1)} months · median ${formatTenure(avg.medianTenure)}`
+          }
+        />
+        <StatCard
+          label="Total lifetime revenue"
+          value={fmtMoney(avg.totalLtv)}
+          subtitle="gross, across the clients counted"
+        />
+        <StatCard
+          label="Clients counted"
+          value={String(avg.counted)}
+          subtitle={
+            avg.missing > 0
+              ? `${avg.missing} more need dates below`
+              : segment === "current"
+                ? "still adding to both averages"
+                : "every client is dated"
+          }
+          tone={avg.missing > 0 ? "warn" : undefined}
+        />
+      </div>
+
+      <Card>
+        <CardContent className="pt-6">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Client</TableHead>
+                <TableHead>Signed</TableHead>
+                <TableHead>Term</TableHead>
+                <TableHead>Renews / left</TableHead>
+                <TableHead>Tenure</TableHead>
+                <TableHead className="text-right">Monthly</TableHead>
+                <TableHead className="text-right">LTV</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visible.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
+                    {segment === "past" ? "No past clients." : "No clients here yet."}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                visible.map((r) => {
+                  const c = r.client;
+                  return (
+                    <TableRow key={c.id} className={!c.isActive ? "bg-muted/30" : undefined}>
+                      <TableCell className="font-medium">
+                        {c.name}
+                        {!c.isActive && (
+                          <span className="ml-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+                            past
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <InlineDate
+                          value={c.signedDate}
+                          max={c.endedDate ?? undefined}
+                          label={`${c.name} signed date`}
+                          onSave={(v) => save(c, { signedDate: v })}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TermSelect
+                          compact
+                          value={c.termMonths}
+                          onChange={(v) => void save(c, { termMonths: v })}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {c.isActive ? (
+                          <RenewalCell r={r} today={today} />
+                        ) : (
+                          <InlineDate
+                            value={c.endedDate}
+                            min={c.signedDate ?? undefined}
+                            label={`${c.name} left on`}
+                            onSave={(v) => save(c, { endedDate: v })}
+                          />
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {r.gap && r.gap !== "no_retainer" ? (
+                          <span className="text-xs text-amber-700">{GAP_HINT[r.gap]}</span>
+                        ) : r.gap === "no_retainer" ? (
+                          <span className="text-xs text-muted-foreground">No retainer</span>
+                        ) : (
+                          formatTenure(r.tenureMonths)
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-sm">
+                        {fmtMoney(c.monthlyAmount)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {r.gap ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <span title={ltvBreakdown(r)} className="cursor-help">
+                            {fmtMoney(r.ltv)}
+                            {r.adjustment !== 0 && (
+                              <span className="ml-1 text-[10px] text-muted-foreground">adj.</span>
+                            )}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <ClientDialog mode="edit" client={c} d={d} onSaved={onChanged} />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+          <p className="text-xs text-muted-foreground mt-3">
+            LTV is the monthly amount times months billed, plus one-off invoices logged under
+            the same name, plus any adjustment (hover a figure for the breakdown). Renewals
+            follow the Terms: 6- and 12-month terms renew for the same length; notice is due
+            30 days before.
+          </p>
+        </CardContent>
+      </Card>
+
+      <RenewalRemindersCard />
+    </div>
+  );
+}
+
+function RenewalRemindersCard() {
+  const [saved, setSaved] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [recent, setRecent] = useState<SentReminder[]>([]);
+  const [busy, setBusy] = useState<"save" | "test" | null>(null);
+
+  useEffect(() => {
+    finance
+      .renewalReminders()
+      .then((r) => {
+        setSaved(r.recipients);
+        setDraft(r.recipients);
+        setRecent(r.recent);
+      })
+      .catch((e: Error) => toast.error(`Couldn't load reminder settings: ${e.message}`));
+  }, []);
+
+  async function save() {
+    setBusy("save");
+    try {
+      const r = await finance.setReminderRecipients(draft);
+      setSaved(r.recipients);
+      setDraft(r.recipients);
+      toast.success(r.recipients ? "Reminder recipients saved" : "Reminders turned off");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function test() {
+    setBusy("test");
+    try {
+      const r = await finance.testReminder();
+      toast.success(`Test sent to ${r.sentTo.join(", ")}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Renewal reminders</CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          Emailed 45 and 30 days before each renewal, so there's time to send a rate change,
+          an updated agreement, or the current Terms before the 30-day notice date. Clients
+          need a signed date and a 6- or 12-month term.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-end gap-2 flex-wrap">
+          <div className="space-y-1.5 flex-1 min-w-[240px]">
+            <Label htmlFor="renewal-recipients">Send to</Label>
+            <Input
+              id="renewal-recipients"
+              value={draft}
+              disabled={saved == null}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="you@marketingtmc.com"
+            />
+          </div>
+          <Button
+            variant="outline"
+            onClick={save}
+            disabled={busy != null || saved == null || draft.trim() === saved}
+          >
+            {busy === "save" ? "Saving…" : "Save"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={test}
+            disabled={busy != null || !saved}
+            title="Sends an example reminder for the next client to renew. Nothing is logged."
+          >
+            {busy === "test" ? "Sending…" : "Send a test"}
+          </Button>
+        </div>
+        <div className="text-xs text-muted-foreground space-y-1">
+          {recent.length === 0 ? (
+            <p>None sent yet.</p>
+          ) : (
+            <>
+              <p className="font-medium text-tmc-slate">Recently sent</p>
+              {recent.map((r) => (
+                <p key={`${r.clientName}-${r.renewalDate}-${r.daysBefore}`}>
+                  {r.clientName}: {r.daysBefore}-day reminder for the {fmtYmd(r.renewalDate)} renewal,
+                  sent {fmtYmd(r.sentAt.slice(0, 10))}
+                </p>
+              ))}
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const GAP_HINT: Record<Exclude<ClientLifetime["gap"], null | "no_retainer">, string> = {
+  no_signed_date: "Add the signed date",
+  no_end_date: "Add the date they left",
+  not_started: "Not started yet",
+};
+
+/** Current clients by soonest renewal, then past clients by most recent exit. */
+function byLifetimeOrder(a: ClientLifetime, b: ClientLifetime): number {
+  if (a.client.isActive !== b.client.isActive) return a.client.isActive ? -1 : 1;
+  if (a.client.isActive) {
+    const ra = a.nextRenewal ?? "9999";
+    const rb = b.nextRenewal ?? "9999";
+    if (ra !== rb) return ra < rb ? -1 : 1;
+  } else {
+    // Missing an exit date sorts first: it's the row that needs attention.
+    const ea = a.client.endedDate ?? "9999";
+    const eb = b.client.endedDate ?? "9999";
+    if (ea !== eb) return ea > eb ? -1 : 1;
+  }
+  return a.client.name.localeCompare(b.client.name);
+}
+
+function ltvBreakdown(r: ClientLifetime): string {
+  const parts = [
+    `${r.cyclesBilled} ${r.cyclesBilled === 1 ? "month" : "months"} × ${fmtMoney(r.client.monthlyAmount)} = ${fmtMoney(r.retainerRevenue)}`,
+  ];
+  if (r.oneOffRevenue) parts.push(`one-off invoices ${fmtMoney(r.oneOffRevenue)}`);
+  if (r.adjustment) parts.push(`adjustment ${fmtMoney(r.adjustment, { sign: true })}`);
+  return parts.join("\n");
+}
+
+function RenewalCell({ r, today }: { r: ClientLifetime; today: string }) {
+  const c = r.client;
+  if (!c.signedDate) return <span className="text-muted-foreground">—</span>;
+  if (c.termMonths === 0) {
+    return <span className="text-xs text-muted-foreground">Month-to-month</span>;
+  }
+  if (c.termMonths == null || !r.nextRenewal) {
+    return <span className="text-xs text-amber-700">Set the term</span>;
+  }
+  const days = daysBetween(today, r.nextRenewal);
+  const tone =
+    days <= 30
+      ? "bg-red-100 text-red-800"
+      : days <= 45
+        ? "bg-tmc-gold/30 text-tmc-dark"
+        : null;
+  return (
+    <div className="leading-tight">
+      <div className="flex items-center gap-1.5 text-sm">
+        {fmtYmd(r.nextRenewal)}
+        {tone && (
+          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${tone}`}>
+            {days === 0 ? "today" : `${days}d`}
+          </span>
+        )}
+      </div>
+      <div className="text-[11px] text-muted-foreground">notice by {fmtYmd(r.noticeBy!)}</div>
+    </div>
+  );
+}
+
+/** "Mar 1, 2027" from a calendar date, read as a local day. */
+function fmtYmd(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+const TERM_CHOICES: { value: string; label: string; months: number | null }[] = [
+  { value: "none", label: "Not set", months: null },
+  { value: "6", label: "6 months", months: 6 },
+  { value: "12", label: "12 months", months: 12 },
+  { value: "0", label: "Month-to-month", months: 0 },
+];
+
+function TermSelect({
+  value,
+  onChange,
+  compact = false,
+}: {
+  value: number | null;
+  onChange: (months: number | null) => void;
+  compact?: boolean;
+}) {
+  return (
+    <Select
+      value={value == null ? "none" : String(value)}
+      onValueChange={(v) => onChange(TERM_CHOICES.find((t) => t.value === v)?.months ?? null)}
+    >
+      <SelectTrigger className={compact ? "h-8 w-[136px] text-xs" : undefined}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {TERM_CHOICES.map((t) => (
+          <SelectItem key={t.value} value={t.value}>
+            {t.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/**
+ * A date that saves itself. Commits on blur rather than on change: typing a
+ * year digit by digit passes through valid dates like 0002-01-15, and each
+ * would otherwise be saved.
+ */
+function InlineDate({
+  value,
+  onSave,
+  min,
+  max,
+  label,
+}: {
+  value: string | null;
+  onSave: (v: string | null) => Promise<void>;
+  min?: string;
+  max?: string;
+  label: string;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  useEffect(() => setDraft(value ?? ""), [value]);
+
+  function commit() {
+    const next = draft || null;
+    if (next === value) return;
+    void onSave(next);
+  }
+
+  return (
+    <Input
+      type="date"
+      aria-label={label}
+      value={draft}
+      min={min}
+      max={max}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      className={`h-8 w-[150px] text-xs ${draft ? "" : "border-amber-300"}`}
+    />
   );
 }
 
@@ -1893,10 +2414,15 @@ function ActiveToggle({
   async function flip() {
     setBusy(true);
     try {
-      await finance.updateClient(client.id, { isActive: !client.isActive });
+      // Retiring dates the end of the client's lifetime (today, unless one
+      // was already set); reactivating clears it.
+      await finance.updateClient(client.id, {
+        isActive: !client.isActive,
+        endedDate: client.isActive ? client.endedDate ?? todayYmd() : null,
+      });
       toast.success(
         client.isActive
-          ? `${client.name} moved to inactive`
+          ? `${client.name} moved to inactive. Adjust the date they left under Client lifetime.`
           : `${client.name} reactivated`,
       );
       onChanged();

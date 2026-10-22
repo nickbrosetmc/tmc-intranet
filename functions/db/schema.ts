@@ -284,11 +284,32 @@ export const recurringClients = sqliteTable("recurring_clients", {
   weeklyPostTarget: integer("weekly_post_target"),
   /** Comma-separated lowercase 3-letter day codes (e.g. "tue,fri"); null = no fixed schedule. */
   postingDays: text("posting_days"),
+  /** YYYY-MM-DD the agreement was signed. Renewals count from here. */
+  signedDate: text("signed_date"),
+  /** 6 or 12 (auto-renewing, Terms §3.3), 0 for month-to-month, null if not recorded. */
+  termMonths: integer("term_months"),
+  /** YYYY-MM-DD last day of service, once the client has left. */
+  endedDate: text("ended_date"),
+  /** Whole dollars added to the estimated lifetime value; negative takes off. */
+  ltvAdjustment: integer("ltv_adjustment"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 export type RecurringClientRow = typeof recurringClients.$inferSelect;
 export type NewRecurringClientRow = typeof recurringClients.$inferInsert;
+
+/** One row per renewal reminder email sent; see migration 0039. */
+export const renewalReminders = sqliteTable("renewal_reminders", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  clientId: integer("client_id")
+    .notNull()
+    .references(() => recurringClients.id),
+  renewalDate: text("renewal_date").notNull(),
+  daysBefore: integer("days_before").notNull(),
+  sentTo: text("sent_to").notNull(),
+  sentAt: text("sent_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type RenewalReminderRow = typeof renewalReminders.$inferSelect;
 
 export const recurringExpenses = sqliteTable("recurring_expenses", {
   id: integer("id").primaryKey({ autoIncrement: true }),

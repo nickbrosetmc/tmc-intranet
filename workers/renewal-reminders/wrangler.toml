@@ -1,0 +1,19 @@
+# Daily trigger for renewal reminder emails. See index.ts.
+# Deploy:  npx wrangler deploy --config workers/renewal-reminders/wrangler.toml
+# Secret:  npx wrangler secret put CRON_SECRET --config workers/renewal-reminders/wrangler.toml
+#          (the same value as the tmc-intranet Pages project's CRON_SECRET)
+
+name = "tmc-renewal-reminders"
+main = "index.ts"
+compatibility_date = "2025-09-01"
+# Runs on its schedule only; no public URL.
+workers_dev = false
+preview_urls = false
+
+[triggers]
+# 13:00 UTC: 8 or 9am across US time zones, so "today" is the same date
+# whether it's read in UTC or locally.
+crons = ["0 13 * * *"]
+
+[vars]
+PORTAL_URL = "https://portal.tmctechhub.com"
