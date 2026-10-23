@@ -7,6 +7,8 @@ import {
   updateRecurringClient,
 } from "../../../../db/finance";
 import { datesInOrder, parseClientFields } from "../../../../lib/clientFields";
+import { recordRateChange } from "../../../../db/rateChanges";
+import { utcToday } from "../../../../lib/dates";
 
 function parseId(p: Record<string, string | string[]>): number | null {
   const raw = p.id;
@@ -40,7 +42,29 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
     return Response.json({ error: "The end date can't be before the signed date" }, { status: 400 });
   }
 
-  await updateRecurringClient(db, id, parsed.fields);
+  // A new monthly amount is a change in what the client pays, not a
+  // correction to the past: record it, effective today, so lifetime value
+  // keeps the old rate for the months already billed. (The client dialog
+  // records changes itself with a date and a note; this catches the rest.)
+  const { monthlyAmount, ...rest } = parsed.fields;
+  if (monthlyAmount !== undefined && monthlyAmount !== existing.monthlyAmount) {
+    await recordRateChange(
+      db,
+      {
+        clientId: id,
+        effectiveDate: utcToday(),
+        fromAmount: existing.monthlyAmount,
+        toAmount: monthlyAmount,
+        note: null,
+      },
+      utcToday(),
+    );
+    // Recording a change dated today already set the current rate; make
+    // sure, in case an earlier change is somehow dated later.
+    await updateRecurringClient(db, id, { ...rest, monthlyAmount });
+  } else {
+    await updateRecurringClient(db, id, rest);
+  }
   return Response.json({ ok: true });
 };
 

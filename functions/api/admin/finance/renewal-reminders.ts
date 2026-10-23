@@ -15,8 +15,8 @@ import {
   parseEmails,
   reminderRecipients,
   renewalEmail,
-  utcToday,
 } from "../../../lib/renewalReminders";
+import { utcToday } from "../../../lib/dates";
 import { daysBetween, nextRenewal } from "../../../../src/lib/renewal";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

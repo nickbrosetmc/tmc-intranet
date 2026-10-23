@@ -42,6 +42,7 @@ import {
   TermSelect,
 } from "@/pages/admin/AdminFinance";
 import { ProjectDialog } from "@/pages/admin/ProjectDialog";
+import { RateHistoryList, RecordRateChangeDialog } from "@/pages/admin/RateHistory";
 import { LaunchLabel, fmtLongDay } from "@/pages/admin/ProjectParts";
 
 const DAY_NAMES: Record<string, string> = {
@@ -84,7 +85,7 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
   const today = todayYmd();
   const client = d?.recurringClients.find((c) => c.id === id) ?? null;
   const life = useMemo(
-    () => (client && d ? clientLifetime(client, d.oneOffInvoices, today) : null),
+    () => (client && d ? clientLifetime(client, d.oneOffInvoices, today, d.rateChanges) : null),
     [client, d, today],
   );
 
@@ -116,6 +117,7 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
   );
   const portal = accounts.find((a) => a.id === client.portalClientId) ?? null;
   const openRequests = requests.filter((r) => r.status !== "done").length;
+  const rateChanges = d.rateChanges.filter((r) => r.clientId === client.id);
 
   return (
     <div className="space-y-6">
@@ -175,6 +177,19 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
               )}
             </div>
           </Section>
+
+          {/* Project-only clients have no monthly rate to track. Giving one a
+              monthly amount (Edit) records that change and shows this. */}
+          {life.gap !== "no_retainer" && (
+            <Section
+              title="Rate history"
+              action={
+                <RecordRateChangeDialog client={client} changes={rateChanges} onSaved={load} />
+              }
+            >
+              <RateHistoryList client={client} changes={rateChanges} onChanged={load} />
+            </Section>
+          )}
 
           <Section
             title="Projects"
@@ -272,6 +287,7 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
                       life.gap
                         ? "Add the signed date to estimate it"
                         : `${life.cyclesBilled} ${life.cyclesBilled === 1 ? "month" : "months"} billed` +
+                          (life.rateVaried ? " at the rate each month" : "") +
                           (life.oneOffRevenue ? ` + ${fmtMoney(life.oneOffRevenue)} one-off` : "")
                     }
                   />

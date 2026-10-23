@@ -85,7 +85,7 @@ export function AdminOverview() {
     const endBalance = projection.length
       ? projection[projection.length - 1].balance
       : d.settings.currentBalance;
-    const lifetimes = d.recurringClients.map((c) => clientLifetime(c, d.oneOffInvoices, today));
+    const lifetimes = d.recurringClients.map((c) => clientLifetime(c, d.oneOffInvoices, today, d.rateChanges));
     const renewals = lifetimes
       .filter((l) => l.nextRenewal && daysBetween(today, l.nextRenewal) <= RENEWAL_WINDOW_DAYS)
       .sort((a, b) => a.nextRenewal!.localeCompare(b.nextRenewal!));

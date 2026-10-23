@@ -1,15 +1,16 @@
 // How long each retainer client has been with us, what they've been worth,
 // and the averages across clients. Pure functions; no React.
 //
-// Lifetime value is an estimate: the current monthly amount times the
-// billing cycles started between the signed date and the last day of
-// service (today, for current clients), plus one-off invoices logged under
-// the same client name, plus a hand-entered adjustment for anything the
-// estimate can't see (a price change, a comped month, a setup fee). Gross,
-// before payment fees, since it's what the client paid.
+// Lifetime value is an estimate: every billing cycle started between the
+// signed date and the last day of service (today, for current clients), each
+// at the rate in effect that month (rates.ts), plus one-off invoices logged
+// under the same client name, plus a hand-entered adjustment for anything
+// the estimate can't see (a comped month, a setup fee). Gross, before
+// payment fees, since it's what the client paid.
 
 import { addMonths, parseYmd, toYmd } from "./agreement";
 import { nextRenewal, noticeDeadline } from "./renewal";
+import { rateOn, type RateChange } from "./rates";
 import type { OneOffInvoice, RecurringClient } from "./finance";
 
 export type LifetimeGap = "no_retainer" | "no_signed_date" | "no_end_date" | "not_started";
@@ -22,6 +23,10 @@ export interface ClientLifetime {
   tenureMonths: number | null;
   /** Billing cycles started, the first on the signed date. */
   cyclesBilled: number;
+  /** Whether the rate changed over the client's lifetime. */
+  rateVaried: boolean;
+  /** The rate every cycle was billed at, when it never changed. */
+  uniformRate: number | null;
   retainerRevenue: number;
   oneOffRevenue: number;
   adjustment: number;
@@ -34,7 +39,10 @@ export function clientLifetime(
   client: RecurringClient,
   invoices: OneOffInvoice[],
   today: string,
+  /** Every client's changes, or just this one's; others are ignored. */
+  rateChanges: RateChange[] = [],
 ): ClientLifetime {
+  const changes = rateChanges.filter((r) => r.clientId === client.id);
   const key = normalizeName(client.name);
   const oneOffRevenue = invoices
     .filter((i) => normalizeName(i.clientName) === key)
@@ -43,15 +51,20 @@ export function clientLifetime(
 
   const through = client.isActive ? today : client.endedDate;
   let gap: LifetimeGap | null = null;
-  if (client.monthlyAmount <= 0) gap = "no_retainer";
+  // A retainer client is one who has paid monthly at some point, so a
+  // client who dropped to $0 still has a lifetime worth counting.
+  const everPaid =
+    client.monthlyAmount > 0 || changes.some((r) => r.fromAmount > 0 || r.toAmount > 0);
+  if (!everPaid) gap = "no_retainer";
   else if (!client.signedDate) gap = "no_signed_date";
   else if (!through) gap = "no_end_date";
   else if (client.signedDate > through) gap = "not_started";
 
   const dated = !!client.signedDate && !!through && client.signedDate <= through;
-  const cyclesBilled = dated ? countCycles(client.signedDate!, through!) : 0;
+  const cycles = dated ? cycleDates(client.signedDate!, through!) : [];
+  const rates = cycles.map((date) => rateOn(date, changes, client.monthlyAmount));
   const tenureMonths = dated ? monthsBetween(client.signedDate!, dayAfter(through!)) : null;
-  const retainerRevenue = cyclesBilled * client.monthlyAmount;
+  const retainerRevenue = rates.reduce((s, r) => s + r, 0);
 
   const renewal = client.isActive ? nextRenewal(client.signedDate, client.termMonths, today) : null;
 
@@ -59,7 +72,9 @@ export function clientLifetime(
     client,
     gap,
     tenureMonths,
-    cyclesBilled,
+    cyclesBilled: cycles.length,
+    rateVaried: new Set(rates).size > 1,
+    uniformRate: new Set(rates).size === 1 ? rates[0] : null,
     retainerRevenue,
     oneOffRevenue,
     adjustment,
@@ -119,13 +134,13 @@ export function formatTenure(months: number | null): string {
   return [yrs, mos].filter(Boolean).join(" ");
 }
 
-/** Billing cycles that started on or before `through`. */
-function countCycles(start: string, through: string): number {
+/** The start date of each billing cycle on or before `through`. */
+function cycleDates(start: string, through: string): string[] {
   const s = parseYmd(start)!;
   const t = parseYmd(through)!;
-  let n = 0;
-  while (addMonths(s, n) <= t) n++;
-  return n;
+  const dates: string[] = [];
+  for (let n = 0; addMonths(s, n) <= t; n++) dates.push(toYmd(addMonths(s, n)));
+  return dates;
 }
 
 /** Fractional months from `from` to `to` (exclusive), calendar-aware. */

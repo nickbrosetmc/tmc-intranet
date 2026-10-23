@@ -9,6 +9,7 @@ import {
   paymentMethods,
   recurringClients,
   renewalReminders,
+  clientRateChanges,
   recurringExpenses,
   type ExpenseCategoryRow,
   type FinanceSettingsRow,
@@ -213,6 +214,7 @@ export async function deleteRecurringClient(
 
   await db.delete(contentSeedLog).where(eq(contentSeedLog.clientId, id)).run();
   await db.delete(renewalReminders).where(eq(renewalReminders.clientId, id)).run();
+  await db.delete(clientRateChanges).where(eq(clientRateChanges.clientId, id)).run();
   await db.delete(recurringClients).where(eq(recurringClients.id, id)).run();
   return { ok: true };
 }

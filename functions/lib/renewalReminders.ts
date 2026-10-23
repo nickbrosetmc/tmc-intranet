@@ -2,7 +2,7 @@
 // renewal, so there's time to send a rate change, an updated agreement or
 // the current Terms before the 30-day notice date. Run once a day by the
 // tmc-renewal-reminders Worker (workers/renewal-reminders) through
-// /api/cron/renewal-reminders.
+// /api/cron/daily.
 //
 // Each sent reminder is logged; a reminder already in the log is never sent
 // again, and a send that fails isn't logged, so the next day retries it.
@@ -199,9 +199,4 @@ export function renewalEmail(
     </div>`;
 
   return { subject, html };
-}
-
-/** UTC calendar date. The job runs at 13:00 UTC, the same date across the US. */
-export function utcToday(): string {
-  return new Date().toISOString().slice(0, 10);
 }

@@ -329,6 +329,20 @@ export const clientProjects = sqliteTable("client_projects", {
 export type ClientProjectRow = typeof clientProjects.$inferSelect;
 export type NewClientProjectRow = typeof clientProjects.$inferInsert;
 
+/** One row per change to what a client pays; see migration 0041. */
+export const clientRateChanges = sqliteTable("client_rate_changes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  clientId: integer("client_id")
+    .notNull()
+    .references(() => recurringClients.id),
+  effectiveDate: text("effective_date").notNull(),
+  fromAmount: integer("from_amount").notNull(),
+  toAmount: integer("to_amount").notNull(),
+  note: text("note"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type ClientRateChangeRow = typeof clientRateChanges.$inferSelect;
+
 /** One row per renewal reminder email sent; see migration 0039. */
 export const renewalReminders = sqliteTable("renewal_reminders", {
   id: integer("id").primaryKey({ autoIncrement: true }),

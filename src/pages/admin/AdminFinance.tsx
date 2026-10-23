@@ -694,7 +694,7 @@ export function ClientDialog({
   onSaved: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
+  const blank = () => ({
     name: client?.name ?? "",
     monthlyAmount: client?.monthlyAmount ?? 0,
     paymentMethodId: client?.paymentMethodId ?? null,
@@ -705,8 +705,15 @@ export function ClientDialog({
     termMonths: client?.termMonths ?? null,
     endedDate: client?.endedDate ?? "",
     ltvAdjustment: client?.ltvAdjustment ?? 0,
+    // Only used when the monthly amount changes: when, and why.
+    rateEffective: todayYmd(),
+    rateNote: "",
   });
+  // Rebuilt each time the dialog opens, so it never edits stale values (a
+  // stale amount would be saved as a change in what the client pays).
+  const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
+  const amountChanged = mode === "edit" && form.monthlyAmount !== client!.monthlyAmount;
 
   async function submit() {
     if (!form.name.trim()) {
@@ -721,7 +728,8 @@ export function ClientDialog({
     try {
       const payload = {
         name: form.name,
-        monthlyAmount: form.monthlyAmount,
+        // A changed amount goes through the rate history below instead.
+        ...(amountChanged ? {} : { monthlyAmount: form.monthlyAmount }),
         paymentMethodId: form.paymentMethodId,
         invoiceDay: form.invoiceDay,
         isActive: form.isActive,
@@ -736,8 +744,21 @@ export function ClientDialog({
         await finance.createClient(payload);
         toast.success("Client added");
       } else {
+        if (amountChanged) {
+          // Recorded as a change, so months already billed keep their rate.
+          await finance.recordRateChange(client!.id, {
+            effectiveDate: form.rateEffective,
+            fromAmount: client!.monthlyAmount,
+            toAmount: form.monthlyAmount,
+            note: form.rateNote || null,
+          });
+        }
         await finance.updateClient(client!.id, payload);
-        toast.success("Saved");
+        toast.success(
+          amountChanged && form.rateEffective > todayYmd()
+            ? `Saved. The new rate starts ${fmtYmd(form.rateEffective)}.`
+            : "Saved",
+        );
       }
       setOpen(false);
       onSaved();
@@ -749,7 +770,13 @@ export function ClientDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setForm(blank());
+      }}
+    >
       <DialogTrigger asChild>
         {mode === "create" ? (
           <Button className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark" size="sm">
@@ -786,6 +813,33 @@ export function ClientDialog({
               onChange={(e) => setForm({ ...form, invoiceDay: Number(e.target.value) || 1 })}
             />
           </div>
+          {amountChanged && (
+            <div className="col-span-2 rounded-md border border-tmc-gold/40 bg-tmc-gold/10 p-3 space-y-3">
+              <p className="text-xs text-tmc-dark">
+                Changing from {fmtMoney(client!.monthlyAmount)} to {fmtMoney(form.monthlyAmount)} a
+                month. It's saved as a change, so months already billed keep the old rate in
+                lifetime value.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Takes effect</Label>
+                  <Input
+                    type="date"
+                    value={form.rateEffective}
+                    onChange={(e) => setForm({ ...form, rateEffective: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>What changed</Label>
+                  <Input
+                    value={form.rateNote}
+                    onChange={(e) => setForm({ ...form, rateNote: e.target.value })}
+                    placeholder="e.g. Dropped SEO, hosting only"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
           <div className="space-y-1.5 col-span-2">
             <Label>Payment method</Label>
             <Select
@@ -853,9 +907,9 @@ export function ClientDialog({
             </div>
           )}
           <p className="col-span-2 text-xs text-muted-foreground -mt-1">
-            Lifetime value is estimated from the monthly amount and months billed,
-            plus one-off invoices under this name. Use the adjustment to add or take
-            off what that misses, like a past price change, a comped month, or a setup fee.
+            Lifetime value counts each month billed at the rate in effect then, plus
+            one-off invoices under this name. Use the adjustment to add or take off
+            what that misses, like a comped month or a setup fee.
           </p>
           <label className="flex items-center gap-2 col-span-2 text-sm">
             <input
@@ -905,7 +959,7 @@ function ClientLifetimeSection({
   const today = todayYmd();
   const [segment, setSegment] = useState<Segment>("all");
   const rows = useMemo(
-    () => d.recurringClients.map((c) => clientLifetime(c, d.oneOffInvoices, today)),
+    () => d.recurringClients.map((c) => clientLifetime(c, d.oneOffInvoices, today, d.rateChanges)),
     [d, today],
   );
   const avg = lifetimeAverages(rows, segment);
@@ -1217,8 +1271,11 @@ function byLifetimeOrder(a: ClientLifetime, b: ClientLifetime): number {
 }
 
 function ltvBreakdown(r: ClientLifetime): string {
+  const months = `${r.cyclesBilled} ${r.cyclesBilled === 1 ? "month" : "months"}`;
   const parts = [
-    `${r.cyclesBilled} ${r.cyclesBilled === 1 ? "month" : "months"} × ${fmtMoney(r.client.monthlyAmount)} = ${fmtMoney(r.retainerRevenue)}`,
+    r.rateVaried
+      ? `${months} at the rate in effect each month = ${fmtMoney(r.retainerRevenue)}`
+      : `${months} × ${fmtMoney(r.uniformRate ?? r.client.monthlyAmount)} = ${fmtMoney(r.retainerRevenue)}`,
   ];
   if (r.oneOffRevenue) parts.push(`one-off invoices ${fmtMoney(r.oneOffRevenue)}`);
   if (r.adjustment) parts.push(`adjustment ${fmtMoney(r.adjustment, { sign: true })}`);

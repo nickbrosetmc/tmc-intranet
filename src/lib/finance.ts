@@ -1,5 +1,7 @@
 // Finance dashboard — types, API wrapper, and pure cashflow projection.
 
+import type { RateChange } from "./rates";
+
 export interface PaymentMethod {
   id: number;
   name: string;
@@ -111,6 +113,8 @@ export interface FinanceDashboard {
   recurringExpenses: RecurringExpense[];
   oneTimeExpenses: OneTimeExpense[];
   oneOffInvoices: OneOffInvoice[];
+  /** Every client's rate history; see rates.ts. */
+  rateChanges: RateChange[];
 }
 
 // ─── Calculations ────────────────────────────────────────────────────────
@@ -428,6 +432,19 @@ export const finance = {
     }),
   deleteClient: (id: number) =>
     jsonReq<{ ok: true }>(`/api/admin/finance/clients/${id}`, { method: "DELETE" }),
+
+  recordRateChange: (
+    clientId: number,
+    data: { effectiveDate: string; toAmount: number; fromAmount?: number | null; note?: string | null },
+  ) =>
+    jsonReq<{ change: RateChange }>(`/api/admin/finance/clients/${clientId}/rate-changes`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteRateChange: (clientId: number, changeId: number) =>
+    jsonReq<{ ok: true }>(`/api/admin/finance/clients/${clientId}/rate-changes/${changeId}`, {
+      method: "DELETE",
+    }),
 
   renewalReminders: () =>
     jsonReq<{ recipients: string; recent: SentReminder[] }>(
