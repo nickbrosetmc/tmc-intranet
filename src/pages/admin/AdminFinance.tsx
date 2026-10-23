@@ -78,11 +78,14 @@ import {
 } from "@/lib/finance";
 import { todayYmd } from "@/lib/tasks";
 import {
+  averageProjected,
   clientLifetime,
   formatTenure,
   inSegment,
   lifetimeAverages,
+  projectLifetime,
   type ClientLifetime,
+  type LifetimeProjection,
   type Segment,
 } from "@/lib/clientLifetime";
 import { daysBetween } from "@/lib/renewal";
@@ -184,6 +187,7 @@ export function FinanceDashboardPage() {
     const lifetimes = d.recurringClients.map((c) =>
       clientLifetime(c, d.oneOffInvoices, today, d.rateChanges, d.projects),
     );
+    const projected = averageProjected(lifetimes, "all", today, d.settings.projectedRenewals, d.rateChanges);
     const renewalsSoon = lifetimes.filter(
       (l) => l.nextRenewal && daysBetween(today, l.nextRenewal) <= 45,
     ).length;
@@ -200,6 +204,7 @@ export function FinanceDashboardPage() {
       start,
       end,
       low,
+      projected,
       all: lifetimeAverages(lifetimes, "all"),
       past: lifetimeAverages(lifetimes, "past"),
       renewalsSoon,
@@ -313,6 +318,14 @@ export function FinanceDashboardPage() {
             label="Average lifetime value"
             value={view.all.avgLtv == null ? "—" : fmtMoney(view.all.avgLtv)}
             rows={[
+              {
+                label: "Average projected value",
+                value: view.projected.average == null ? "—" : fmtMoney(view.projected.average),
+                note:
+                  d.settings.projectedRenewals === 0
+                    ? "through current terms"
+                    : `with ${d.settings.projectedRenewals} ${d.settings.projectedRenewals === 1 ? "renewal" : "renewals"}`,
+              },
               {
                 // Every dated client: those still here count up to today.
                 label: "Average time with us",
@@ -1307,6 +1320,20 @@ function ClientLifetimeSection({
     [d, today],
   );
   const avg = lifetimeAverages(rows, segment);
+  const renewals = d.settings.projectedRenewals;
+  const projections = new Map(
+    rows.map((r) => [r.client.id, projectLifetime(r, today, renewals, d.rateChanges)]),
+  );
+  const projectedAvg = averageProjected(rows, segment, today, renewals, d.rateChanges);
+
+  async function setRenewals(n: number) {
+    try {
+      await finance.setProjectedRenewals(n);
+      onChanged();
+    } catch (e) {
+      toast.error(`Couldn't save: ${(e as Error).message}`);
+    }
+  }
   // Project-only clients have no retainer lifetime to show; they're on
   // their profiles under Clients.
   const visible = rows
@@ -1325,26 +1352,54 @@ function ClientLifetimeSection({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Showing
-        </span>
-        <div className="inline-flex rounded-md border bg-card p-0.5" role="group" aria-label="Which clients">
-          {SEGMENTS.map((sg) => (
-            <button
-              key={sg.id}
-              type="button"
-              onClick={() => setSegment(sg.id)}
-              aria-pressed={segment === sg.id}
-              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
-                segment === sg.id
-                  ? "bg-tmc-dark text-white"
-                  : "text-muted-foreground hover:text-tmc-dark"
-              }`}
-            >
-              {sg.label}
-            </button>
-          ))}
+      <div className="flex items-center gap-x-6 gap-y-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Showing
+          </span>
+          <div className="inline-flex rounded-md border bg-card p-0.5" role="group" aria-label="Which clients">
+            {SEGMENTS.map((sg) => (
+              <button
+                key={sg.id}
+                type="button"
+                onClick={() => setSegment(sg.id)}
+                aria-pressed={segment === sg.id}
+                className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                  segment === sg.id
+                    ? "bg-tmc-dark text-white"
+                    : "text-muted-foreground hover:text-tmc-dark"
+                }`}
+              >
+                {sg.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span
+            className="text-xs font-medium uppercase tracking-widest text-muted-foreground"
+            title="How many renewals the projection assumes for each current client, after the rest of their current term"
+          >
+            Projection assumes
+          </span>
+          <div className="inline-flex rounded-md border bg-card p-0.5" role="group" aria-label="Renewals assumed">
+            {[0, 1, 2, 3].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => void setRenewals(n)}
+                aria-pressed={renewals === n}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                  renewals === n ? "bg-tmc-dark text-white" : "text-muted-foreground hover:text-tmc-dark"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {renewals === 1 ? "renewal" : "renewals"}
+          </span>
         </div>
       </div>
 
@@ -1352,7 +1407,21 @@ function ClientLifetimeSection({
         <StatCard
           label="Average LTV"
           value={avg.avgLtv == null ? "—" : fmtMoney(avg.avgLtv)}
-          subtitle={avg.medianLtv == null ? "no dated clients yet" : `median ${fmtMoney(avg.medianLtv)}`}
+          subtitle={
+            avg.medianLtv == null
+              ? "no dated clients yet"
+              : `median ${fmtMoney(avg.medianLtv)} · ${fmtMoney(avg.totalLtv)} total`
+          }
+        />
+        <StatCard
+          label="Average projected LTV"
+          value={projectedAvg.average == null ? "—" : fmtMoney(projectedAvg.average)}
+          subtitle={
+            projectedAvg.average == null
+              ? "needs dates and terms"
+              : `${renewals === 0 ? "through current terms" : `with ${renewals} ${renewals === 1 ? "renewal" : "renewals"}`}` +
+                (projectedAvg.noTerm ? ` · ${projectedAvg.noTerm} without a term` : "")
+          }
         />
         <StatCard
           label={TENURE_LABEL[segment]}
@@ -1362,11 +1431,6 @@ function ClientLifetimeSection({
               ? "no dated clients yet"
               : `${avg.avgTenure.toFixed(1)} months · median ${formatTenure(avg.medianTenure)}`
           }
-        />
-        <StatCard
-          label="Total lifetime revenue"
-          value={fmtMoney(avg.totalLtv)}
-          subtitle="gross, across the clients counted"
         />
         <StatCard
           label="Clients counted"
@@ -1394,13 +1458,14 @@ function ClientLifetimeSection({
                 <TableHead>Tenure</TableHead>
                 <TableHead className="text-right">Monthly</TableHead>
                 <TableHead className="text-right">LTV</TableHead>
+                <TableHead className="text-right">Projected</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visible.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-6">
                     {segment === "past" ? "No past clients." : "No clients here yet."}
                   </TableCell>
                 </TableRow>
@@ -1467,6 +1532,9 @@ function ClientLifetimeSection({
                             )}
                           </span>
                         )}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        <ProjectedCell p={projections.get(c.id) ?? null} renewals={renewals} />
                       </TableCell>
                       <TableCell className="text-right">
                         <ClientDialog mode="edit" client={c} d={d} onSaved={onChanged} />
@@ -1612,6 +1680,38 @@ function byLifetimeOrder(a: ClientLifetime, b: ClientLifetime): number {
     if (ea !== eb) return ea > eb ? -1 : 1;
   }
   return a.client.name.localeCompare(b.client.name);
+}
+
+/** The projected value, with what it assumes on hover. */
+export function ProjectedCell({ p, renewals }: { p: LifetimeProjection | null; renewals: number }) {
+  if (!p) return <span className="text-muted-foreground">—</span>;
+  if (p.basis === "no_term") return <span className="text-xs text-amber-700">Set the term</span>;
+  if (p.basis === "final") return <span className="text-muted-foreground">{fmtMoney(p.projected)}</span>;
+  return (
+    <span title={projectionNote(p, renewals)} className="cursor-help">
+      {fmtMoney(p.projected)}
+    </span>
+  );
+}
+
+/** "Contracted $39,576 through Sep 17, 2027; with 1 renewal through Sep 17, 2028." */
+export function projectionNote(p: LifetimeProjection, renewals: number): string {
+  if (p.basis === "final") return "Has left: this is what they were worth.";
+  if (p.basis === "no_term") return "Set a term to project it.";
+  const parts: string[] = [];
+  if (p.basis === "term" && p.contractedThrough) {
+    parts.push(`Contracted ${fmtMoney(p.contracted)} through ${fmtYmd(p.contractedThrough)}`);
+  } else {
+    parts.push("Month-to-month: nothing contracted");
+  }
+  if (renewals > 0 && p.projectedThrough) {
+    parts.push(
+      `with ${renewals} ${renewals === 1 ? "renewal" : "renewals"}` +
+        (p.basis === "month_to_month" ? ` (a year each)` : "") +
+        ` through ${fmtYmd(p.projectedThrough)}`,
+    );
+  }
+  return parts.join("; ") + ".";
 }
 
 function ltvBreakdown(r: ClientLifetime): string {

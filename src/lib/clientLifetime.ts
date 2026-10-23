@@ -155,6 +155,111 @@ export function lifetimeAverages(rows: ClientLifetime[], segment: Segment): Life
   };
 }
 
+export type ProjectionBasis =
+  /** Has left: the projection is what they were actually worth. */
+  | "final"
+  /** A 6- or 12-month term: the rest of it, then renewals of the same length. */
+  | "term"
+  /** Month-to-month: nothing contracted; each renewal assumed is a year. */
+  | "month_to_month"
+  /** Current, but no term recorded, so nothing to project from. */
+  | "no_term";
+
+export interface LifetimeProjection {
+  basis: ProjectionBasis;
+  /** Value to date plus the rest of the current term. */
+  contracted: number;
+  /** Last day the current term covers; null when nothing is contracted. */
+  contractedThrough: string | null;
+  /** Contracted plus the renewals assumed. */
+  projected: number;
+  /** Last day the projection covers. */
+  projectedThrough: string | null;
+}
+
+/** Months each assumed renewal adds for a month-to-month client. */
+export const MONTH_TO_MONTH_RENEWAL_MONTHS = 12;
+
+/**
+ * Where a client's lifetime value is headed if they stay: the rest of the
+ * current term is contracted (Terms §3.3 renews it for the same length), and
+ * `renewals` more terms are assumed on top. Future months are valued at the
+ * rate in effect then, so a scheduled change counts from its date. Null for
+ * clients the averages leave out (no retainer, or missing dates).
+ */
+export function projectLifetime(
+  l: ClientLifetime,
+  today: string,
+  renewals: number,
+  rateChanges: RateChange[] = [],
+): LifetimeProjection | null {
+  const c = l.client;
+  if (l.gap === "no_retainer" || l.gap === "no_signed_date" || l.gap === "no_end_date") return null;
+  if (!c.isActive) {
+    return { basis: "final", contracted: l.ltv, contractedThrough: c.endedDate, projected: l.ltv, projectedThrough: c.endedDate };
+  }
+  const changes = rateChanges.filter((r) => r.clientId === c.id);
+  // Billing cycles still to come, valued at the rate in effect on each.
+  const future = (end: string, inclusive: boolean) => {
+    const start = parseYmd(c.signedDate!)!;
+    let total = 0;
+    for (let k = 0; k < 1200; k++) {
+      const date = toYmd(addMonths(start, k));
+      if (inclusive ? date > end : date >= end) break;
+      if (date > today) total += rateOn(date, changes, c.monthlyAmount);
+    }
+    return total;
+  };
+  const dayBefore = (ymd: string) => {
+    const d = parseYmd(ymd)!;
+    d.setDate(d.getDate() - 1);
+    return toYmd(d);
+  };
+
+  if (c.termMonths === 0) {
+    const end = toYmd(addMonths(parseYmd(today)!, renewals * MONTH_TO_MONTH_RENEWAL_MONTHS));
+    return {
+      basis: "month_to_month",
+      contracted: l.ltv,
+      contractedThrough: null,
+      projected: l.ltv + (renewals > 0 ? future(end, true) : 0),
+      projectedThrough: renewals > 0 ? end : null,
+    };
+  }
+  if (!l.nextRenewal || c.termMonths == null) {
+    return { basis: "no_term", contracted: l.ltv, contractedThrough: null, projected: l.ltv, projectedThrough: null };
+  }
+  const projectedEnd = toYmd(addMonths(parseYmd(l.nextRenewal)!, renewals * c.termMonths));
+  const contracted = l.ltv + future(l.nextRenewal, false);
+  return {
+    basis: "term",
+    contracted,
+    contractedThrough: dayBefore(l.nextRenewal),
+    projected: l.ltv + future(projectedEnd, false),
+    projectedThrough: dayBefore(projectedEnd),
+  };
+}
+
+/** Average projected value across the clients that have a projection. */
+export function averageProjected(
+  rows: ClientLifetime[],
+  segment: Segment,
+  today: string,
+  renewals: number,
+  rateChanges: RateChange[] = [],
+): { average: number | null; counted: number; noTerm: number } {
+  const projections = rows
+    .filter((r) => inSegment(r, segment))
+    .map((r) => projectLifetime(r, today, renewals, rateChanges))
+    .filter((p): p is LifetimeProjection => p != null);
+  const usable = projections.filter((p) => p.basis !== "no_term");
+  return {
+    average: mean(usable.map((p) => p.projected)),
+    counted: usable.length,
+    noTerm: projections.length - usable.length,
+  };
+}
+
 /** "1 yr 3 mo", "8 mo", "2 yrs", "< 1 mo". */
 export function formatTenure(months: number | null): string {
   if (months == null) return "—";

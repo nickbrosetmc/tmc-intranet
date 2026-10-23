@@ -106,6 +106,8 @@ export interface FinanceSettings {
   balanceUpdatedAt: string;
   notes: string | null;
   updatedBy: number | null;
+  /** Renewals projected lifetime value assumes (0-5). */
+  projectedRenewals: number;
 }
 
 export interface FinanceDashboard {
@@ -470,6 +472,11 @@ async function jsonReq<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const finance = {
   dashboard: () => jsonReq<FinanceDashboard>("/api/admin/finance/dashboard"),
+  setProjectedRenewals: (projectedRenewals: number) =>
+    jsonReq<{ ok: true; projectedRenewals: number }>("/api/admin/finance/projection", {
+      method: "PATCH",
+      body: JSON.stringify({ projectedRenewals }),
+    }),
   setBalance: (currentBalance: number) =>
     jsonReq<FinanceSettings>("/api/admin/finance/balance", {
       method: "PATCH",

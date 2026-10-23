@@ -415,6 +415,8 @@ export const financeSettings = sqliteTable("finance_settings", {
   balanceUpdatedAt: text("balance_updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   notes: text("notes"),
   updatedBy: integer("updated_by").references(() => users.id),
+  /** Renewals projected lifetime value assumes (0-5); see migration 0044. */
+  projectedRenewals: integer("projected_renewals").notNull().default(1),
 });
 export type FinanceSettingsRow = typeof financeSettings.$inferSelect;
 

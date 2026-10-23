@@ -22,7 +22,7 @@ import {
   type AdminClient,
   type AdminClientUser,
 } from "@/lib/admin-api";
-import { clientLifetime, formatTenure } from "@/lib/clientLifetime";
+import { clientLifetime, formatTenure, projectLifetime } from "@/lib/clientLifetime";
 import { submissions, type AdminSubmission } from "@/lib/clientSubmissions";
 import {
   finance,
@@ -45,6 +45,7 @@ import {
   DeleteAlert,
   InvoiceDialog,
   InlineDate,
+  projectionNote,
   RenewalCell,
   TermSelect,
 } from "@/pages/admin/AdminFinance";
@@ -125,6 +126,8 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
       (i.projectId != null && projectNames.has(i.projectId)) ||
       i.clientName.trim().toLowerCase() === client.name.trim().toLowerCase(),
   );
+  const renewals = d.settings.projectedRenewals;
+  const projection = projectLifetime(life, today, renewals, d.rateChanges);
   const valueParts = [
     life.projectRevenue ? `${fmtMoney(life.projectRevenue)} in projects` : "",
     life.invoiceRevenue ? `${fmtMoney(life.invoiceRevenue)} other one-off` : "",
@@ -314,6 +317,13 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
                           ].join(" + ")
                     }
                   />
+                  {projection && projection.basis !== "final" && (
+                    <Figure
+                      label="Projected lifetime value"
+                      value={projection.basis === "no_term" ? "—" : fmtMoney(projection.projected)}
+                      note={projectionNote(projection, renewals)}
+                    />
+                  )}
                   <Figure
                     label={client.isActive ? "With us for" : "Stayed"}
                     value={formatTenure(life.tenureMonths)}
