@@ -63,8 +63,11 @@ import {
   invoiceNetAmount,
   netAfterFees,
   payrollCategoryId,
+  planningTotals,
   projectMonth,
   thisMonthIso,
+  type CategoryBudgetStatus,
+  type DayPoint,
   type ExpenseCategory,
   type FinanceDashboard,
   type OneOffInvoice,
@@ -75,14 +78,19 @@ import {
 } from "@/lib/finance";
 import { todayYmd } from "@/lib/tasks";
 import {
+  averageProjected,
   clientLifetime,
   formatTenure,
   inSegment,
   lifetimeAverages,
+  projectLifetime,
   type ClientLifetime,
+  type LifetimeProjection,
   type Segment,
 } from "@/lib/clientLifetime";
 import { daysBetween } from "@/lib/renewal";
+import type { ClientProject } from "@/lib/projects";
+import { Link } from "wouter";
 import { AdminPageHeader } from "@/pages/admin/AdminPageHeader";
 
 // ─── Data shared by every Finance page ───────────────────────────────────
@@ -145,6 +153,356 @@ function FinanceLoading() {
 }
 
 // ─── Finance pages ───────────────────────────────────────────────────────
+
+/**
+ * The Finance landing page: each Finance page's main numbers on one screen,
+ * every card linking through to the page it summarizes. Figures come from
+ * the same functions those pages use, so the two always agree. Cash flow,
+ * revenue this month and budgets follow the chosen month.
+ */
+export function FinanceDashboardPage() {
+  const f = useFinance();
+  const { d, monthIso } = f;
+  const today = todayYmd();
+
+  const view = useMemo(() => {
+    if (!d) return null;
+    const summary = computeSummary(d, monthIso);
+    const start = d.settings.currentBalance;
+    const projection = projectMonth({
+      monthIso,
+      startBalance: start,
+      clients: d.recurringClients,
+      recurringExpenses: d.recurringExpenses,
+      oneTimeExpenses: d.oneTimeExpenses,
+      oneOffInvoices: d.oneOffInvoices,
+      paymentMethods: d.paymentMethods,
+    });
+    const end = projection.length ? projection[projection.length - 1].balance : start;
+    const low = projection.reduce<DayPoint | null>(
+      (m, p) => (m == null || p.balance < m.balance ? p : m),
+      null,
+    );
+
+    const lifetimes = d.recurringClients.map((c) =>
+      clientLifetime(c, d.oneOffInvoices, today, d.rateChanges, d.projects),
+    );
+    const projected = averageProjected(lifetimes, "all", today, d.settings.projectedRenewals, d.rateChanges);
+    const renewalsSoon = lifetimes.filter(
+      (l) => l.nextRenewal && daysBetween(today, l.nextRenewal) <= 45,
+    ).length;
+
+    const budgets = categoryBudgetStatus(d, monthIso).filter((b) => b.budget != null && b.budget > 0);
+    const topBudget = budgets.reduce<CategoryBudgetStatus | null>(
+      (m, b) => (m == null || (b.percentUsed ?? 0) > (m.percentUsed ?? 0) ? b : m),
+      null,
+    );
+
+    const paying = d.recurringClients.filter((c) => c.isActive && c.monthlyAmount > 0).length;
+    return {
+      summary,
+      start,
+      end,
+      low,
+      projected,
+      all: lifetimeAverages(lifetimes, "all"),
+      past: lifetimeAverages(lifetimes, "past"),
+      renewalsSoon,
+      plan: planningTotals(d, today),
+      budgets,
+      over: budgets.filter((b) => (b.percentUsed ?? 0) > 100),
+      budgetTotal: budgets.reduce((s, b) => s + (b.budget ?? 0), 0),
+      budgetSpent: budgets.reduce((s, b) => s + b.spent, 0),
+      topBudget,
+      paying,
+    };
+  }, [d, monthIso, today]);
+
+  if (!d || !view) return <FinanceLoading />;
+  const { summary } = view;
+  const month = new Date(`${monthIso}-01T00:00:00`).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+  const isThisMonth = monthIso === today.slice(0, 7);
+  const leftAfterExpenses = summary.mrrNet - summary.monthlyExpenses;
+  const budgetPct = view.budgetTotal > 0 ? Math.round((view.budgetSpent / view.budgetTotal) * 100) : null;
+
+  return (
+    <>
+      <div className="space-y-6 print:hidden">
+        <AdminPageHeader
+          title="Finance"
+          description={`The main numbers from every part of Finance, for ${month}.`}
+          actions={
+            <>
+              <MonthPicker value={monthIso} onChange={f.setMonthIso} />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.print()}
+                title="Save the full report as PDF via your browser's print dialog"
+              >
+                Export PDF
+              </Button>
+            </>
+          }
+        />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <DashCard
+            title="Cash flow"
+            href="/cash-flow"
+            label={`Projected balance, end of ${month.split(" ")[0]}`}
+            value={fmtMoney(view.end)}
+            tone={view.end < 0 ? "bad" : view.end < view.start ? "warn" : undefined}
+            rows={[
+              {
+                label: "Cash on hand",
+                value: fmtMoney(view.start),
+                note: `as of ${new Date(d.settings.balanceUpdatedAt.replace(" ", "T") + "Z").toLocaleDateString()}`,
+              },
+              {
+                label: "Change over the month",
+                value: fmtMoney(view.end - view.start, { sign: true }),
+                tone: view.end < view.start ? "warn" : "good",
+              },
+              {
+                label: "Lowest point",
+                value: view.low ? fmtMoney(view.low.balance) : "—",
+                note: view.low ? `on the ${ordinal(view.low.day)}` : undefined,
+                tone: view.low && view.low.balance < 0 ? "bad" : undefined,
+              },
+            ]}
+          />
+
+          <DashCard
+            title="Revenue"
+            href="/revenue"
+            label="Monthly recurring revenue, after fees"
+            value={fmtMoney(summary.mrrNet)}
+            rows={[
+              { label: "Before fees", value: fmtMoney(summary.mrrGross) },
+              {
+                label: "Paying clients",
+                value: String(view.paying),
+                note: view.paying ? `${fmtMoney(summary.mrrGross / view.paying)} average` : undefined,
+              },
+              {
+                label: `One-off, ${month.split(" ")[0]}`,
+                value: fmtMoney(summary.oneOffNetThisMonth),
+                note: "net, by payout date",
+              },
+            ]}
+          />
+
+          <DashCard
+            title="Expenses"
+            href="/expenses"
+            label="Monthly expenses"
+            value={fmtMoney(summary.monthlyExpenses)}
+            rows={[
+              { label: "Operating", value: fmtMoney(summary.monthlyOperating) },
+              { label: "Payroll", value: fmtMoney(summary.monthlyPayroll) },
+              {
+                label: "MRR left after expenses",
+                value: fmtMoney(leftAfterExpenses, { sign: true }),
+                tone: leftAfterExpenses < 0 ? "bad" : "good",
+              },
+            ]}
+          />
+
+          <DashCard
+            title="Client lifetime"
+            href="/clients"
+            label="Average lifetime value"
+            value={view.all.avgLtv == null ? "—" : fmtMoney(view.all.avgLtv)}
+            rows={[
+              {
+                label: "Average projected value",
+                value: view.projected.average == null ? "—" : fmtMoney(view.projected.average),
+                note:
+                  d.settings.projectedRenewals === 0
+                    ? "through current terms"
+                    : `with ${d.settings.projectedRenewals} ${d.settings.projectedRenewals === 1 ? "renewal" : "renewals"}`,
+              },
+              {
+                // Every dated client: those still here count up to today.
+                label: "Average time with us",
+                value: formatTenure(view.all.avgTenure),
+                note: view.all.counted
+                  ? `${view.all.counted} ${view.all.counted === 1 ? "client" : "clients"}, current ones counted to today`
+                  : undefined,
+              },
+              {
+                // Only finished relationships show how long clients really stay.
+                label: "Average stay, clients who left",
+                value: formatTenure(view.past.avgTenure),
+                note: view.past.counted
+                  ? `${view.past.counted} past ${view.past.counted === 1 ? "client" : "clients"}`
+                  : view.past.missing
+                    ? `needs dates for ${view.past.missingNames.join(", ")}`
+                    : "no past clients yet",
+              },
+              {
+                label: "Renewing in the next 45 days",
+                value: String(view.renewalsSoon),
+                tone: view.renewalsSoon > 0 ? "warn" : undefined,
+              },
+              {
+                label: "Clients missing dates",
+                value: String(view.all.missing),
+                note: view.all.missing ? view.all.missingNames.join(", ") : undefined,
+                tone: view.all.missing > 0 ? "warn" : undefined,
+              },
+            ]}
+          />
+
+          <DashCard
+            title="Planning & gear"
+            href="/planning"
+            label="Planned purchases due this month"
+            value={fmtMoney(view.plan.thisMonth)}
+            tone={view.plan.overdueCount > 0 ? "warn" : undefined}
+            rows={[
+              {
+                label: "Overdue",
+                value: String(view.plan.overdueCount),
+                tone: view.plan.overdueCount > 0 ? "warn" : undefined,
+              },
+              {
+                label: "Later months",
+                value: fmtMoney(view.plan.future),
+                note: `${view.plan.futureCount} ${view.plan.futureCount === 1 ? "item" : "items"}`,
+              },
+              {
+                label: "Wishlist, no date",
+                value: fmtMoney(view.plan.wishlist),
+                note: `${view.plan.wishlistCount} ${view.plan.wishlistCount === 1 ? "item" : "items"}`,
+              },
+            ]}
+          />
+
+          <DashCard
+            title="Budgets"
+            href="/budgets"
+            label={`Budget used, ${month.split(" ")[0]}`}
+            value={budgetPct == null ? "—" : `${budgetPct}%`}
+            tone={view.over.length > 0 ? "bad" : budgetPct != null && budgetPct > 90 ? "warn" : undefined}
+            rows={
+              view.budgets.length === 0
+                ? [{ label: "No category has a budget yet", value: "" }]
+                : [
+                    {
+                      label: "Spent of budget",
+                      value: `${fmtMoney(view.budgetSpent)} of ${fmtMoney(view.budgetTotal)}`,
+                    },
+                    {
+                      label: "Over budget",
+                      value: view.over.length ? view.over.map((b) => b.category.name).join(", ") : "None",
+                      tone: view.over.length ? "bad" : "good",
+                    },
+                    {
+                      label: "Furthest along",
+                      value: view.topBudget
+                        ? `${view.topBudget.category.name} ${view.topBudget.percentUsed ?? 0}%`
+                        : "—",
+                    },
+                  ]
+            }
+          />
+        </div>
+        {!isThisMonth && (
+          <p className="text-xs text-muted-foreground">
+            Planning & gear and Client lifetime show today's position; the other cards follow the
+            month you picked.
+          </p>
+        )}
+      </div>
+      <PrintableReport
+        d={d}
+        monthIso={monthIso}
+        startBalance={view.start}
+        summary={summary}
+        projection={projectMonth({
+          monthIso,
+          startBalance: view.start,
+          clients: d.recurringClients,
+          recurringExpenses: d.recurringExpenses,
+          oneTimeExpenses: d.oneTimeExpenses,
+          oneOffInvoices: d.oneOffInvoices,
+          paymentMethods: d.paymentMethods,
+        })}
+        budgetStatus={categoryBudgetStatus(d, monthIso)}
+      />
+    </>
+  );
+}
+
+type Tone = "good" | "warn" | "bad";
+const TONE_TEXT: Record<Tone, string> = {
+  good: "text-green-700",
+  warn: "text-amber-700",
+  bad: "text-red-700",
+};
+
+/** One Finance page, summarized: its headline number and a few supporting ones. */
+function DashCard({
+  title,
+  href,
+  label,
+  value,
+  tone,
+  rows,
+}: {
+  title: string;
+  /** Relative to /admin/finance. */
+  href: string;
+  label: string;
+  value: string;
+  tone?: Tone;
+  rows: { label: string; value: string; note?: string; tone?: Tone }[];
+}) {
+  return (
+    <Card className="flex flex-col">
+      <CardHeader className="flex flex-row items-center justify-between pb-1">
+        <CardTitle className="text-xs font-semibold uppercase tracking-widest text-tmc-slate">
+          {title}
+        </CardTitle>
+        <Link href={href} className="text-xs text-tmc-gold-dark hover:underline">
+          Open →
+        </Link>
+      </CardHeader>
+      <CardContent className="flex-1 flex flex-col gap-4">
+        <div>
+          <div className={`text-3xl font-bold tracking-tight tabular-nums ${tone ? TONE_TEXT[tone] : "text-tmc-dark"}`}>
+            {value}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">{label}</div>
+        </div>
+        <dl className="border-t pt-3 space-y-2 text-sm">
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-baseline justify-between gap-3">
+              <dt className="text-muted-foreground">
+                {r.label}
+                {r.note && <span className="block text-[11px]">{r.note}</span>}
+              </dt>
+              <dd className={`text-right tabular-nums font-medium ${r.tone ? TONE_TEXT[r.tone] : "text-tmc-dark"}`}>
+                {r.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
 export function FinanceCashflowPage() {
   const f = useFinance();
@@ -579,6 +937,8 @@ function RecurringClientsTable({
   onChanged: () => void;
 }) {
   const pmById = new Map(d.paymentMethods.map((p) => [p.id, p]));
+  // Project-only clients ($0 a month) live under Clients, not here.
+  const retainers = d.recurringClients.filter((c) => c.monthlyAmount > 0);
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -599,7 +959,7 @@ function RecurringClientsTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {d.recurringClients.length === 0 ? (
+            {retainers.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
                   No recurring clients yet. Click "Add client" to add one.
@@ -608,14 +968,16 @@ function RecurringClientsTable({
             ) : (
               // Retired clients drop to the bottom so the live roster reads
               // first; they stay listed because their history is still real.
-              [...d.recurringClients]
+              [...retainers]
                 .sort((a, b) => Number(b.isActive) - Number(a.isActive))
                 .map((c) => {
                 const pm = c.paymentMethodId != null ? pmById.get(c.paymentMethodId) : null;
                 const net = netAfterFees(c.monthlyAmount, pm);
                 return (
                   <TableRow key={c.id} className={!c.isActive ? "opacity-50" : undefined}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <ProfileLink client={c} />
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{fmtMoney(c.monthlyAmount)}</TableCell>
                     <TableCell className="text-sm">{pm?.name ?? "—"}</TableCell>
                     <TableCell className="text-right tabular-nums text-green-700">
@@ -668,7 +1030,16 @@ function RecurringClientsTable({
   );
 }
 
-function ClientDialog({
+/** A client's name, linking to their profile. "~" leaves the Finance nest. */
+function ProfileLink({ client }: { client: RecurringClient }) {
+  return (
+    <Link href={`~/admin/clients/${client.id}`} className="text-tmc-dark hover:text-tmc-gold-dark">
+      {client.name}
+    </Link>
+  );
+}
+
+export function ClientDialog({
   mode,
   client,
   d,
@@ -680,7 +1051,7 @@ function ClientDialog({
   onSaved: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
+  const blank = () => ({
     name: client?.name ?? "",
     monthlyAmount: client?.monthlyAmount ?? 0,
     paymentMethodId: client?.paymentMethodId ?? null,
@@ -691,19 +1062,31 @@ function ClientDialog({
     termMonths: client?.termMonths ?? null,
     endedDate: client?.endedDate ?? "",
     ltvAdjustment: client?.ltvAdjustment ?? 0,
+    // Only used when the monthly amount changes: when, and why.
+    rateEffective: todayYmd(),
+    rateNote: "",
   });
+  // Rebuilt each time the dialog opens, so it never edits stale values (a
+  // stale amount would be saved as a change in what the client pays).
+  const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
+  const amountChanged = mode === "edit" && form.monthlyAmount !== client!.monthlyAmount;
 
   async function submit() {
-    if (!form.name.trim() || !form.monthlyAmount) {
-      toast.error("Name and amount required");
+    if (!form.name.trim()) {
+      toast.error("Name required");
+      return;
+    }
+    if (!(form.monthlyAmount >= 0)) {
+      toast.error("Monthly amount can't be negative");
       return;
     }
     setSaving(true);
     try {
       const payload = {
         name: form.name,
-        monthlyAmount: form.monthlyAmount,
+        // A changed amount goes through the rate history below instead.
+        ...(amountChanged ? {} : { monthlyAmount: form.monthlyAmount }),
         paymentMethodId: form.paymentMethodId,
         invoiceDay: form.invoiceDay,
         isActive: form.isActive,
@@ -718,8 +1101,21 @@ function ClientDialog({
         await finance.createClient(payload);
         toast.success("Client added");
       } else {
+        if (amountChanged) {
+          // Recorded as a change, so months already billed keep their rate.
+          await finance.recordRateChange(client!.id, {
+            effectiveDate: form.rateEffective,
+            fromAmount: client!.monthlyAmount,
+            toAmount: form.monthlyAmount,
+            note: form.rateNote || null,
+          });
+        }
         await finance.updateClient(client!.id, payload);
-        toast.success("Saved");
+        toast.success(
+          amountChanged && form.rateEffective > todayYmd()
+            ? `Saved. The new rate starts ${fmtYmd(form.rateEffective)}.`
+            : "Saved",
+        );
       }
       setOpen(false);
       onSaved();
@@ -731,7 +1127,13 @@ function ClientDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setForm(blank());
+      }}
+    >
       <DialogTrigger asChild>
         {mode === "create" ? (
           <Button className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark" size="sm">
@@ -751,7 +1153,7 @@ function ClientDialog({
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </div>
           <div className="space-y-1.5">
-            <Label>Monthly amount ($)</Label>
+            <Label title="0 for a project-only client">Monthly amount ($)</Label>
             <Input
               type="number"
               value={form.monthlyAmount}
@@ -768,6 +1170,33 @@ function ClientDialog({
               onChange={(e) => setForm({ ...form, invoiceDay: Number(e.target.value) || 1 })}
             />
           </div>
+          {amountChanged && (
+            <div className="col-span-2 rounded-md border border-tmc-gold/40 bg-tmc-gold/10 p-3 space-y-3">
+              <p className="text-xs text-tmc-dark">
+                Changing from {fmtMoney(client!.monthlyAmount)} to {fmtMoney(form.monthlyAmount)} a
+                month. It's saved as a change, so months already billed keep the old rate in
+                lifetime value.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Takes effect</Label>
+                  <Input
+                    type="date"
+                    value={form.rateEffective}
+                    onChange={(e) => setForm({ ...form, rateEffective: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>What changed</Label>
+                  <Input
+                    value={form.rateNote}
+                    onChange={(e) => setForm({ ...form, rateNote: e.target.value })}
+                    placeholder="e.g. Dropped SEO, hosting only"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
           <div className="space-y-1.5 col-span-2">
             <Label>Payment method</Label>
             <Select
@@ -835,9 +1264,9 @@ function ClientDialog({
             </div>
           )}
           <p className="col-span-2 text-xs text-muted-foreground -mt-1">
-            Lifetime value is estimated from the monthly amount and months billed,
-            plus one-off invoices under this name. Use the adjustment to add or take
-            off what that misses, like a past price change, a comped month, or a setup fee.
+            Lifetime value counts each month billed at the rate in effect then, plus
+            one-off invoices under this name. Use the adjustment to add or take off
+            what that misses, like a comped month or a setup fee.
           </p>
           <label className="flex items-center gap-2 col-span-2 text-sm">
             <input
@@ -887,11 +1316,29 @@ function ClientLifetimeSection({
   const today = todayYmd();
   const [segment, setSegment] = useState<Segment>("all");
   const rows = useMemo(
-    () => d.recurringClients.map((c) => clientLifetime(c, d.oneOffInvoices, today)),
+    () => d.recurringClients.map((c) => clientLifetime(c, d.oneOffInvoices, today, d.rateChanges, d.projects)),
     [d, today],
   );
   const avg = lifetimeAverages(rows, segment);
-  const visible = rows.filter((r) => inSegment(r, segment)).sort(byLifetimeOrder);
+  const renewals = d.settings.projectedRenewals;
+  const projections = new Map(
+    rows.map((r) => [r.client.id, projectLifetime(r, today, renewals, d.rateChanges)]),
+  );
+  const projectedAvg = averageProjected(rows, segment, today, renewals, d.rateChanges);
+
+  async function setRenewals(n: number) {
+    try {
+      await finance.setProjectedRenewals(n);
+      onChanged();
+    } catch (e) {
+      toast.error(`Couldn't save: ${(e as Error).message}`);
+    }
+  }
+  // Project-only clients have no retainer lifetime to show; they're on
+  // their profiles under Clients.
+  const visible = rows
+    .filter((r) => inSegment(r, segment) && r.gap !== "no_retainer")
+    .sort(byLifetimeOrder);
 
   async function save(c: RecurringClient, patch: Partial<RecurringClient>) {
     try {
@@ -905,26 +1352,54 @@ function ClientLifetimeSection({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Showing
-        </span>
-        <div className="inline-flex rounded-md border bg-card p-0.5" role="group" aria-label="Which clients">
-          {SEGMENTS.map((sg) => (
-            <button
-              key={sg.id}
-              type="button"
-              onClick={() => setSegment(sg.id)}
-              aria-pressed={segment === sg.id}
-              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
-                segment === sg.id
-                  ? "bg-tmc-dark text-white"
-                  : "text-muted-foreground hover:text-tmc-dark"
-              }`}
-            >
-              {sg.label}
-            </button>
-          ))}
+      <div className="flex items-center gap-x-6 gap-y-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Showing
+          </span>
+          <div className="inline-flex rounded-md border bg-card p-0.5" role="group" aria-label="Which clients">
+            {SEGMENTS.map((sg) => (
+              <button
+                key={sg.id}
+                type="button"
+                onClick={() => setSegment(sg.id)}
+                aria-pressed={segment === sg.id}
+                className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                  segment === sg.id
+                    ? "bg-tmc-dark text-white"
+                    : "text-muted-foreground hover:text-tmc-dark"
+                }`}
+              >
+                {sg.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span
+            className="text-xs font-medium uppercase tracking-widest text-muted-foreground"
+            title="How many renewals the projection assumes for each current client, after the rest of their current term"
+          >
+            Projection assumes
+          </span>
+          <div className="inline-flex rounded-md border bg-card p-0.5" role="group" aria-label="Renewals assumed">
+            {[0, 1, 2, 3].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => void setRenewals(n)}
+                aria-pressed={renewals === n}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                  renewals === n ? "bg-tmc-dark text-white" : "text-muted-foreground hover:text-tmc-dark"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {renewals === 1 ? "renewal" : "renewals"}
+          </span>
         </div>
       </div>
 
@@ -932,7 +1407,21 @@ function ClientLifetimeSection({
         <StatCard
           label="Average LTV"
           value={avg.avgLtv == null ? "—" : fmtMoney(avg.avgLtv)}
-          subtitle={avg.medianLtv == null ? "no dated clients yet" : `median ${fmtMoney(avg.medianLtv)}`}
+          subtitle={
+            avg.medianLtv == null
+              ? "no dated clients yet"
+              : `median ${fmtMoney(avg.medianLtv)} · ${fmtMoney(avg.totalLtv)} total`
+          }
+        />
+        <StatCard
+          label="Average projected LTV"
+          value={projectedAvg.average == null ? "—" : fmtMoney(projectedAvg.average)}
+          subtitle={
+            projectedAvg.average == null
+              ? "needs dates and terms"
+              : `${renewals === 0 ? "through current terms" : `with ${renewals} ${renewals === 1 ? "renewal" : "renewals"}`}` +
+                (projectedAvg.noTerm ? ` · ${projectedAvg.noTerm} without a term` : "")
+          }
         />
         <StatCard
           label={TENURE_LABEL[segment]}
@@ -942,11 +1431,6 @@ function ClientLifetimeSection({
               ? "no dated clients yet"
               : `${avg.avgTenure.toFixed(1)} months · median ${formatTenure(avg.medianTenure)}`
           }
-        />
-        <StatCard
-          label="Total lifetime revenue"
-          value={fmtMoney(avg.totalLtv)}
-          subtitle="gross, across the clients counted"
         />
         <StatCard
           label="Clients counted"
@@ -974,13 +1458,14 @@ function ClientLifetimeSection({
                 <TableHead>Tenure</TableHead>
                 <TableHead className="text-right">Monthly</TableHead>
                 <TableHead className="text-right">LTV</TableHead>
+                <TableHead className="text-right">Projected</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visible.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-6">
                     {segment === "past" ? "No past clients." : "No clients here yet."}
                   </TableCell>
                 </TableRow>
@@ -990,7 +1475,7 @@ function ClientLifetimeSection({
                   return (
                     <TableRow key={c.id} className={!c.isActive ? "bg-muted/30" : undefined}>
                       <TableCell className="font-medium">
-                        {c.name}
+                        <ProfileLink client={c} />
                         {!c.isActive && (
                           <span className="ml-2 text-[10px] uppercase tracking-wider text-muted-foreground">
                             past
@@ -1048,6 +1533,9 @@ function ClientLifetimeSection({
                           </span>
                         )}
                       </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        <ProjectedCell p={projections.get(c.id) ?? null} renewals={renewals} />
+                      </TableCell>
                       <TableCell className="text-right">
                         <ClientDialog mode="edit" client={c} d={d} onSaved={onChanged} />
                       </TableCell>
@@ -1058,10 +1546,10 @@ function ClientLifetimeSection({
             </TableBody>
           </Table>
           <p className="text-xs text-muted-foreground mt-3">
-            LTV is the monthly amount times months billed, plus one-off invoices logged under
-            the same name, plus any adjustment (hover a figure for the breakdown). Renewals
-            follow the Terms: 6- and 12-month terms renew for the same length; notice is due
-            30 days before.
+            LTV counts each month billed at the rate in effect then, plus projects at their
+            price and other one-off invoices under the same name, plus any adjustment (hover a
+            figure for the breakdown). Renewals follow the Terms: 6- and 12-month terms renew for
+            the same length; notice is due 30 days before.
           </p>
         </CardContent>
       </Card>
@@ -1194,16 +1682,52 @@ function byLifetimeOrder(a: ClientLifetime, b: ClientLifetime): number {
   return a.client.name.localeCompare(b.client.name);
 }
 
+/** The projected value, with what it assumes on hover. */
+export function ProjectedCell({ p, renewals }: { p: LifetimeProjection | null; renewals: number }) {
+  if (!p) return <span className="text-muted-foreground">—</span>;
+  if (p.basis === "no_term") return <span className="text-xs text-amber-700">Set the term</span>;
+  if (p.basis === "final") return <span className="text-muted-foreground">{fmtMoney(p.projected)}</span>;
+  return (
+    <span title={projectionNote(p, renewals)} className="cursor-help">
+      {fmtMoney(p.projected)}
+    </span>
+  );
+}
+
+/** "Contracted $39,576 through Sep 17, 2027; with 1 renewal through Sep 17, 2028." */
+export function projectionNote(p: LifetimeProjection, renewals: number): string {
+  if (p.basis === "final") return "Has left: this is what they were worth.";
+  if (p.basis === "no_term") return "Set a term to project it.";
+  const parts: string[] = [];
+  if (p.basis === "term" && p.contractedThrough) {
+    parts.push(`Contracted ${fmtMoney(p.contracted)} through ${fmtYmd(p.contractedThrough)}`);
+  } else {
+    parts.push("Month-to-month: nothing contracted");
+  }
+  if (renewals > 0 && p.projectedThrough) {
+    parts.push(
+      `with ${renewals} ${renewals === 1 ? "renewal" : "renewals"}` +
+        (p.basis === "month_to_month" ? ` (a year each)` : "") +
+        ` through ${fmtYmd(p.projectedThrough)}`,
+    );
+  }
+  return parts.join("; ") + ".";
+}
+
 function ltvBreakdown(r: ClientLifetime): string {
+  const months = `${r.cyclesBilled} ${r.cyclesBilled === 1 ? "month" : "months"}`;
   const parts = [
-    `${r.cyclesBilled} ${r.cyclesBilled === 1 ? "month" : "months"} × ${fmtMoney(r.client.monthlyAmount)} = ${fmtMoney(r.retainerRevenue)}`,
+    r.rateVaried
+      ? `${months} at the rate in effect each month = ${fmtMoney(r.retainerRevenue)}`
+      : `${months} × ${fmtMoney(r.uniformRate ?? r.client.monthlyAmount)} = ${fmtMoney(r.retainerRevenue)}`,
   ];
-  if (r.oneOffRevenue) parts.push(`one-off invoices ${fmtMoney(r.oneOffRevenue)}`);
+  if (r.projectRevenue) parts.push(`projects ${fmtMoney(r.projectRevenue)}`);
+  if (r.invoiceRevenue) parts.push(`other one-off invoices ${fmtMoney(r.invoiceRevenue)}`);
   if (r.adjustment) parts.push(`adjustment ${fmtMoney(r.adjustment, { sign: true })}`);
   return parts.join("\n");
 }
 
-function RenewalCell({ r, today }: { r: ClientLifetime; today: string }) {
+export function RenewalCell({ r, today }: { r: ClientLifetime; today: string }) {
   const c = r.client;
   if (!c.signedDate) return <span className="text-muted-foreground">—</span>;
   if (c.termMonths === 0) {
@@ -1235,7 +1759,7 @@ function RenewalCell({ r, today }: { r: ClientLifetime; today: string }) {
 }
 
 /** "Mar 1, 2027" from a calendar date, read as a local day. */
-function fmtYmd(ymd: string): string {
+export function fmtYmd(ymd: string): string {
   const [y, m, d] = ymd.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, {
     month: "short",
@@ -1251,14 +1775,17 @@ const TERM_CHOICES: { value: string; label: string; months: number | null }[] = 
   { value: "0", label: "Month-to-month", months: 0 },
 ];
 
-function TermSelect({
+export function TermSelect({
   value,
   onChange,
   compact = false,
+  emptyLabel = "Not set",
 }: {
   value: number | null;
   onChange: (months: number | null) => void;
   compact?: boolean;
+  /** What choosing no term means here: "Not set", or "No change". */
+  emptyLabel?: string;
 }) {
   return (
     <Select
@@ -1271,7 +1798,7 @@ function TermSelect({
       <SelectContent>
         {TERM_CHOICES.map((t) => (
           <SelectItem key={t.value} value={t.value}>
-            {t.label}
+            {t.months == null ? emptyLabel : t.label}
           </SelectItem>
         ))}
       </SelectContent>
@@ -1284,7 +1811,7 @@ function TermSelect({
  * year digit by digit passes through valid dates like 0002-01-15, and each
  * would otherwise be saved.
  */
-function InlineDate({
+export function InlineDate({
   value,
   onSave,
   min,
@@ -1443,28 +1970,40 @@ function OneOffInvoicesTable({
   );
 }
 
-function InvoiceDialog({
+export function InvoiceDialog({
   mode,
   invoice,
   d,
   onSaved,
+  clientName,
+  trigger,
+  projects,
 }: {
   mode: "create" | "edit";
   invoice?: OneOffInvoice;
   d: FinanceDashboard;
   onSaved: () => void;
+  /** Prefills the client on a new invoice, as on a client's profile. */
+  clientName?: string;
+  /** Replaces the default "Add invoice" / "Edit" button. */
+  trigger?: React.ReactNode;
+  /** The client's projects, to mark the invoice as paying for one. */
+  projects?: ClientProject[];
 }) {
   const today = todayYmd();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    clientName: invoice?.clientName ?? "",
+  const blank = () => ({
+    clientName: invoice?.clientName ?? clientName ?? "",
     grossAmount: invoice?.grossAmount ?? 0,
     paymentMethodId: invoice?.paymentMethodId ?? null,
     invoiceDate: invoice?.invoiceDate ?? invoice?.payoutDate ?? today,
     payoutDate: invoice?.payoutDate ?? today,
     instantPayout: invoice?.instantPayout ?? false,
     notes: invoice?.notes ?? "",
+    projectId: invoice?.projectId ?? null,
   });
+  // Rebuilt each time the dialog opens, so it never edits stale values.
+  const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
 
   const pm =
@@ -1496,6 +2035,9 @@ function InvoiceDialog({
         payoutDate: form.payoutDate,
         instantPayout: form.instantPayout,
         notes: form.notes || null,
+        // Only where the project choices were offered; elsewhere a link
+        // made on the client's profile is left as it is.
+        ...(projects ? { projectId: form.projectId } : {}),
       };
       if (mode === "create") {
         await finance.createInvoice(payload);
@@ -1514,15 +2056,22 @@ function InvoiceDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setForm(blank());
+      }}
+    >
       <DialogTrigger asChild>
-        {mode === "create" ? (
-          <Button className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark" size="sm">
-            Add invoice
-          </Button>
-        ) : (
-          <Button size="sm" variant="ghost">Edit</Button>
-        )}
+        {trigger ??
+          (mode === "create" ? (
+            <Button className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark" size="sm">
+              Add invoice
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost">Edit</Button>
+          ))}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -1614,6 +2163,30 @@ function InvoiceDialog({
             />
           </div>
 
+          {projects && projects.length > 0 && (
+            <div className="space-y-1.5 col-span-2">
+              <Label>For project</Label>
+              <Select
+                value={form.projectId != null ? String(form.projectId) : "none"}
+                onValueChange={(v) => setForm({ ...form, projectId: v === "none" ? null : Number(v) })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None: separate one-off work</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.name}
+                      {p.price != null ? ` (${fmtMoney(p.price)})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Paying for a project? Pick it, so lifetime value counts the project's price once
+                instead of adding this on top.
+              </p>
+            </div>
+          )}
           <div className="space-y-1.5 col-span-2">
             <Label>Notes (optional)</Label>
             <Input
@@ -1918,7 +2491,9 @@ function PlanningSection({
   d: FinanceDashboard;
   onChanged: () => void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  // Local date, as the Finance dashboard's planning totals use, so the two
+  // agree (the UTC date is already tomorrow on a US evening).
+  const today = todayYmd();
   const monthIso = today.slice(0, 7);
 
   const planned = d.oneTimeExpenses.filter((e) => e.status === "planned");
@@ -2483,7 +3058,7 @@ function CatPill({ cat }: { cat: ExpenseCategory }) {
  * content seeding, planner targets and task placeholders, all of which already
  * key off isActive.
  */
-function ActiveToggle({
+export function ActiveToggle({
   client,
   onChanged,
 }: {
@@ -2535,13 +3110,16 @@ function ActiveToggle({
   );
 }
 
-function DeleteAlert({
+export function DeleteAlert({
   title,
   description,
+  trigger,
   onConfirm,
 }: {
   title: string;
   description?: string;
+  /** Replaces the default "Delete" text button. */
+  trigger?: React.ReactNode;
   onConfirm: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -2566,7 +3144,7 @@ function DeleteAlert({
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
-        <Button size="sm" variant="ghost" className="text-destructive">Delete</Button>
+        {trigger ?? <Button size="sm" variant="ghost" className="text-destructive">Delete</Button>}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>

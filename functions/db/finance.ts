@@ -9,6 +9,7 @@ import {
   paymentMethods,
   recurringClients,
   renewalReminders,
+  clientRateChanges,
   recurringExpenses,
   type ExpenseCategoryRow,
   type FinanceSettingsRow,
@@ -24,6 +25,7 @@ import {
   type RecurringExpenseRow,
 } from "./schema";
 import type { DB } from "./index";
+import { countProjects } from "./projects";
 
 // ─── Reads ───────────────────────────────────────────────────────────────
 
@@ -179,7 +181,8 @@ export async function updateRecurringClient(
 }
 export type DeleteClientResult =
   | { ok: true }
-  | { ok: false; reason: "has_posts"; posts: number };
+  | { ok: false; reason: "has_posts"; posts: number }
+  | { ok: false; reason: "has_projects"; projects: number };
 
 /**
  * Remove a recurring client.
@@ -205,9 +208,13 @@ export async function deleteRecurringClient(
     .get();
   const posts = row?.c ?? 0;
   if (posts > 0) return { ok: false, reason: "has_posts", posts };
+  // Projects are the client's history too: launch dates analytics rely on.
+  const projects = await countProjects(db, id);
+  if (projects > 0) return { ok: false, reason: "has_projects", projects };
 
   await db.delete(contentSeedLog).where(eq(contentSeedLog.clientId, id)).run();
   await db.delete(renewalReminders).where(eq(renewalReminders.clientId, id)).run();
+  await db.delete(clientRateChanges).where(eq(clientRateChanges.clientId, id)).run();
   await db.delete(recurringClients).where(eq(recurringClients.id, id)).run();
   return { ok: true };
 }

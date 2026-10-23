@@ -15,9 +15,11 @@ import {
   parseEmails,
   reminderRecipients,
   renewalEmail,
-  utcToday,
 } from "../../../lib/renewalReminders";
+import { utcToday } from "../../../lib/dates";
 import { daysBetween, nextRenewal } from "../../../../src/lib/renewal";
+import { termStart } from "../../../../src/lib/rates";
+import { listRateChanges } from "../../../db/rateChanges";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -61,10 +63,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const session = await requireAdmin(request, env);
   if (isResponse(session)) return session;
   const db = getDb(env.DB);
-  const [recipients, calc, clients] = await Promise.all([
+  const [recipients, calc, clients, changes] = await Promise.all([
     reminderRecipients(db),
     getCalculatorSettings(db),
     db.select().from(recurringClients).where(eq(recurringClients.isActive, true)).all(),
+    listRateChanges(db),
   ]);
   if (recipients.length === 0) {
     return Response.json({ error: "Add an email address to send reminders to first" }, { status: 400 });
@@ -76,8 +79,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // Preview with the next client to renew, so the test shows real figures.
   const today = utcToday();
   const soonest = clients
-    .map((client) => ({ client, renewal: nextRenewal(client.signedDate, client.termMonths, today) }))
-    .filter((x): x is { client: typeof x.client; renewal: string } => x.renewal != null)
+    .map((client) => {
+      const start = termStart(
+        client.signedDate,
+        changes.filter((c) => c.clientId === client.id),
+        today,
+      );
+      return { client, termStart: start, renewal: nextRenewal(start, client.termMonths, today) };
+    })
+    .filter((x): x is typeof x & { renewal: string } => x.renewal != null)
     .sort((a, b) => a.renewal.localeCompare(b.renewal))[0];
   if (!soonest) {
     return Response.json(
