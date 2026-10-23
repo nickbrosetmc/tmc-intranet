@@ -314,9 +314,22 @@ export function FinanceDashboardPage() {
             value={view.all.avgLtv == null ? "—" : fmtMoney(view.all.avgLtv)}
             rows={[
               {
-                label: "Average time a client stays",
+                // Every dated client: those still here count up to today.
+                label: "Average time with us",
+                value: formatTenure(view.all.avgTenure),
+                note: view.all.counted
+                  ? `${view.all.counted} ${view.all.counted === 1 ? "client" : "clients"}, current ones counted to today`
+                  : undefined,
+              },
+              {
+                // Only finished relationships show how long clients really stay.
+                label: "Average stay, clients who left",
                 value: formatTenure(view.past.avgTenure),
-                note: view.past.counted ? `${view.past.counted} past ${view.past.counted === 1 ? "client" : "clients"}` : "no past clients dated",
+                note: view.past.counted
+                  ? `${view.past.counted} past ${view.past.counted === 1 ? "client" : "clients"}`
+                  : view.past.missing
+                    ? `needs dates for ${view.past.missingNames.join(", ")}`
+                    : "no past clients yet",
               },
               {
                 label: "Renewing in the next 45 days",
@@ -326,6 +339,7 @@ export function FinanceDashboardPage() {
               {
                 label: "Clients missing dates",
                 value: String(view.all.missing),
+                note: view.all.missing ? view.all.missingNames.join(", ") : undefined,
                 tone: view.all.missing > 0 ? "warn" : undefined,
               },
             ]}

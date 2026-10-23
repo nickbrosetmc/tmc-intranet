@@ -116,8 +116,10 @@ export type Segment = "all" | "current" | "past";
 
 export interface LifetimeAverages {
   counted: number;
-  /** In the segment but missing something the averages need. */
+  /** In the segment but missing a date the averages need. */
   missing: number;
+  /** Who those are, for saying so. */
+  missingNames: string[];
   avgLtv: number | null;
   medianLtv: number | null;
   totalLtv: number;
@@ -134,14 +136,17 @@ export function inSegment(l: ClientLifetime, segment: Segment): boolean {
 export function lifetimeAverages(rows: ClientLifetime[], segment: Segment): LifetimeAverages {
   const seg = rows.filter((r) => inSegment(r, segment));
   // Clients with no retainer (TMC's own account, say) aren't clients the
-  // averages are about, so they don't count as missing either.
-  const relevant = seg.filter((r) => r.gap !== "no_retainer");
+  // averages are about, and one signed to start later has its dates but no
+  // history yet: neither is missing anything.
+  const relevant = seg.filter((r) => r.gap !== "no_retainer" && r.gap !== "not_started");
   const counted = relevant.filter((r) => r.gap === null);
+  const missingRows = relevant.filter((r) => r.gap !== null);
   const ltvs = counted.map((r) => r.ltv);
   const tenures = counted.map((r) => r.tenureMonths ?? 0);
   return {
     counted: counted.length,
-    missing: relevant.length - counted.length,
+    missing: missingRows.length,
+    missingNames: missingRows.map((r) => r.client.name),
     avgLtv: mean(ltvs),
     medianLtv: median(ltvs),
     totalLtv: ltvs.reduce((s, v) => s + v, 0),
