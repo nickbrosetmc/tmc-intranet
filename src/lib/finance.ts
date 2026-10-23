@@ -299,6 +299,58 @@ export interface DashboardSummary {
   projectedNet: number;             // mrrNet + one-off net - expenses
 }
 
+export interface PlanningTotals {
+  /** Planned, dated in the month and not yet past, plus anything overdue. */
+  thisMonth: number;
+  thisMonthCount: number;
+  overdueCount: number;
+  /** Planned for a later month. */
+  future: number;
+  futureCount: number;
+  /** Planned with no date yet. */
+  wishlist: number;
+  wishlistCount: number;
+  /** Everything planned and not yet paid. */
+  totalPlanned: number;
+  /** Paid in the last 90 days. */
+  paidRecently: number;
+}
+
+/**
+ * One-time purchases by horizon, as the Planning page groups them. `today`
+ * is a local YYYY-MM-DD; "this month" is the month it falls in.
+ */
+export function planningTotals(d: FinanceDashboard, today: string): PlanningTotals {
+  const monthIso = today.slice(0, 7);
+  const planned = d.oneTimeExpenses.filter((e) => e.status === "planned");
+  const sum = (xs: OneTimeExpense[]) => xs.reduce((s, e) => s + e.amount, 0);
+  const wishlist = planned.filter((e) => !e.plannedDate);
+  const overdue = planned.filter((e) => e.plannedDate && e.plannedDate < today);
+  const thisMonth = planned.filter(
+    (e) => e.plannedDate && e.plannedDate.startsWith(monthIso) && e.plannedDate >= today,
+  );
+  const future = planned.filter(
+    (e) => e.plannedDate && !e.plannedDate.startsWith(monthIso) && e.plannedDate >= today,
+  );
+  const [y, m, dd] = today.split("-").map(Number);
+  const cutoff = new Date(y, m - 1, dd - 90);
+  const cutoffYmd = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;
+  const paidRecently = d.oneTimeExpenses.filter(
+    (e) => e.status === "paid" && e.paidDate && e.paidDate >= cutoffYmd,
+  );
+  return {
+    thisMonth: sum(thisMonth) + sum(overdue),
+    thisMonthCount: thisMonth.length + overdue.length,
+    overdueCount: overdue.length,
+    future: sum(future),
+    futureCount: future.length,
+    wishlist: sum(wishlist),
+    wishlistCount: wishlist.length,
+    totalPlanned: sum(planned),
+    paidRecently: sum(paidRecently),
+  };
+}
+
 /** Find the Payroll category id by canonical name. Case-insensitive. */
 export function payrollCategoryId(d: FinanceDashboard): number | null {
   return (

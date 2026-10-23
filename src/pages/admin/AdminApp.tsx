@@ -14,6 +14,7 @@ import {
   ChartLine,
   Clock,
   FolderTree,
+  Gauge,
   Hourglass,
   LayoutDashboard,
   LayoutGrid,
@@ -52,6 +53,7 @@ import { AdminAnalytics } from "@/pages/admin/AdminAnalytics";
 import {
   FinanceBudgetsPage,
   FinanceCashflowPage,
+  FinanceDashboardPage,
   FinanceExpensesPage,
   FinanceLifetimePage,
   FinancePlanningPage,
@@ -72,7 +74,8 @@ const NAV: { title?: string; items: NavItem[] }[] = [
   {
     title: "Finance",
     items: [
-      { href: "/admin/finance", label: "Cash flow", icon: ChartLine, exact: true },
+      { href: "/admin/finance", label: "Dashboard", icon: Gauge, exact: true },
+      { href: "/admin/finance/cash-flow", label: "Cash flow", icon: ChartLine },
       { href: "/admin/finance/revenue", label: "Revenue", icon: Wallet },
       { href: "/admin/finance/clients", label: "Client lifetime", icon: Hourglass },
       { href: "/admin/finance/expenses", label: "Expenses", icon: Receipt },
@@ -148,7 +151,8 @@ export function AdminApp() {
         <Route path="/admin/finance" nest>
           <FinanceProvider>
             <Switch>
-              <Route path="/" component={FinanceCashflowPage} />
+              <Route path="/" component={FinanceDashboardPage} />
+              <Route path="/cash-flow" component={FinanceCashflowPage} />
               <Route path="/revenue" component={FinanceRevenuePage} />
               <Route path="/clients" component={FinanceLifetimePage} />
               <Route path="/expenses" component={FinanceExpensesPage} />

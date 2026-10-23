@@ -142,7 +142,7 @@ export function AdminOverview() {
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <TileLink href="/admin/finance">
+        <TileLink href="/admin/finance/cash-flow">
           <StatCard
             label="Cash on hand"
             value={fmtMoney(d.settings.currentBalance)}
@@ -156,7 +156,7 @@ export function AdminOverview() {
             subtitle={`gross ${fmtMoney(view.summary.mrrGross)}`}
           />
         </TileLink>
-        <TileLink href="/admin/finance">
+        <TileLink href="/admin/finance/cash-flow">
           <StatCard
             label="Month-end balance"
             value={fmtMoney(view.endBalance)}

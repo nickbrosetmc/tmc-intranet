@@ -63,8 +63,11 @@ import {
   invoiceNetAmount,
   netAfterFees,
   payrollCategoryId,
+  planningTotals,
   projectMonth,
   thisMonthIso,
+  type CategoryBudgetStatus,
+  type DayPoint,
   type ExpenseCategory,
   type FinanceDashboard,
   type OneOffInvoice,
@@ -147,6 +150,332 @@ function FinanceLoading() {
 }
 
 // ─── Finance pages ───────────────────────────────────────────────────────
+
+/**
+ * The Finance landing page: each Finance page's main numbers on one screen,
+ * every card linking through to the page it summarizes. Figures come from
+ * the same functions those pages use, so the two always agree. Cash flow,
+ * revenue this month and budgets follow the chosen month.
+ */
+export function FinanceDashboardPage() {
+  const f = useFinance();
+  const { d, monthIso } = f;
+  const today = todayYmd();
+
+  const view = useMemo(() => {
+    if (!d) return null;
+    const summary = computeSummary(d, monthIso);
+    const start = d.settings.currentBalance;
+    const projection = projectMonth({
+      monthIso,
+      startBalance: start,
+      clients: d.recurringClients,
+      recurringExpenses: d.recurringExpenses,
+      oneTimeExpenses: d.oneTimeExpenses,
+      oneOffInvoices: d.oneOffInvoices,
+      paymentMethods: d.paymentMethods,
+    });
+    const end = projection.length ? projection[projection.length - 1].balance : start;
+    const low = projection.reduce<DayPoint | null>(
+      (m, p) => (m == null || p.balance < m.balance ? p : m),
+      null,
+    );
+
+    const lifetimes = d.recurringClients.map((c) =>
+      clientLifetime(c, d.oneOffInvoices, today, d.rateChanges, d.projects),
+    );
+    const renewalsSoon = lifetimes.filter(
+      (l) => l.nextRenewal && daysBetween(today, l.nextRenewal) <= 45,
+    ).length;
+
+    const budgets = categoryBudgetStatus(d, monthIso).filter((b) => b.budget != null && b.budget > 0);
+    const topBudget = budgets.reduce<CategoryBudgetStatus | null>(
+      (m, b) => (m == null || (b.percentUsed ?? 0) > (m.percentUsed ?? 0) ? b : m),
+      null,
+    );
+
+    const paying = d.recurringClients.filter((c) => c.isActive && c.monthlyAmount > 0).length;
+    return {
+      summary,
+      start,
+      end,
+      low,
+      all: lifetimeAverages(lifetimes, "all"),
+      past: lifetimeAverages(lifetimes, "past"),
+      renewalsSoon,
+      plan: planningTotals(d, today),
+      budgets,
+      over: budgets.filter((b) => (b.percentUsed ?? 0) > 100),
+      budgetTotal: budgets.reduce((s, b) => s + (b.budget ?? 0), 0),
+      budgetSpent: budgets.reduce((s, b) => s + b.spent, 0),
+      topBudget,
+      paying,
+    };
+  }, [d, monthIso, today]);
+
+  if (!d || !view) return <FinanceLoading />;
+  const { summary } = view;
+  const month = new Date(`${monthIso}-01T00:00:00`).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+  const isThisMonth = monthIso === today.slice(0, 7);
+  const leftAfterExpenses = summary.mrrNet - summary.monthlyExpenses;
+  const budgetPct = view.budgetTotal > 0 ? Math.round((view.budgetSpent / view.budgetTotal) * 100) : null;
+
+  return (
+    <>
+      <div className="space-y-6 print:hidden">
+        <AdminPageHeader
+          title="Finance"
+          description={`The main numbers from every part of Finance, for ${month}.`}
+          actions={
+            <>
+              <MonthPicker value={monthIso} onChange={f.setMonthIso} />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.print()}
+                title="Save the full report as PDF via your browser's print dialog"
+              >
+                Export PDF
+              </Button>
+            </>
+          }
+        />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <DashCard
+            title="Cash flow"
+            href="/cash-flow"
+            label={`Projected balance, end of ${month.split(" ")[0]}`}
+            value={fmtMoney(view.end)}
+            tone={view.end < 0 ? "bad" : view.end < view.start ? "warn" : undefined}
+            rows={[
+              {
+                label: "Cash on hand",
+                value: fmtMoney(view.start),
+                note: `as of ${new Date(d.settings.balanceUpdatedAt.replace(" ", "T") + "Z").toLocaleDateString()}`,
+              },
+              {
+                label: "Change over the month",
+                value: fmtMoney(view.end - view.start, { sign: true }),
+                tone: view.end < view.start ? "warn" : "good",
+              },
+              {
+                label: "Lowest point",
+                value: view.low ? fmtMoney(view.low.balance) : "—",
+                note: view.low ? `on the ${ordinal(view.low.day)}` : undefined,
+                tone: view.low && view.low.balance < 0 ? "bad" : undefined,
+              },
+            ]}
+          />
+
+          <DashCard
+            title="Revenue"
+            href="/revenue"
+            label="Monthly recurring revenue, after fees"
+            value={fmtMoney(summary.mrrNet)}
+            rows={[
+              { label: "Before fees", value: fmtMoney(summary.mrrGross) },
+              {
+                label: "Paying clients",
+                value: String(view.paying),
+                note: view.paying ? `${fmtMoney(summary.mrrGross / view.paying)} average` : undefined,
+              },
+              {
+                label: `One-off, ${month.split(" ")[0]}`,
+                value: fmtMoney(summary.oneOffNetThisMonth),
+                note: "net, by payout date",
+              },
+            ]}
+          />
+
+          <DashCard
+            title="Expenses"
+            href="/expenses"
+            label="Monthly expenses"
+            value={fmtMoney(summary.monthlyExpenses)}
+            rows={[
+              { label: "Operating", value: fmtMoney(summary.monthlyOperating) },
+              { label: "Payroll", value: fmtMoney(summary.monthlyPayroll) },
+              {
+                label: "MRR left after expenses",
+                value: fmtMoney(leftAfterExpenses, { sign: true }),
+                tone: leftAfterExpenses < 0 ? "bad" : "good",
+              },
+            ]}
+          />
+
+          <DashCard
+            title="Client lifetime"
+            href="/clients"
+            label="Average lifetime value"
+            value={view.all.avgLtv == null ? "—" : fmtMoney(view.all.avgLtv)}
+            rows={[
+              {
+                label: "Average time a client stays",
+                value: formatTenure(view.past.avgTenure),
+                note: view.past.counted ? `${view.past.counted} past ${view.past.counted === 1 ? "client" : "clients"}` : "no past clients dated",
+              },
+              {
+                label: "Renewing in the next 45 days",
+                value: String(view.renewalsSoon),
+                tone: view.renewalsSoon > 0 ? "warn" : undefined,
+              },
+              {
+                label: "Clients missing dates",
+                value: String(view.all.missing),
+                tone: view.all.missing > 0 ? "warn" : undefined,
+              },
+            ]}
+          />
+
+          <DashCard
+            title="Planning & gear"
+            href="/planning"
+            label="Planned purchases due this month"
+            value={fmtMoney(view.plan.thisMonth)}
+            tone={view.plan.overdueCount > 0 ? "warn" : undefined}
+            rows={[
+              {
+                label: "Overdue",
+                value: String(view.plan.overdueCount),
+                tone: view.plan.overdueCount > 0 ? "warn" : undefined,
+              },
+              {
+                label: "Later months",
+                value: fmtMoney(view.plan.future),
+                note: `${view.plan.futureCount} ${view.plan.futureCount === 1 ? "item" : "items"}`,
+              },
+              {
+                label: "Wishlist, no date",
+                value: fmtMoney(view.plan.wishlist),
+                note: `${view.plan.wishlistCount} ${view.plan.wishlistCount === 1 ? "item" : "items"}`,
+              },
+            ]}
+          />
+
+          <DashCard
+            title="Budgets"
+            href="/budgets"
+            label={`Budget used, ${month.split(" ")[0]}`}
+            value={budgetPct == null ? "—" : `${budgetPct}%`}
+            tone={view.over.length > 0 ? "bad" : budgetPct != null && budgetPct > 90 ? "warn" : undefined}
+            rows={
+              view.budgets.length === 0
+                ? [{ label: "No category has a budget yet", value: "" }]
+                : [
+                    {
+                      label: "Spent of budget",
+                      value: `${fmtMoney(view.budgetSpent)} of ${fmtMoney(view.budgetTotal)}`,
+                    },
+                    {
+                      label: "Over budget",
+                      value: view.over.length ? view.over.map((b) => b.category.name).join(", ") : "None",
+                      tone: view.over.length ? "bad" : "good",
+                    },
+                    {
+                      label: "Furthest along",
+                      value: view.topBudget
+                        ? `${view.topBudget.category.name} ${view.topBudget.percentUsed ?? 0}%`
+                        : "—",
+                    },
+                  ]
+            }
+          />
+        </div>
+        {!isThisMonth && (
+          <p className="text-xs text-muted-foreground">
+            Planning & gear and Client lifetime show today's position; the other cards follow the
+            month you picked.
+          </p>
+        )}
+      </div>
+      <PrintableReport
+        d={d}
+        monthIso={monthIso}
+        startBalance={view.start}
+        summary={summary}
+        projection={projectMonth({
+          monthIso,
+          startBalance: view.start,
+          clients: d.recurringClients,
+          recurringExpenses: d.recurringExpenses,
+          oneTimeExpenses: d.oneTimeExpenses,
+          oneOffInvoices: d.oneOffInvoices,
+          paymentMethods: d.paymentMethods,
+        })}
+        budgetStatus={categoryBudgetStatus(d, monthIso)}
+      />
+    </>
+  );
+}
+
+type Tone = "good" | "warn" | "bad";
+const TONE_TEXT: Record<Tone, string> = {
+  good: "text-green-700",
+  warn: "text-amber-700",
+  bad: "text-red-700",
+};
+
+/** One Finance page, summarized: its headline number and a few supporting ones. */
+function DashCard({
+  title,
+  href,
+  label,
+  value,
+  tone,
+  rows,
+}: {
+  title: string;
+  /** Relative to /admin/finance. */
+  href: string;
+  label: string;
+  value: string;
+  tone?: Tone;
+  rows: { label: string; value: string; note?: string; tone?: Tone }[];
+}) {
+  return (
+    <Card className="flex flex-col">
+      <CardHeader className="flex flex-row items-center justify-between pb-1">
+        <CardTitle className="text-xs font-semibold uppercase tracking-widest text-tmc-slate">
+          {title}
+        </CardTitle>
+        <Link href={href} className="text-xs text-tmc-gold-dark hover:underline">
+          Open →
+        </Link>
+      </CardHeader>
+      <CardContent className="flex-1 flex flex-col gap-4">
+        <div>
+          <div className={`text-3xl font-bold tracking-tight tabular-nums ${tone ? TONE_TEXT[tone] : "text-tmc-dark"}`}>
+            {value}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">{label}</div>
+        </div>
+        <dl className="border-t pt-3 space-y-2 text-sm">
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-baseline justify-between gap-3">
+              <dt className="text-muted-foreground">
+                {r.label}
+                {r.note && <span className="block text-[11px]">{r.note}</span>}
+              </dt>
+              <dd className={`text-right tabular-nums font-medium ${r.tone ? TONE_TEXT[r.tone] : "text-tmc-dark"}`}>
+                {r.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
 export function FinanceCashflowPage() {
   const f = useFinance();
@@ -2048,7 +2377,9 @@ function PlanningSection({
   d: FinanceDashboard;
   onChanged: () => void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  // Local date, as the Finance dashboard's planning totals use, so the two
+  // agree (the UTC date is already tomorrow on a US evening).
+  const today = todayYmd();
   const monthIso = today.slice(0, 7);
 
   const planned = d.oneTimeExpenses.filter((e) => e.status === "planned");
