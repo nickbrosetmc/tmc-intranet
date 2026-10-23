@@ -1,6 +1,7 @@
 import { asc, desc, eq, sql } from "drizzle-orm";
 import {
   clientProjects,
+  oneOffInvoices,
   recurringClients,
   type ClientProjectRow,
   type NewClientProjectRow,
@@ -18,6 +19,7 @@ export async function listProjects(db: DB, clientId?: number): Promise<ProjectWi
       name: clientProjects.name,
       kind: clientProjects.kind,
       launchDate: clientProjects.launchDate,
+      price: clientProjects.price,
       url: clientProjects.url,
       notes: clientProjects.notes,
       createdAt: clientProjects.createdAt,
@@ -60,6 +62,9 @@ export async function updateProject(
 }
 
 export async function deleteProject(db: DB, id: number): Promise<void> {
+  // Its invoices stay, as payments in their own right. The column is ON
+  // DELETE SET NULL; unlinking here first doesn't depend on that.
+  await db.update(oneOffInvoices).set({ projectId: null }).where(eq(oneOffInvoices.projectId, id)).run();
   await db.delete(clientProjects).where(eq(clientProjects.id, id)).run();
 }
 

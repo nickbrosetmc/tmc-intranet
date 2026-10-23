@@ -83,6 +83,7 @@ import {
   type Segment,
 } from "@/lib/clientLifetime";
 import { daysBetween } from "@/lib/renewal";
+import type { ClientProject } from "@/lib/projects";
 import { Link } from "wouter";
 import { AdminPageHeader } from "@/pages/admin/AdminPageHeader";
 
@@ -959,7 +960,7 @@ function ClientLifetimeSection({
   const today = todayYmd();
   const [segment, setSegment] = useState<Segment>("all");
   const rows = useMemo(
-    () => d.recurringClients.map((c) => clientLifetime(c, d.oneOffInvoices, today, d.rateChanges)),
+    () => d.recurringClients.map((c) => clientLifetime(c, d.oneOffInvoices, today, d.rateChanges, d.projects)),
     [d, today],
   );
   const avg = lifetimeAverages(rows, segment);
@@ -1134,10 +1135,10 @@ function ClientLifetimeSection({
             </TableBody>
           </Table>
           <p className="text-xs text-muted-foreground mt-3">
-            LTV is the monthly amount times months billed, plus one-off invoices logged under
-            the same name, plus any adjustment (hover a figure for the breakdown). Renewals
-            follow the Terms: 6- and 12-month terms renew for the same length; notice is due
-            30 days before.
+            LTV counts each month billed at the rate in effect then, plus projects at their
+            price and other one-off invoices under the same name, plus any adjustment (hover a
+            figure for the breakdown). Renewals follow the Terms: 6- and 12-month terms renew for
+            the same length; notice is due 30 days before.
           </p>
         </CardContent>
       </Card>
@@ -1277,7 +1278,8 @@ function ltvBreakdown(r: ClientLifetime): string {
       ? `${months} at the rate in effect each month = ${fmtMoney(r.retainerRevenue)}`
       : `${months} × ${fmtMoney(r.uniformRate ?? r.client.monthlyAmount)} = ${fmtMoney(r.retainerRevenue)}`,
   ];
-  if (r.oneOffRevenue) parts.push(`one-off invoices ${fmtMoney(r.oneOffRevenue)}`);
+  if (r.projectRevenue) parts.push(`projects ${fmtMoney(r.projectRevenue)}`);
+  if (r.invoiceRevenue) parts.push(`other one-off invoices ${fmtMoney(r.invoiceRevenue)}`);
   if (r.adjustment) parts.push(`adjustment ${fmtMoney(r.adjustment, { sign: true })}`);
   return parts.join("\n");
 }
@@ -1532,6 +1534,7 @@ export function InvoiceDialog({
   onSaved,
   clientName,
   trigger,
+  projects,
 }: {
   mode: "create" | "edit";
   invoice?: OneOffInvoice;
@@ -1541,6 +1544,8 @@ export function InvoiceDialog({
   clientName?: string;
   /** Replaces the default "Add invoice" / "Edit" button. */
   trigger?: React.ReactNode;
+  /** The client's projects, to mark the invoice as paying for one. */
+  projects?: ClientProject[];
 }) {
   const today = todayYmd();
   const [open, setOpen] = useState(false);
@@ -1552,6 +1557,7 @@ export function InvoiceDialog({
     payoutDate: invoice?.payoutDate ?? today,
     instantPayout: invoice?.instantPayout ?? false,
     notes: invoice?.notes ?? "",
+    projectId: invoice?.projectId ?? null,
   });
   // Rebuilt each time the dialog opens, so it never edits stale values.
   const [form, setForm] = useState(blank);
@@ -1586,6 +1592,9 @@ export function InvoiceDialog({
         payoutDate: form.payoutDate,
         instantPayout: form.instantPayout,
         notes: form.notes || null,
+        // Only where the project choices were offered; elsewhere a link
+        // made on the client's profile is left as it is.
+        ...(projects ? { projectId: form.projectId } : {}),
       };
       if (mode === "create") {
         await finance.createInvoice(payload);
@@ -1711,6 +1720,30 @@ export function InvoiceDialog({
             />
           </div>
 
+          {projects && projects.length > 0 && (
+            <div className="space-y-1.5 col-span-2">
+              <Label>For project</Label>
+              <Select
+                value={form.projectId != null ? String(form.projectId) : "none"}
+                onValueChange={(v) => setForm({ ...form, projectId: v === "none" ? null : Number(v) })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None: separate one-off work</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.name}
+                      {p.price != null ? ` (${fmtMoney(p.price)})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Paying for a project? Pick it, so lifetime value counts the project's price once
+                instead of adding this on top.
+              </p>
+            </div>
+          )}
           <div className="space-y-1.5 col-span-2">
             <Label>Notes (optional)</Label>
             <Input

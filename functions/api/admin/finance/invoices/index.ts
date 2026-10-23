@@ -6,6 +6,7 @@ import {
   listOneOffInvoices,
 } from "../../../../db/finance";
 import type { NewOneOffInvoiceRow } from "../../../../db/schema";
+import { getProject } from "../../../../db/projects";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -46,6 +47,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const db = getDb(env.DB);
+  const projectId = body.projectId ?? null;
+  if (projectId !== null && (!Number.isInteger(projectId) || !(await getProject(db, projectId)))) {
+    return Response.json({ error: "No such project" }, { status: 400 });
+  }
   const created = await createOneOffInvoice(db, {
     clientName: body.clientName.trim(),
     grossAmount: Math.round(body.grossAmount as number),
@@ -54,6 +59,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     payoutDate: body.payoutDate!,
     instantPayout: body.instantPayout ?? false,
     notes: body.notes ?? null,
+    projectId,
   });
   return Response.json({ invoice: created }, { status: 201 });
 };

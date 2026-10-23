@@ -1,5 +1,6 @@
 // Finance dashboard — types, API wrapper, and pure cashflow projection.
 
+import type { ClientProject } from "./projects";
 import type { RateChange } from "./rates";
 
 export interface PaymentMethod {
@@ -80,6 +81,8 @@ export interface OneOffInvoice {
   payoutDate: string;
   instantPayout: boolean;
   notes: string | null;
+  /** The project this pays for, so lifetime value counts it once. */
+  projectId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -115,6 +118,8 @@ export interface FinanceDashboard {
   oneOffInvoices: OneOffInvoice[];
   /** Every client's rate history; see rates.ts. */
   rateChanges: RateChange[];
+  /** Every client project, for project prices in lifetime value. */
+  projects: ClientProject[];
 }
 
 // ─── Calculations ────────────────────────────────────────────────────────

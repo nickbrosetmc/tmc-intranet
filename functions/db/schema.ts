@@ -321,6 +321,8 @@ export const clientProjects = sqliteTable("client_projects", {
   kind: text("kind", { enum: PROJECT_KINDS }).notNull().default("website"),
   /** YYYY-MM-DD it went (or goes) live: where analytics look back to. */
   launchDate: text("launch_date"),
+  /** One-off price in whole dollars; counts toward lifetime value. */
+  price: integer("price"),
   url: text("url"),
   notes: text("notes"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -384,6 +386,8 @@ export const oneOffInvoices = sqliteTable("one_off_invoices", {
   payoutDate: text("payout_date").notNull(),
   instantPayout: integer("instant_payout", { mode: "boolean" }).notNull().default(false),
   notes: text("notes"),
+  /** The project this pays for, so lifetime value counts it once. */
+  projectId: integer("project_id").references(() => clientProjects.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

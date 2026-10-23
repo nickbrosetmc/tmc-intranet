@@ -35,6 +35,12 @@ export function parseProjectFields(body: Record<string, unknown>): ProjectFields
     else if (typeof v === "string" && DATE_RE.test(v)) f.launchDate = v;
     else return fail("Invalid launch date");
   }
+  if (has("price")) {
+    const v = body.price;
+    if (v === null || v === "") f.price = null;
+    else if (typeof v === "number" && Number.isFinite(v) && v >= 0) f.price = Math.round(v);
+    else return fail("Invalid price");
+  }
   if (has("url")) {
     const v = optionalText(body.url, 500);
     if (v === undefined) return fail("Invalid URL");

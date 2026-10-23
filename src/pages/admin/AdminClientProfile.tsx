@@ -24,7 +24,13 @@ import {
 } from "@/lib/admin-api";
 import { clientLifetime, formatTenure } from "@/lib/clientLifetime";
 import { submissions, type AdminSubmission } from "@/lib/clientSubmissions";
-import { finance, fmtMoney, type FinanceDashboard, type RecurringClient } from "@/lib/finance";
+import {
+  finance,
+  fmtMoney,
+  type FinanceDashboard,
+  type OneOffInvoice,
+  type RecurringClient,
+} from "@/lib/finance";
 import {
   PROJECT_KIND_LABELS,
   projectHref,
@@ -86,7 +92,7 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
   const today = todayYmd();
   const client = d?.recurringClients.find((c) => c.id === id) ?? null;
   const life = useMemo(
-    () => (client && d ? clientLifetime(client, d.oneOffInvoices, today, d.rateChanges) : null),
+    () => (client && d ? clientLifetime(client, d.oneOffInvoices, today, d.rateChanges, d.projects) : null),
     [client, d, today],
   );
 
@@ -113,9 +119,16 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
 
   const retainer = client.monthlyAmount > 0;
   const since = client.signedDate ? ` · client since ${fmtLongDay(client.signedDate)}` : "";
+  const projectNames = new Map(projectList.map((p) => [p.id, p.name]));
   const invoices = d.oneOffInvoices.filter(
-    (i) => i.clientName.trim().toLowerCase() === client.name.trim().toLowerCase(),
+    (i) =>
+      (i.projectId != null && projectNames.has(i.projectId)) ||
+      i.clientName.trim().toLowerCase() === client.name.trim().toLowerCase(),
   );
+  const valueParts = [
+    life.projectRevenue ? `${fmtMoney(life.projectRevenue)} in projects` : "",
+    life.invoiceRevenue ? `${fmtMoney(life.invoiceRevenue)} other one-off` : "",
+  ].filter(Boolean);
   const portal = accounts.find((a) => a.id === client.portalClientId) ?? null;
   const openRequests = requests.filter((r) => r.status !== "done").length;
   const rateChanges = d.rateChanges.filter((r) => r.clientId === client.id);
@@ -214,8 +227,8 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
             {projectList.length === 0 ? (
               <p className="text-sm text-muted-foreground py-2">
                 No projects yet. Add the websites and campaigns you ship, with their launch dates,
-                so it's clear where analytics should look back to. Bill one-off work with Log an
-                invoice under Value.
+                so it's clear where analytics should look back to. A project's price counts toward
+                lifetime value.
               </p>
             ) : (
               <ul className="divide-y">
@@ -227,6 +240,7 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
                           {PROJECT_KIND_LABELS[p.kind]}
                         </span>
                         <span className="text-sm font-medium text-tmc-dark">{p.name}</span>
+                        <ProjectValue project={p} invoices={d.oneOffInvoices} />
                         {p.url && (
                           <a
                             href={projectHref(p.url)}
@@ -293,9 +307,11 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
                     note={
                       life.gap
                         ? "Add the signed date to estimate it"
-                        : `${life.cyclesBilled} ${life.cyclesBilled === 1 ? "month" : "months"} billed` +
-                          (life.rateVaried ? " at the rate each month" : "") +
-                          (life.oneOffRevenue ? ` + ${fmtMoney(life.oneOffRevenue)} one-off` : "")
+                        : [
+                            `${life.cyclesBilled} ${life.cyclesBilled === 1 ? "month" : "months"} billed` +
+                              (life.rateVaried ? " at the rate each month" : ""),
+                            ...valueParts,
+                          ].join(" + ")
                     }
                   />
                   <Figure
@@ -305,15 +321,15 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
                 </>
               ) : (
                 <Figure
-                  label="Invoiced"
+                  label="Project work"
                   value={fmtMoney(life.oneOffRevenue + life.adjustment)}
-                  note="one-off invoices under this name"
+                  note={valueParts.length ? valueParts.join(" + ") : "Add a price to a project below"}
                 />
               )}
             </div>
-            {/* One-off work for this client (a website for an SEO client, say)
-                is billed here: invoices under their name count toward lifetime
-                value, and land on the cash flow chart on their payout date. */}
+            {/* Payments for one-off work. They land on the cash flow chart on
+                their payout date. One paying for a project is counted through
+                that project's price; any other counts toward lifetime value. */}
             <div className="mt-4 pt-3 border-t space-y-1.5">
               <div className="flex items-center justify-between">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-tmc-slate">
@@ -323,6 +339,7 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
                   mode="create"
                   d={d}
                   clientName={client.name}
+                  projects={projectList}
                   onSaved={load}
                   trigger={
                     <button type="button" className="text-xs text-tmc-gold-dark hover:underline">
@@ -333,21 +350,40 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
               </div>
               {invoices.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  None yet. Log one for project work so it counts toward lifetime value.
+                  None yet. Payments for projects, or any other one-off work.
                 </p>
               ) : (
                 invoices.map((i) => (
-                  <div key={i.id} className="flex justify-between gap-3 text-sm">
-                    <span className="min-w-0">
-                      <span className="text-muted-foreground">
-                        {fmtLongDay(i.invoiceDate ?? i.payoutDate)}
-                      </span>
-                      {i.notes && (
-                        <span className="block text-xs text-muted-foreground truncate">{i.notes}</span>
-                      )}
-                    </span>
-                    <span className="tabular-nums shrink-0">{fmtMoney(i.grossAmount)}</span>
-                  </div>
+                  <InvoiceDialog
+                    key={i.id}
+                    mode="edit"
+                    invoice={i}
+                    d={d}
+                    projects={projectList}
+                    onSaved={load}
+                    trigger={
+                      <button
+                        type="button"
+                        className="w-full flex justify-between gap-3 text-sm text-left rounded px-1 -mx-1 py-0.5 hover:bg-muted/60"
+                        title="Edit this invoice"
+                      >
+                        <span className="min-w-0">
+                          <span className="text-muted-foreground">
+                            {fmtLongDay(i.invoiceDate ?? i.payoutDate)}
+                          </span>
+                          {i.projectId != null && projectNames.has(i.projectId) && (
+                            <span className="block text-xs text-tmc-gold-dark truncate">
+                              for {projectNames.get(i.projectId)}
+                            </span>
+                          )}
+                          {i.notes && (
+                            <span className="block text-xs text-muted-foreground truncate">{i.notes}</span>
+                          )}
+                        </span>
+                        <span className="tabular-nums shrink-0">{fmtMoney(i.grossAmount)}</span>
+                      </button>
+                    }
+                  />
                 ))
               )}
             </div>
@@ -427,6 +463,17 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
       </div>
     </div>
   );
+}
+
+/** A project's price, or what its invoices add up to when it has none. */
+function ProjectValue({ project, invoices }: { project: ClientProject; invoices: OneOffInvoice[] }) {
+  if (project.price != null) {
+    return <span className="text-sm tabular-nums text-tmc-slate">{fmtMoney(project.price)}</span>;
+  }
+  const paid = invoices.filter((i) => i.projectId === project.id).reduce((s, i) => s + i.grossAmount, 0);
+  return paid > 0 ? (
+    <span className="text-sm tabular-nums text-tmc-slate">{fmtMoney(paid)} invoiced</span>
+  ) : null;
 }
 
 function Section({

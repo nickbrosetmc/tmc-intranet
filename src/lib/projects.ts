@@ -28,6 +28,8 @@ export interface ClientProject {
   kind: ProjectKind;
   /** YYYY-MM-DD it went (or goes) live. */
   launchDate: string | null;
+  /** One-off price in whole dollars. */
+  price: number | null;
   url: string | null;
   notes: string | null;
   createdAt: string;
@@ -35,7 +37,7 @@ export interface ClientProject {
 }
 
 export type ProjectInput = Partial<
-  Pick<ClientProject, "clientId" | "name" | "kind" | "launchDate" | "url" | "notes">
+  Pick<ClientProject, "clientId" | "name" | "kind" | "launchDate" | "price" | "url" | "notes">
 >;
 
 export type LaunchState =

@@ -74,7 +74,7 @@ export function AdminClientsRoster() {
           .pop();
         return {
           c,
-          life: clientLifetime(c, d.oneOffInvoices, today, d.rateChanges),
+          life: clientLifetime(c, d.oneOffInvoices, today, d.rateChanges, d.projects),
           projects: own.length,
           lastLaunch,
           portal: c.portalClientId != null ? accountName.get(c.portalClientId) ?? null : null,

@@ -40,6 +40,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     name: f.name,
     kind: f.kind ?? "website",
     launchDate: f.launchDate ?? null,
+    price: f.price ?? null,
     url: f.url ?? null,
     notes: f.notes ?? null,
   });

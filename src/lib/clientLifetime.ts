@@ -3,15 +3,18 @@
 //
 // Lifetime value is an estimate: every billing cycle started between the
 // signed date and the last day of service (today, for current clients), each
-// at the rate in effect that month (rates.ts), plus one-off invoices logged
-// under the same client name, plus a hand-entered adjustment for anything
-// the estimate can't see (a comped month, a setup fee). Gross, before
-// payment fees, since it's what the client paid.
+// at the rate in effect that month (rates.ts), plus the client's projects at
+// their price (or, without one, what their linked invoices add up to), plus
+// one-off invoices under the client's name that aren't for a project, plus a
+// hand-entered adjustment for anything the estimate can't see (a comped
+// month, a setup fee). Gross, before payment fees, since it's what the
+// client paid.
 
 import { addMonths, parseYmd, toYmd } from "./agreement";
 import { nextRenewal, noticeDeadline } from "./renewal";
 import { rateOn, termStart, type RateChange } from "./rates";
 import type { OneOffInvoice, RecurringClient } from "./finance";
+import type { ClientProject } from "./projects";
 
 export type LifetimeGap = "no_retainer" | "no_signed_date" | "no_end_date" | "not_started";
 
@@ -28,6 +31,11 @@ export interface ClientLifetime {
   /** The rate every cycle was billed at, when it never changed. */
   uniformRate: number | null;
   retainerRevenue: number;
+  /** The client's projects: each at its price, or its linked invoices. */
+  projectRevenue: number;
+  /** One-off invoices under the client's name not paying for a project. */
+  invoiceRevenue: number;
+  /** projectRevenue + invoiceRevenue. */
   oneOffRevenue: number;
   adjustment: number;
   ltv: number;
@@ -43,12 +51,26 @@ export function clientLifetime(
   today: string,
   /** Every client's changes, or just this one's; others are ignored. */
   rateChanges: RateChange[] = [],
+  /** Every client's projects, or just this one's; others are ignored. */
+  projects: ClientProject[] = [],
 ): ClientLifetime {
   const changes = rateChanges.filter((r) => r.clientId === client.id);
   const key = normalizeName(client.name);
-  const oneOffRevenue = invoices
-    .filter((i) => normalizeName(i.clientName) === key)
+  // A project counts once at its price; invoices paying for it don't add to
+  // that. Without a price, it's worth what its invoices add up to.
+  const projectRevenue = projects
+    .filter((p) => p.clientId === client.id)
+    .reduce(
+      (s, p) =>
+        s +
+        (p.price ??
+          invoices.filter((i) => i.projectId === p.id).reduce((t, i) => t + i.grossAmount, 0)),
+      0,
+    );
+  const invoiceRevenue = invoices
+    .filter((i) => i.projectId == null && normalizeName(i.clientName) === key)
     .reduce((s, i) => s + i.grossAmount, 0);
+  const oneOffRevenue = projectRevenue + invoiceRevenue;
   const adjustment = client.ltvAdjustment ?? 0;
 
   const through = client.isActive ? today : client.endedDate;
@@ -79,6 +101,8 @@ export function clientLifetime(
     rateVaried: new Set(rates).size > 1,
     uniformRate: new Set(rates).size === 1 ? rates[0] : null,
     retainerRevenue,
+    projectRevenue,
+    invoiceRevenue,
     oneOffRevenue,
     adjustment,
     ltv: Math.max(0, retainerRevenue + oneOffRevenue + adjustment),

@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { finance, type RecurringClient } from "@/lib/finance";
+import { finance, fmtMoney, type RecurringClient } from "@/lib/finance";
 import {
   PROJECT_KIND_LABELS,
   launchState,
@@ -118,6 +118,7 @@ export function AdminProjects() {
                 <TableHead>Project</TableHead>
                 <TableHead>Client</TableHead>
                 <TableHead>Type</TableHead>
+                <TableHead className="text-right">Price</TableHead>
                 <TableHead>Launch</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -125,7 +126,7 @@ export function AdminProjects() {
             <TableBody>
               {visible.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
                     {list.length === 0
                       ? "No projects yet. Add one here or from a client's profile."
                       : segment === "upcoming"
@@ -157,6 +158,9 @@ export function AdminProjects() {
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {PROJECT_KIND_LABELS[p.kind]}
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">
+                      {p.price != null ? fmtMoney(p.price) : <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell>
                       <LaunchLabel launchDate={p.launchDate} today={today} />

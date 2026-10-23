@@ -50,6 +50,7 @@ export function ProjectDialog({
     name: project?.name ?? "",
     kind: project?.kind ?? ("website" as ProjectKind),
     launchDate: project?.launchDate ?? "",
+    price: project?.price != null ? String(project.price) : "",
     url: project?.url ?? "",
     notes: project?.notes ?? "",
   };
@@ -73,6 +74,7 @@ export function ProjectDialog({
         name: form.name,
         kind: form.kind,
         launchDate: form.launchDate || null,
+        price: form.price.trim() === "" ? null : Math.max(0, Math.round(Number(form.price) || 0)),
         url: form.url || null,
         notes: form.notes || null,
       };
@@ -105,7 +107,8 @@ export function ProjectDialog({
         <DialogHeader>
           <DialogTitle>{project ? `Edit ${project.name}` : "Add a project"}</DialogTitle>
           <DialogDescription>
-            The launch date is where analytics for this work should look back to.
+            The price counts toward the client's lifetime value. The launch date is where
+            analytics for this work should look back to.
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
@@ -161,6 +164,16 @@ export function ProjectDialog({
               type="date"
               value={form.launchDate}
               onChange={(e) => setForm({ ...form, launchDate: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5 col-span-2">
+            <Label>Price ($)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={form.price}
+              onChange={(e) => setForm({ ...form, price: e.target.value })}
+              placeholder="One-off price, e.g. 3500"
             />
           </div>
           <div className="space-y-1.5 col-span-2">

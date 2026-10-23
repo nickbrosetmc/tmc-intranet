@@ -11,6 +11,7 @@ import {
   listRecurringExpenses,
 } from "../../../db/finance";
 import { listRateChanges } from "../../../db/rateChanges";
+import { listProjects } from "../../../db/projects";
 
 /**
  * One-shot dashboard payload. Cashflow projection is computed client-side
@@ -30,6 +31,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     oneTime,
     invoices,
     rateChanges,
+    projects,
   ] = await Promise.all([
     getFinanceSettings(db),
     listPaymentMethods(db),
@@ -39,6 +41,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     listOneTimeExpenses(db),
     listOneOffInvoices(db),
     listRateChanges(db),
+    listProjects(db),
   ]);
 
   return Response.json({
@@ -50,5 +53,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     oneTimeExpenses: oneTime,
     oneOffInvoices: invoices,
     rateChanges,
+    projects,
   });
 };
