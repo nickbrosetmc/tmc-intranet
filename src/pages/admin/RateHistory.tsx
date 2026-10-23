@@ -20,7 +20,7 @@ import {
 import { finance, fmtMoney, type RecurringClient } from "@/lib/finance";
 import { rateOn, sortChanges, type RateChange } from "@/lib/rates";
 import { todayYmd } from "@/lib/tasks";
-import { DeleteAlert } from "@/pages/admin/AdminFinance";
+import { DeleteAlert, TermSelect } from "@/pages/admin/AdminFinance";
 import { fmtLongDay } from "@/pages/admin/ProjectParts";
 
 export function RateHistoryList({
@@ -59,11 +59,22 @@ export function RateHistoryList({
         <li key={c.id} className="flex items-start justify-between gap-3 py-2.5">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm flex-wrap">
-              <span className="tabular-nums text-muted-foreground line-through decoration-muted-foreground/50">
-                {fmtMoney(c.previous)}
-              </span>
-              <ArrowRight size={12} className="text-muted-foreground" />
-              <span className="tabular-nums font-medium text-tmc-dark">{fmtMoney(c.toAmount)}/mo</span>
+              {c.previous !== c.toAmount ? (
+                <>
+                  <span className="tabular-nums text-muted-foreground line-through decoration-muted-foreground/50">
+                    {fmtMoney(c.previous)}
+                  </span>
+                  <ArrowRight size={12} className="text-muted-foreground" />
+                  <span className="tabular-nums font-medium text-tmc-dark">{fmtMoney(c.toAmount)}/mo</span>
+                </>
+              ) : (
+                <span className="font-medium text-tmc-dark">Same rate</span>
+              )}
+              {c.termMonths != null && (
+                <span className="text-[10px] font-semibold uppercase tracking-wider bg-muted text-tmc-slate px-1.5 py-0.5 rounded">
+                  {TERM_WORDS[c.termMonths]}
+                </span>
+              )}
               <span className="text-muted-foreground">
                 {c.effectiveDate > today ? "from" : "since"} {fmtLongDay(c.effectiveDate)}
               </span>
@@ -111,6 +122,7 @@ export function RecordRateChangeDialog({
       effectiveDate: today,
       fromAmount: wasOn(today),
       toAmount: client.monthlyAmount,
+      termMonths: null as number | null,
       note: "",
       fromTouched: false,
     };
@@ -124,8 +136,8 @@ export function RecordRateChangeDialog({
       toast.error("Pick the date the change took effect");
       return;
     }
-    if (form.fromAmount === form.toAmount) {
-      toast.error("The two amounts are the same");
+    if (form.fromAmount === form.toAmount && form.termMonths == null) {
+      toast.error("Nothing changes: same amount, and no new term");
       return;
     }
     setSaving(true);
@@ -134,6 +146,7 @@ export function RecordRateChangeDialog({
         effectiveDate: form.effectiveDate,
         fromAmount: form.fromAmount,
         toAmount: form.toAmount,
+        termMonths: form.termMonths,
         note: form.note || null,
       });
       toast.success("Change recorded");
@@ -205,6 +218,18 @@ export function RecordRateChangeDialog({
             />
           </div>
           <div className="space-y-1.5 col-span-2">
+            <Label>New term</Label>
+            <TermSelect
+              value={form.termMonths}
+              onChange={(termMonths) => setForm({ ...form, termMonths })}
+              emptyLabel="No change"
+            />
+            <p className="text-xs text-muted-foreground">
+              Setting one starts a new term on this date, so renewals count from it.
+              {client.termMonths != null && ` Now: ${TERM_WORDS[client.termMonths]}.`}
+            </p>
+          </div>
+          <div className="space-y-1.5 col-span-2">
             <Label>What changed</Label>
             <Input
               value={form.note}
@@ -235,6 +260,12 @@ export function RecordRateChangeDialog({
     </Dialog>
   );
 }
+
+const TERM_WORDS: Record<number, string> = {
+  0: "month-to-month",
+  6: "6-month term",
+  12: "12-month term",
+};
 
 function dayBefore(ymd: string): string {
   const [y, m, d] = ymd.split("-").map(Number);

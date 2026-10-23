@@ -10,7 +10,7 @@
 
 import { addMonths, parseYmd, toYmd } from "./agreement";
 import { nextRenewal, noticeDeadline } from "./renewal";
-import { rateOn, type RateChange } from "./rates";
+import { rateOn, termStart, type RateChange } from "./rates";
 import type { OneOffInvoice, RecurringClient } from "./finance";
 
 export type LifetimeGap = "no_retainer" | "no_signed_date" | "no_end_date" | "not_started";
@@ -31,6 +31,8 @@ export interface ClientLifetime {
   oneOffRevenue: number;
   adjustment: number;
   ltv: number;
+  /** Where renewals count from: the signed date, or a later new term. */
+  termStart: string | null;
   nextRenewal: string | null;
   noticeBy: string | null;
 }
@@ -66,7 +68,8 @@ export function clientLifetime(
   const tenureMonths = dated ? monthsBetween(client.signedDate!, dayAfter(through!)) : null;
   const retainerRevenue = rates.reduce((s, r) => s + r, 0);
 
-  const renewal = client.isActive ? nextRenewal(client.signedDate, client.termMonths, today) : null;
+  const start = termStart(client.signedDate, changes, today);
+  const renewal = client.isActive ? nextRenewal(start, client.termMonths, today) : null;
 
   return {
     client,
@@ -79,6 +82,7 @@ export function clientLifetime(
     oneOffRevenue,
     adjustment,
     ltv: Math.max(0, retainerRevenue + oneOffRevenue + adjustment),
+    termStart: start,
     nextRenewal: renewal,
     noticeBy: renewal ? noticeDeadline(renewal) : null,
   };

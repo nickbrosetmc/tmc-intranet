@@ -55,6 +55,7 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
         effectiveDate: utcToday(),
         fromAmount: existing.monthlyAmount,
         toAmount: monthlyAmount,
+        termMonths: null,
         note: null,
       },
       utcToday(),

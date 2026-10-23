@@ -435,7 +435,14 @@ export const finance = {
 
   recordRateChange: (
     clientId: number,
-    data: { effectiveDate: string; toAmount: number; fromAmount?: number | null; note?: string | null },
+    data: {
+      effectiveDate: string;
+      toAmount: number;
+      fromAmount?: number | null;
+      /** 0, 6 or 12 starts a new term on effectiveDate; omit to leave it. */
+      termMonths?: number | null;
+      note?: string | null;
+    },
   ) =>
     jsonReq<{ change: RateChange }>(`/api/admin/finance/clients/${clientId}/rate-changes`, {
       method: "POST",

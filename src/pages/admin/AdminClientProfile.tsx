@@ -37,6 +37,7 @@ import {
   ActiveToggle,
   ClientDialog,
   DeleteAlert,
+  InvoiceDialog,
   InlineDate,
   RenewalCell,
   TermSelect,
@@ -156,6 +157,11 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
               </Field>
               <Field label="Term">
                 <TermSelect value={client.termMonths} onChange={(v) => void save({ termMonths: v })} />
+                {life.termStart && life.termStart !== client.signedDate && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Current term began {fmtLongDay(life.termStart)}
+                  </p>
+                )}
               </Field>
               {client.isActive ? (
                 <Field label="Next renewal">
@@ -208,7 +214,8 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
             {projectList.length === 0 ? (
               <p className="text-sm text-muted-foreground py-2">
                 No projects yet. Add the websites and campaigns you ship, with their launch dates,
-                so it's clear where analytics should look back to.
+                so it's clear where analytics should look back to. Bill one-off work with Log an
+                invoice under Value.
               </p>
             ) : (
               <ul className="divide-y">
@@ -304,21 +311,46 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
                 />
               )}
             </div>
-            {invoices.length > 0 && (
-              <div className="mt-4 pt-3 border-t space-y-1.5">
+            {/* One-off work for this client (a website for an SEO client, say)
+                is billed here: invoices under their name count toward lifetime
+                value, and land on the cash flow chart on their payout date. */}
+            <div className="mt-4 pt-3 border-t space-y-1.5">
+              <div className="flex items-center justify-between">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-tmc-slate">
                   One-off invoices
                 </div>
-                {invoices.map((i) => (
-                  <div key={i.id} className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      {fmtLongDay(i.invoiceDate ?? i.payoutDate)}
-                    </span>
-                    <span className="tabular-nums">{fmtMoney(i.grossAmount)}</span>
-                  </div>
-                ))}
+                <InvoiceDialog
+                  mode="create"
+                  d={d}
+                  clientName={client.name}
+                  onSaved={load}
+                  trigger={
+                    <button type="button" className="text-xs text-tmc-gold-dark hover:underline">
+                      + Log an invoice
+                    </button>
+                  }
+                />
               </div>
-            )}
+              {invoices.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  None yet. Log one for project work so it counts toward lifetime value.
+                </p>
+              ) : (
+                invoices.map((i) => (
+                  <div key={i.id} className="flex justify-between gap-3 text-sm">
+                    <span className="min-w-0">
+                      <span className="text-muted-foreground">
+                        {fmtLongDay(i.invoiceDate ?? i.payoutDate)}
+                      </span>
+                      {i.notes && (
+                        <span className="block text-xs text-muted-foreground truncate">{i.notes}</span>
+                      )}
+                    </span>
+                    <span className="tabular-nums shrink-0">{fmtMoney(i.grossAmount)}</span>
+                  </div>
+                ))
+              )}
+            </div>
           </Section>
 
           <Section

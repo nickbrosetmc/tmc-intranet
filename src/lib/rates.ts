@@ -10,6 +10,8 @@ export interface RateChange {
   effectiveDate: string;
   fromAmount: number;
   toAmount: number;
+  /** A new term (0, 6 or 12) starting on effectiveDate; null leaves it alone. */
+  termMonths: number | null;
   note: string | null;
   createdAt: string;
 }
@@ -37,6 +39,37 @@ export function rateOn(date: string, changes: Change[], currentAmount: number): 
     rate = c.toAmount;
   }
   return rate;
+}
+
+/**
+ * Where renewals count from: the start of the latest term set by a change in
+ * effect on `today`, or the signed date when no change set one. A rate change
+ * that leaves the term alone doesn't restart it.
+ */
+export function termStart<T extends Change & { termMonths: number | null }>(
+  signedDate: string | null,
+  changes: T[],
+  today: string,
+): string | null {
+  let start = signedDate;
+  for (const c of sortChanges(changes)) {
+    if (c.effectiveDate > today) break;
+    if (c.termMonths != null) start = c.effectiveDate;
+  }
+  return start;
+}
+
+/** The term set by the latest change in effect on `today`, or null if none set one. */
+export function termInEffect<T extends Change & { termMonths: number | null }>(
+  changes: T[],
+  today: string,
+): number | null {
+  let term: number | null = null;
+  for (const c of sortChanges(changes)) {
+    if (c.effectiveDate > today) break;
+    if (c.termMonths != null) term = c.termMonths;
+  }
+  return term;
 }
 
 /** The latest change in effect on `today`, if any: what the current rate should be. */

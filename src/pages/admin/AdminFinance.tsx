@@ -1334,10 +1334,13 @@ export function TermSelect({
   value,
   onChange,
   compact = false,
+  emptyLabel = "Not set",
 }: {
   value: number | null;
   onChange: (months: number | null) => void;
   compact?: boolean;
+  /** What choosing no term means here: "Not set", or "No change". */
+  emptyLabel?: string;
 }) {
   return (
     <Select
@@ -1350,7 +1353,7 @@ export function TermSelect({
       <SelectContent>
         {TERM_CHOICES.map((t) => (
           <SelectItem key={t.value} value={t.value}>
-            {t.label}
+            {t.months == null ? emptyLabel : t.label}
           </SelectItem>
         ))}
       </SelectContent>
@@ -1522,21 +1525,27 @@ function OneOffInvoicesTable({
   );
 }
 
-function InvoiceDialog({
+export function InvoiceDialog({
   mode,
   invoice,
   d,
   onSaved,
+  clientName,
+  trigger,
 }: {
   mode: "create" | "edit";
   invoice?: OneOffInvoice;
   d: FinanceDashboard;
   onSaved: () => void;
+  /** Prefills the client on a new invoice, as on a client's profile. */
+  clientName?: string;
+  /** Replaces the default "Add invoice" / "Edit" button. */
+  trigger?: React.ReactNode;
 }) {
   const today = todayYmd();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    clientName: invoice?.clientName ?? "",
+  const blank = () => ({
+    clientName: invoice?.clientName ?? clientName ?? "",
     grossAmount: invoice?.grossAmount ?? 0,
     paymentMethodId: invoice?.paymentMethodId ?? null,
     invoiceDate: invoice?.invoiceDate ?? invoice?.payoutDate ?? today,
@@ -1544,6 +1553,8 @@ function InvoiceDialog({
     instantPayout: invoice?.instantPayout ?? false,
     notes: invoice?.notes ?? "",
   });
+  // Rebuilt each time the dialog opens, so it never edits stale values.
+  const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
 
   const pm =
@@ -1593,15 +1604,22 @@ function InvoiceDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setForm(blank());
+      }}
+    >
       <DialogTrigger asChild>
-        {mode === "create" ? (
-          <Button className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark" size="sm">
-            Add invoice
-          </Button>
-        ) : (
-          <Button size="sm" variant="ghost">Edit</Button>
-        )}
+        {trigger ??
+          (mode === "create" ? (
+            <Button className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark" size="sm">
+              Add invoice
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost">Edit</Button>
+          ))}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

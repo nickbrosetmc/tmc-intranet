@@ -338,6 +338,8 @@ export const clientRateChanges = sqliteTable("client_rate_changes", {
   effectiveDate: text("effective_date").notNull(),
   fromAmount: integer("from_amount").notNull(),
   toAmount: integer("to_amount").notNull(),
+  /** A new term (0, 6 or 12) starting on effectiveDate; null leaves it alone. */
+  termMonths: integer("term_months"),
   note: text("note"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

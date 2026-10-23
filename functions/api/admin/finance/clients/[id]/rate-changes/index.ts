@@ -1,7 +1,9 @@
 // POST /api/admin/finance/clients/:id/rate-changes: record a change to what
-// a client pays. { effectiveDate, toAmount, fromAmount?, note? }. fromAmount
-// defaults to what they were paying the day before; it's editable so a
-// change can be recorded after the current rate was already updated.
+// a client pays, and optionally their term. { effectiveDate, toAmount,
+// fromAmount?, termMonths?, note? }. fromAmount defaults to what they were
+// paying the day before; it's editable so a change can be recorded after the
+// current rate was already updated. termMonths (0, 6 or 12) starts a new term
+// on the effective date; leave it out for a change that doesn't.
 
 import { isResponse, requireAdmin } from "../../../../../../lib/admin";
 import type { Env } from "../../../../../../lib/auth";
@@ -33,6 +35,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   }
   const note =
     typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 500) : null;
+  let termMonths: number | null = null;
+  if (body.termMonths !== undefined && body.termMonths !== null) {
+    if (![0, 6, 12].includes(body.termMonths as number)) {
+      return Response.json({ error: "Term must be 6 or 12 months, or month-to-month" }, { status: 400 });
+    }
+    termMonths = body.termMonths as number;
+  }
 
   const db = getDb(env.DB);
   const client = await getRecurringClient(db, clientId);
@@ -41,13 +50,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const fromAmount =
     amount(body.fromAmount) ??
     (await rateBefore(db, clientId, body.effectiveDate, client.monthlyAmount));
-  if (fromAmount === toAmount) {
-    return Response.json({ error: "The new amount is the same as before" }, { status: 400 });
+  // A change can be to the term alone, at the same price.
+  if (fromAmount === toAmount && termMonths == null) {
+    return Response.json(
+      { error: "Nothing changes: same amount, and no new term" },
+      { status: 400 },
+    );
   }
 
   const change = await recordRateChange(
     db,
-    { clientId, effectiveDate: body.effectiveDate, fromAmount, toAmount, note },
+    { clientId, effectiveDate: body.effectiveDate, fromAmount, toAmount, termMonths, note },
     utcToday(),
   );
   return Response.json({ change }, { status: 201 });
