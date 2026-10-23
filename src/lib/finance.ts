@@ -41,6 +41,8 @@ export interface RecurringClient {
   endedDate: string | null;
   /** Whole dollars added to the estimated lifetime value; negative takes off. */
   ltvAdjustment: number | null;
+  /** The client's portal account, if they have one. */
+  portalClientId: number | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -63,6 +63,14 @@ export function parseClientFields(body: Record<string, unknown>): FieldsResult {
     f.postingDays = (body.postingDays as string | null) || null;
   }
 
+  if (has("portalClientId")) {
+    const v = body.portalClientId;
+    if (v !== null && (typeof v !== "number" || !Number.isInteger(v) || v < 1)) {
+      return fail("Invalid portal account");
+    }
+    f.portalClientId = v as number | null;
+  }
+
   // Client lifetime
   for (const key of ["signedDate", "endedDate"] as const) {
     if (!has(key)) continue;

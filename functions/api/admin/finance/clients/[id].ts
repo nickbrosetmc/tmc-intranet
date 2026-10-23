@@ -53,13 +53,14 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params
   const result = await deleteRecurringClient(db, id);
   if (!result.ok) {
     // 409, not 500: the request is understood, the client just still has
-    // content hanging off it.
+    // history hanging off it.
+    const what =
+      result.reason === "has_posts"
+        ? `${result.posts} content ${result.posts === 1 ? "post" : "posts"} in the planner`
+        : `${result.projects} ${result.projects === 1 ? "project" : "projects"} on their profile`;
     return Response.json(
       {
-        error:
-          `This client has ${result.posts} content ${
-            result.posts === 1 ? "post" : "posts"
-          } in the planner. Mark it inactive instead, or remove its posts first.`,
+        error: `This client has ${what}. Mark it inactive instead, or remove those first.`,
       },
       { status: 409 },
     );

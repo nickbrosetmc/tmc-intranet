@@ -83,6 +83,7 @@ import {
   type Segment,
 } from "@/lib/clientLifetime";
 import { daysBetween } from "@/lib/renewal";
+import { Link } from "wouter";
 import { AdminPageHeader } from "@/pages/admin/AdminPageHeader";
 
 // ─── Data shared by every Finance page ───────────────────────────────────
@@ -579,6 +580,8 @@ function RecurringClientsTable({
   onChanged: () => void;
 }) {
   const pmById = new Map(d.paymentMethods.map((p) => [p.id, p]));
+  // Project-only clients ($0 a month) live under Clients, not here.
+  const retainers = d.recurringClients.filter((c) => c.monthlyAmount > 0);
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -599,7 +602,7 @@ function RecurringClientsTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {d.recurringClients.length === 0 ? (
+            {retainers.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
                   No recurring clients yet. Click "Add client" to add one.
@@ -608,14 +611,16 @@ function RecurringClientsTable({
             ) : (
               // Retired clients drop to the bottom so the live roster reads
               // first; they stay listed because their history is still real.
-              [...d.recurringClients]
+              [...retainers]
                 .sort((a, b) => Number(b.isActive) - Number(a.isActive))
                 .map((c) => {
                 const pm = c.paymentMethodId != null ? pmById.get(c.paymentMethodId) : null;
                 const net = netAfterFees(c.monthlyAmount, pm);
                 return (
                   <TableRow key={c.id} className={!c.isActive ? "opacity-50" : undefined}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <ProfileLink client={c} />
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{fmtMoney(c.monthlyAmount)}</TableCell>
                     <TableCell className="text-sm">{pm?.name ?? "—"}</TableCell>
                     <TableCell className="text-right tabular-nums text-green-700">
@@ -668,7 +673,16 @@ function RecurringClientsTable({
   );
 }
 
-function ClientDialog({
+/** A client's name, linking to their profile. "~" leaves the Finance nest. */
+function ProfileLink({ client }: { client: RecurringClient }) {
+  return (
+    <Link href={`~/admin/clients/${client.id}`} className="text-tmc-dark hover:text-tmc-gold-dark">
+      {client.name}
+    </Link>
+  );
+}
+
+export function ClientDialog({
   mode,
   client,
   d,
@@ -695,8 +709,12 @@ function ClientDialog({
   const [saving, setSaving] = useState(false);
 
   async function submit() {
-    if (!form.name.trim() || !form.monthlyAmount) {
-      toast.error("Name and amount required");
+    if (!form.name.trim()) {
+      toast.error("Name required");
+      return;
+    }
+    if (!(form.monthlyAmount >= 0)) {
+      toast.error("Monthly amount can't be negative");
       return;
     }
     setSaving(true);
@@ -751,7 +769,7 @@ function ClientDialog({
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </div>
           <div className="space-y-1.5">
-            <Label>Monthly amount ($)</Label>
+            <Label title="0 for a project-only client">Monthly amount ($)</Label>
             <Input
               type="number"
               value={form.monthlyAmount}
@@ -891,7 +909,11 @@ function ClientLifetimeSection({
     [d, today],
   );
   const avg = lifetimeAverages(rows, segment);
-  const visible = rows.filter((r) => inSegment(r, segment)).sort(byLifetimeOrder);
+  // Project-only clients have no retainer lifetime to show; they're on
+  // their profiles under Clients.
+  const visible = rows
+    .filter((r) => inSegment(r, segment) && r.gap !== "no_retainer")
+    .sort(byLifetimeOrder);
 
   async function save(c: RecurringClient, patch: Partial<RecurringClient>) {
     try {
@@ -990,7 +1012,7 @@ function ClientLifetimeSection({
                   return (
                     <TableRow key={c.id} className={!c.isActive ? "bg-muted/30" : undefined}>
                       <TableCell className="font-medium">
-                        {c.name}
+                        <ProfileLink client={c} />
                         {!c.isActive && (
                           <span className="ml-2 text-[10px] uppercase tracking-wider text-muted-foreground">
                             past
@@ -1203,7 +1225,7 @@ function ltvBreakdown(r: ClientLifetime): string {
   return parts.join("\n");
 }
 
-function RenewalCell({ r, today }: { r: ClientLifetime; today: string }) {
+export function RenewalCell({ r, today }: { r: ClientLifetime; today: string }) {
   const c = r.client;
   if (!c.signedDate) return <span className="text-muted-foreground">—</span>;
   if (c.termMonths === 0) {
@@ -1235,7 +1257,7 @@ function RenewalCell({ r, today }: { r: ClientLifetime; today: string }) {
 }
 
 /** "Mar 1, 2027" from a calendar date, read as a local day. */
-function fmtYmd(ymd: string): string {
+export function fmtYmd(ymd: string): string {
   const [y, m, d] = ymd.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, {
     month: "short",
@@ -1251,7 +1273,7 @@ const TERM_CHOICES: { value: string; label: string; months: number | null }[] = 
   { value: "0", label: "Month-to-month", months: 0 },
 ];
 
-function TermSelect({
+export function TermSelect({
   value,
   onChange,
   compact = false,
@@ -1284,7 +1306,7 @@ function TermSelect({
  * year digit by digit passes through valid dates like 0002-01-15, and each
  * would otherwise be saved.
  */
-function InlineDate({
+export function InlineDate({
   value,
   onSave,
   min,
@@ -2483,7 +2505,7 @@ function CatPill({ cat }: { cat: ExpenseCategory }) {
  * content seeding, planner targets and task placeholders, all of which already
  * key off isActive.
  */
-function ActiveToggle({
+export function ActiveToggle({
   client,
   onChanged,
 }: {
@@ -2535,13 +2557,16 @@ function ActiveToggle({
   );
 }
 
-function DeleteAlert({
+export function DeleteAlert({
   title,
   description,
+  trigger,
   onConfirm,
 }: {
   title: string;
   description?: string;
+  /** Replaces the default "Delete" text button. */
+  trigger?: React.ReactNode;
   onConfirm: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -2566,7 +2591,7 @@ function DeleteAlert({
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
-        <Button size="sm" variant="ghost" className="text-destructive">Delete</Button>
+        {trigger ?? <Button size="sm" variant="ghost" className="text-destructive">Delete</Button>}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>

@@ -292,11 +292,42 @@ export const recurringClients = sqliteTable("recurring_clients", {
   endedDate: text("ended_date"),
   /** Whole dollars added to the estimated lifetime value; negative takes off. */
   ltvAdjustment: integer("ltv_adjustment"),
+  /** The client's portal account, if they have one. */
+  portalClientId: integer("portal_client_id").references(() => clients.id, {
+    onDelete: "set null",
+  }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 export type RecurringClientRow = typeof recurringClients.$inferSelect;
 export type NewRecurringClientRow = typeof recurringClients.$inferInsert;
+
+export const PROJECT_KINDS = [
+  "website",
+  "landing_page",
+  "ecommerce",
+  "branding",
+  "campaign",
+  "other",
+] as const;
+
+/** Work shipped for a client; see migration 0040. */
+export const clientProjects = sqliteTable("client_projects", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  clientId: integer("client_id")
+    .notNull()
+    .references(() => recurringClients.id),
+  name: text("name").notNull(),
+  kind: text("kind", { enum: PROJECT_KINDS }).notNull().default("website"),
+  /** YYYY-MM-DD it went (or goes) live: where analytics look back to. */
+  launchDate: text("launch_date"),
+  url: text("url"),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export type ClientProjectRow = typeof clientProjects.$inferSelect;
+export type NewClientProjectRow = typeof clientProjects.$inferInsert;
 
 /** One row per renewal reminder email sent; see migration 0039. */
 export const renewalReminders = sqliteTable("renewal_reminders", {

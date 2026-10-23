@@ -7,6 +7,7 @@ import {
   clients,
   clientUserClients,
   clientUsers,
+  recurringClients,
   users,
   type AnnouncementRow,
   type AppGroupRow,
@@ -289,6 +290,13 @@ export async function updateClient(
 }
 
 export async function deleteClient(db: DB, id: number): Promise<void> {
+  // Unlink any client profile first. The column is ON DELETE SET NULL, but
+  // saying so here keeps it from depending on how the constraint was made.
+  await db
+    .update(recurringClients)
+    .set({ portalClientId: null })
+    .where(eq(recurringClients.portalClientId, id))
+    .run();
   // Cascade delete via client_users.client_id ON DELETE CASCADE
   await db.delete(clients).where(eq(clients.id, id)).run();
 }

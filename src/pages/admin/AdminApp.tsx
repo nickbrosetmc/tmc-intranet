@@ -8,6 +8,7 @@ import { Link, Redirect, Route, Switch, useLocation } from "wouter";
 import {
   ArrowLeft,
   Building2,
+  KeyRound,
   CalendarOff,
   ChartColumn,
   ChartLine,
@@ -21,6 +22,7 @@ import {
   Package,
   PiggyBank,
   Receipt,
+  Rocket,
   UserCog,
   Wallet,
 } from "lucide-react";
@@ -38,6 +40,9 @@ import { useUser, type TeamUser } from "@/lib/useUser";
 import { AdminOverview } from "@/pages/admin/AdminOverview";
 import { AdminAnnouncements } from "@/pages/admin/AdminAnnouncements";
 import { AdminClients } from "@/pages/admin/AdminClients";
+import { AdminClientsRoster } from "@/pages/admin/AdminClientsRoster";
+import { AdminClientProfile } from "@/pages/admin/AdminClientProfile";
+import { AdminProjects } from "@/pages/admin/AdminProjects";
 import { AdminTimeClock } from "@/pages/admin/AdminTimeClock";
 import { AdminTimeOff } from "@/pages/admin/AdminTimeOff";
 import { AdminUsers } from "@/pages/admin/AdminUsers";
@@ -86,7 +91,11 @@ const NAV: { title?: string; items: NavItem[] }[] = [
   },
   {
     title: "Clients",
-    items: [{ href: "/admin/clients", label: "Client accounts", icon: Building2 }],
+    items: [
+      { href: "/admin/clients", label: "All clients", icon: Building2 },
+      { href: "/admin/projects", label: "Projects", icon: Rocket },
+      { href: "/admin/portal-accounts", label: "Portal accounts", icon: KeyRound },
+    ],
   },
   {
     title: "Portal",
@@ -152,7 +161,10 @@ export function AdminApp() {
           </FinanceProvider>
         </Route>
         <Route path="/admin/announcements" component={AdminAnnouncements} />
-        <Route path="/admin/clients" component={AdminClients} />
+        <Route path="/admin/clients" component={AdminClientsRoster} />
+        <Route path="/admin/clients/:id" component={AdminClientProfile} />
+        <Route path="/admin/projects" component={AdminProjects} />
+        <Route path="/admin/portal-accounts" component={AdminClients} />
         <Route path="/admin/time-clock" component={AdminTimeClock} />
         <Route path="/admin/time-off" component={AdminTimeOff} />
         <Route path="/admin/users" component={AdminUsers} />
@@ -181,7 +193,7 @@ function AdminShell({ user, children }: { user: TeamUser; children: ReactNode })
           </span>
         </Link>
 
-        <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-4" aria-label="Admin">
+        <nav className="flex-1 overflow-y-auto px-3 pb-3 space-y-3" aria-label="Admin">
           {NAV.map((section, i) => (
             <div key={section.title ?? i} className="space-y-0.5">
               {section.title && (
@@ -197,7 +209,7 @@ function AdminShell({ user, children }: { user: TeamUser; children: ReactNode })
                     key={item.href}
                     href={item.href}
                     aria-current={active ? "page" : undefined}
-                    className={`flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                    className={`flex items-center gap-2.5 rounded-md px-3 py-[5px] text-sm transition-colors ${
                       active
                         ? "bg-white/10 text-white font-medium shadow-[inset_2px_0_0_#CFB583]"
                         : "text-white/65 hover:bg-white/5 hover:text-white"
