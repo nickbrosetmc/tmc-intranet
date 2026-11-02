@@ -1,5 +1,6 @@
-// POST /api/finance-feed/rate-changes: a pending rate increase in TMC Finance
-// was made real. { clientId, effectiveDate, toAmount, termMonths? }. The
+// POST /api/finance-feed/rate-changes: a rate change recorded in TMC Finance,
+// by hand or from a pending deal made real. { clientId, effectiveDate,
+// toAmount, termMonths?, note? }. The
 // same rules as recording one on a client's profile: the previous amount is
 // what they paid the day before, and a change dated today or earlier moves
 // the current rate. Takes FINANCE_WRITE_TOKEN (see lib/financeApp.ts).
@@ -36,6 +37,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (typeof toAmount !== "number" || !Number.isFinite(toAmount) || toAmount < 0) {
     return Response.json({ error: "Invalid new amount" }, { status: 400 });
   }
+  const note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 500) : null;
   let termMonths: number | null = null;
   if (body.termMonths !== undefined && body.termMonths !== null) {
     if (![0, 6, 12].includes(body.termMonths as number)) {
@@ -64,12 +66,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const fromAmount = await rateBefore(db, clientId, effectiveDate, client.monthlyAmount);
   if (fromAmount === rounded && termMonths == null) {
-    return Response.json({ error: "Nothing changes: they already pay that amount" }, { status: 400 });
+    return Response.json({ error: "Nothing changes: same amount, and no new term" }, { status: 400 });
   }
   const by = onBehalfOf(request);
   const change = await recordRateChange(
     db,
-    { clientId, effectiveDate, fromAmount, toAmount: rounded, termMonths, note: `From a TMC Finance pipeline deal, by ${by}.` },
+    {
+      clientId,
+      effectiveDate,
+      fromAmount,
+      toAmount: rounded,
+      termMonths,
+      // A deal made real sends no note; say where it came from.
+      note: "note" in body ? note : `From a TMC Finance pipeline deal, by ${by}.`,
+    },
     utcToday(),
   );
   console.log(JSON.stringify({ msg: "finance app recorded rate change", id: change.id, clientId, by }));

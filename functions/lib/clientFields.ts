@@ -101,6 +101,28 @@ export function parseClientFields(body: Record<string, unknown>): FieldsResult {
   return { ok: true, fields: f };
 }
 
+/**
+ * What TMC Finance owns about a client: who they are, what they pay and
+ * their contract. The hub shows these but only TMC Finance changes them;
+ * the hub keeps the content planner's fields and the client portal link.
+ */
+export const FINANCE_OWNED_FIELDS = [
+  "name",
+  "monthlyAmount",
+  "paymentMethodId",
+  "invoiceDay",
+  "isActive",
+  "signedDate",
+  "termMonths",
+  "endedDate",
+  "ltvAdjustment",
+] as const;
+
+/** The finance-owned fields a request body tries to set. */
+export function financeOwnedIn(body: Record<string, unknown>): string[] {
+  return FINANCE_OWNED_FIELDS.filter((k) => Object.prototype.hasOwnProperty.call(body, k));
+}
+
 /** A client can't leave before they signed. Checked against the row as it will be saved. */
 export function datesInOrder(signed: string | null | undefined, ended: string | null | undefined): boolean {
   return !signed || !ended || ended >= signed;

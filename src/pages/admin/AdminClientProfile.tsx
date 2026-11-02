@@ -39,18 +39,10 @@ import {
 } from "@/lib/projects";
 import { todayYmd } from "@/lib/tasks";
 import { AdminPageHeader } from "@/pages/admin/AdminPageHeader";
-import {
-  ActiveToggle,
-  ClientDialog,
-  DeleteAlert,
-  InvoiceDialog,
-  InlineDate,
-  projectionNote,
-  RenewalCell,
-  TermSelect,
-} from "@/pages/admin/AdminFinance";
+import { DeleteAlert, InvoiceDialog, projectionNote, RenewalCell } from "@/pages/admin/AdminFinance";
 import { ProjectDialog } from "@/pages/admin/ProjectDialog";
-import { RateHistoryList, RecordRateChangeDialog } from "@/pages/admin/RateHistory";
+import { RateHistoryList } from "@/pages/admin/RateHistory";
+import { EditInFinance } from "@/components/EditInFinance";
 import { LaunchLabel, fmtLongDay } from "@/pages/admin/ProjectParts";
 
 const DAY_NAMES: Record<string, string> = {
@@ -153,8 +145,10 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
         }
         actions={
           <>
-            <ActiveToggle client={client} onChanged={load} />
-            <ClientDialog mode="edit" client={client} d={d} onSaved={load} />
+            {!client.isActive && (
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Inactive</span>
+            )}
+            <EditInFinance />
           </>
         }
       />
@@ -164,15 +158,20 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
           <Section title="Contract">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Field label="Signed">
-                <InlineDate
-                  value={client.signedDate}
-                  max={client.endedDate ?? undefined}
-                  label="Signed date"
-                  onSave={(v) => save({ signedDate: v })}
-                />
+                <span className="text-sm">
+                  {client.signedDate ? fmtLongDay(client.signedDate) : <span className="text-xs text-amber-700">Not set</span>}
+                </span>
               </Field>
               <Field label="Term">
-                <TermSelect value={client.termMonths} onChange={(v) => void save({ termMonths: v })} />
+                <span className="text-sm">
+                  {client.termMonths == null ? (
+                    <span className="text-xs text-amber-700">Not set</span>
+                  ) : client.termMonths === 0 ? (
+                    "Month-to-month"
+                  ) : (
+                    `${client.termMonths} months`
+                  )}
+                </span>
                 {life.termStart && life.termStart !== client.signedDate && (
                   <p className="text-[11px] text-muted-foreground">
                     Current term began {fmtLongDay(life.termStart)}
@@ -189,12 +188,7 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
                 </Field>
               ) : (
                 <Field label="Left on">
-                  <InlineDate
-                    value={client.endedDate}
-                    min={client.signedDate ?? undefined}
-                    label="Left on"
-                    onSave={(v) => save({ endedDate: v })}
-                  />
+                  <span className="text-sm">{client.endedDate ? fmtLongDay(client.endedDate) : "Not set"}</span>
                 </Field>
               )}
             </div>
@@ -205,11 +199,9 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
           {life.gap !== "no_retainer" && (
             <Section
               title="Rate history"
-              action={
-                <RecordRateChangeDialog client={client} changes={rateChanges} onSaved={load} />
-              }
+              action={<EditInFinance compact label="Record a change in TMC Finance" />}
             >
-              <RateHistoryList client={client} changes={rateChanges} onChanged={load} />
+              <RateHistoryList client={client} changes={rateChanges} />
             </Section>
           )}
 
@@ -290,7 +282,7 @@ export function AdminClientProfile({ params }: { params: { id: string } }) {
             )}
           </Section>
 
-          <Section title="Notes" action={<ClientDialog mode="edit" client={client} d={d} onSaved={load} />}>
+          <Section title="Notes" action={<EditInFinance compact label="Edit in TMC Finance" />}>
             {client.notes ? (
               <p className="text-sm text-tmc-dark whitespace-pre-wrap">{client.notes}</p>
             ) : (

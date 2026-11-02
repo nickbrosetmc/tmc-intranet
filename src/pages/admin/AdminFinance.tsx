@@ -92,6 +92,7 @@ import { daysBetween } from "@/lib/renewal";
 import type { ClientProject } from "@/lib/projects";
 import { Link } from "wouter";
 import { AdminPageHeader } from "@/pages/admin/AdminPageHeader";
+import { EditInFinance } from "@/components/EditInFinance";
 
 // ─── Data shared by every Finance page ───────────────────────────────────
 
@@ -635,7 +636,7 @@ export function FinanceRevenuePage() {
           subtitle="net, by payout date"
         />
       </div>
-      <RecurringClientsTable d={d} onChanged={refresh} />
+      <RecurringClientsTable d={d} />
       <OneOffInvoicesTable d={d} onChanged={refresh} />
     </div>
   );
@@ -929,13 +930,7 @@ function CashflowCard({
 
 // ─── Tables ──────────────────────────────────────────────────────────────
 
-function RecurringClientsTable({
-  d,
-  onChanged,
-}: {
-  d: FinanceDashboard;
-  onChanged: () => void;
-}) {
+function RecurringClientsTable({ d }: { d: FinanceDashboard }) {
   const pmById = new Map(d.paymentMethods.map((p) => [p.id, p]));
   // Project-only clients ($0 a month) live under Clients, not here.
   const retainers = d.recurringClients.filter((c) => c.monthlyAmount > 0);
@@ -943,7 +938,7 @@ function RecurringClientsTable({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">Recurring revenue</CardTitle>
-        <ClientDialog mode="create" d={d} onSaved={onChanged} />
+        <EditInFinance label="Add or edit clients in TMC Finance" />
       </CardHeader>
       <CardContent>
         <Table>
@@ -962,7 +957,7 @@ function RecurringClientsTable({
             {retainers.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
-                  No recurring clients yet. Click "Add client" to add one.
+                  No recurring clients yet. Add them in TMC Finance.
                 </TableCell>
               </TableRow>
             ) : (
@@ -984,20 +979,9 @@ function RecurringClientsTable({
                       {fmtMoney(net)}
                     </TableCell>
                     <TableCell className="text-sm">{c.invoiceDay ?? "—"}</TableCell>
-                    <TableCell className="text-sm">
-                      <ActiveToggle client={c} onChanged={onChanged} />
-                    </TableCell>
-                    <TableCell className="text-right space-x-1">
-                      <ClientDialog mode="edit" client={c} d={d} onSaved={onChanged} />
-                      <DeleteAlert
-                        title={`Remove ${c.name}?`}
-                        description="Only possible if the client has no posts in the content planner. For a client that has left, set the status to Inactive instead: that keeps the history and takes them out of MRR, cash flow, the planner and task lists."
-                        onConfirm={async () => {
-                          await finance.deleteClient(c.id);
-                          toast.success("Deleted");
-                          onChanged();
-                        }}
-                      />
+                    <TableCell className="text-sm">{c.isActive ? "Active" : "Inactive"}</TableCell>
+                    <TableCell className="text-right">
+                      <EditInFinance compact label="Edit" />
                     </TableCell>
                   </TableRow>
                 );
@@ -1036,259 +1020,6 @@ function ProfileLink({ client }: { client: RecurringClient }) {
     <Link href={`~/admin/clients/${client.id}`} className="text-tmc-dark hover:text-tmc-gold-dark">
       {client.name}
     </Link>
-  );
-}
-
-export function ClientDialog({
-  mode,
-  client,
-  d,
-  onSaved,
-}: {
-  mode: "create" | "edit";
-  client?: RecurringClient;
-  d: FinanceDashboard;
-  onSaved: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const blank = () => ({
-    name: client?.name ?? "",
-    monthlyAmount: client?.monthlyAmount ?? 0,
-    paymentMethodId: client?.paymentMethodId ?? null,
-    invoiceDay: client?.invoiceDay ?? 1,
-    isActive: client?.isActive ?? true,
-    notes: client?.notes ?? "",
-    signedDate: client?.signedDate ?? "",
-    termMonths: client?.termMonths ?? null,
-    endedDate: client?.endedDate ?? "",
-    ltvAdjustment: client?.ltvAdjustment ?? 0,
-    // Only used when the monthly amount changes: when, and why.
-    rateEffective: todayYmd(),
-    rateNote: "",
-  });
-  // Rebuilt each time the dialog opens, so it never edits stale values (a
-  // stale amount would be saved as a change in what the client pays).
-  const [form, setForm] = useState(blank);
-  const [saving, setSaving] = useState(false);
-  const amountChanged = mode === "edit" && form.monthlyAmount !== client!.monthlyAmount;
-
-  async function submit() {
-    if (!form.name.trim()) {
-      toast.error("Name required");
-      return;
-    }
-    if (!(form.monthlyAmount >= 0)) {
-      toast.error("Monthly amount can't be negative");
-      return;
-    }
-    setSaving(true);
-    try {
-      const payload = {
-        name: form.name,
-        // A changed amount goes through the rate history below instead.
-        ...(amountChanged ? {} : { monthlyAmount: form.monthlyAmount }),
-        paymentMethodId: form.paymentMethodId,
-        invoiceDay: form.invoiceDay,
-        isActive: form.isActive,
-        notes: form.notes || null,
-        signedDate: form.signedDate || null,
-        termMonths: form.termMonths,
-        // Leaving dates the end of their lifetime; coming back clears it.
-        endedDate: form.isActive ? null : form.endedDate || todayYmd(),
-        ltvAdjustment: form.ltvAdjustment || null,
-      };
-      if (mode === "create") {
-        await finance.createClient(payload);
-        toast.success("Client added");
-      } else {
-        if (amountChanged) {
-          // Recorded as a change, so months already billed keep their rate.
-          await finance.recordRateChange(client!.id, {
-            effectiveDate: form.rateEffective,
-            fromAmount: client!.monthlyAmount,
-            toAmount: form.monthlyAmount,
-            note: form.rateNote || null,
-          });
-        }
-        await finance.updateClient(client!.id, payload);
-        toast.success(
-          amountChanged && form.rateEffective > todayYmd()
-            ? `Saved. The new rate starts ${fmtYmd(form.rateEffective)}.`
-            : "Saved",
-        );
-      }
-      setOpen(false);
-      onSaved();
-    } catch (e) {
-      toast.error(`Save failed: ${(e as Error).message}`);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        setOpen(o);
-        if (o) setForm(blank());
-      }}
-    >
-      <DialogTrigger asChild>
-        {mode === "create" ? (
-          <Button className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark" size="sm">
-            Add client
-          </Button>
-        ) : (
-          <Button size="sm" variant="ghost">Edit</Button>
-        )}
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{mode === "create" ? "Add recurring client" : `Edit ${client?.name}`}</DialogTitle>
-        </DialogHeader>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5 col-span-2">
-            <Label>Client name</Label>
-            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          </div>
-          <div className="space-y-1.5">
-            <Label title="0 for a project-only client">Monthly amount ($)</Label>
-            <Input
-              type="number"
-              value={form.monthlyAmount}
-              onChange={(e) => setForm({ ...form, monthlyAmount: Number(e.target.value) || 0 })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Invoice day (1–31)</Label>
-            <Input
-              type="number"
-              min={1}
-              max={31}
-              value={form.invoiceDay}
-              onChange={(e) => setForm({ ...form, invoiceDay: Number(e.target.value) || 1 })}
-            />
-          </div>
-          {amountChanged && (
-            <div className="col-span-2 rounded-md border border-tmc-gold/40 bg-tmc-gold/10 p-3 space-y-3">
-              <p className="text-xs text-tmc-dark">
-                Changing from {fmtMoney(client!.monthlyAmount)} to {fmtMoney(form.monthlyAmount)} a
-                month. It's saved as a change, so months already billed keep the old rate in
-                lifetime value.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Takes effect</Label>
-                  <Input
-                    type="date"
-                    value={form.rateEffective}
-                    onChange={(e) => setForm({ ...form, rateEffective: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>What changed</Label>
-                  <Input
-                    value={form.rateNote}
-                    onChange={(e) => setForm({ ...form, rateNote: e.target.value })}
-                    placeholder="e.g. Dropped SEO, hosting only"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-          <div className="space-y-1.5 col-span-2">
-            <Label>Payment method</Label>
-            <Select
-              value={form.paymentMethodId != null ? String(form.paymentMethodId) : "none"}
-              onValueChange={(v) =>
-                setForm({ ...form, paymentMethodId: v === "none" ? null : Number(v) })
-              }
-            >
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">— not set —</SelectItem>
-                {d.paymentMethods.map((p) => {
-                  const parts: string[] = [];
-                  if (p.feePct > 0) parts.push(`${(p.feePct * 100).toFixed(2)}%`);
-                  if (p.feeFlat > 0) parts.push(`$${(p.feeFlat / 100).toFixed(2)}`);
-                  if (p.instantPayoutPct > 0)
-                    parts.push(`+${(p.instantPayoutPct * 100).toFixed(1)}% instant`);
-                  return (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}
-                      {parts.length > 0 ? ` (${parts.join(" + ")})` : ""}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5 col-span-2">
-            <Label>Notes</Label>
-            <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Signed</Label>
-            <Input
-              type="date"
-              value={form.signedDate}
-              onChange={(e) => setForm({ ...form, signedDate: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Term</Label>
-            <TermSelect
-              value={form.termMonths}
-              onChange={(termMonths) => setForm({ ...form, termMonths })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>LTV adjustment ($)</Label>
-            <Input
-              type="number"
-              value={form.ltvAdjustment || ""}
-              placeholder="0"
-              onChange={(e) => setForm({ ...form, ltvAdjustment: Number(e.target.value) || 0 })}
-            />
-          </div>
-          {!form.isActive && (
-            <div className="space-y-1.5">
-              <Label>Left on</Label>
-              <Input
-                type="date"
-                value={form.endedDate}
-                min={form.signedDate || undefined}
-                onChange={(e) => setForm({ ...form, endedDate: e.target.value })}
-              />
-            </div>
-          )}
-          <p className="col-span-2 text-xs text-muted-foreground -mt-1">
-            Lifetime value counts each month billed at the rate in effect then, plus
-            one-off invoices under this name. Use the adjustment to add or take off
-            what that misses, like a comped month or a setup fee.
-          </p>
-          <label className="flex items-center gap-2 col-span-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.isActive}
-              onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
-            />
-            Active (counted in MRR + cashflow)
-          </label>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button
-            onClick={submit}
-            disabled={saving}
-            className="bg-tmc-gold text-tmc-dark hover:bg-tmc-gold-dark"
-          >
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -1339,16 +1070,6 @@ function ClientLifetimeSection({
   const visible = rows
     .filter((r) => inSegment(r, segment) && r.gap !== "no_retainer")
     .sort(byLifetimeOrder);
-
-  async function save(c: RecurringClient, patch: Partial<RecurringClient>) {
-    try {
-      await finance.updateClient(c.id, patch);
-      onChanged();
-    } catch (e) {
-      toast.error(`Couldn't save: ${(e as Error).message}`);
-      onChanged();
-    }
-  }
 
   return (
     <div className="space-y-4">
@@ -1483,30 +1204,16 @@ function ClientLifetimeSection({
                         )}
                       </TableCell>
                       <TableCell>
-                        <InlineDate
-                          value={c.signedDate}
-                          max={c.endedDate ?? undefined}
-                          label={`${c.name} signed date`}
-                          onSave={(v) => save(c, { signedDate: v })}
-                        />
+                        {c.signedDate ? fmtYmd(c.signedDate) : <span className="text-xs text-amber-700">Not set</span>}
                       </TableCell>
                       <TableCell>
-                        <TermSelect
-                          compact
-                          value={c.termMonths}
-                          onChange={(v) => void save(c, { termMonths: v })}
-                        />
+                        <span className="text-sm">{(c.termMonths == null ? <span className="text-xs text-amber-700">Not set</span> : c.termMonths === 0 ? "Month-to-month" : `${c.termMonths} months`)}</span>
                       </TableCell>
                       <TableCell>
                         {c.isActive ? (
                           <RenewalCell r={r} today={today} />
                         ) : (
-                          <InlineDate
-                            value={c.endedDate}
-                            min={c.signedDate ?? undefined}
-                            label={`${c.name} left on`}
-                            onSave={(v) => save(c, { endedDate: v })}
-                          />
+                          <span className="text-sm">{c.endedDate ? fmtYmd(c.endedDate) : "Not set"}</span>
                         )}
                       </TableCell>
                       <TableCell className="text-sm">
@@ -1537,7 +1244,7 @@ function ClientLifetimeSection({
                         <ProjectedCell p={projections.get(c.id) ?? null} renewals={renewals} />
                       </TableCell>
                       <TableCell className="text-right">
-                        <ClientDialog mode="edit" client={c} d={d} onSaved={onChanged} />
+                        <EditInFinance compact label="Edit" />
                       </TableCell>
                     </TableRow>
                   );
@@ -1766,88 +1473,6 @@ export function fmtYmd(ymd: string): string {
     day: "numeric",
     year: "numeric",
   });
-}
-
-const TERM_CHOICES: { value: string; label: string; months: number | null }[] = [
-  { value: "none", label: "Not set", months: null },
-  { value: "6", label: "6 months", months: 6 },
-  { value: "12", label: "12 months", months: 12 },
-  { value: "0", label: "Month-to-month", months: 0 },
-];
-
-export function TermSelect({
-  value,
-  onChange,
-  compact = false,
-  emptyLabel = "Not set",
-}: {
-  value: number | null;
-  onChange: (months: number | null) => void;
-  compact?: boolean;
-  /** What choosing no term means here: "Not set", or "No change". */
-  emptyLabel?: string;
-}) {
-  return (
-    <Select
-      value={value == null ? "none" : String(value)}
-      onValueChange={(v) => onChange(TERM_CHOICES.find((t) => t.value === v)?.months ?? null)}
-    >
-      <SelectTrigger className={compact ? "h-8 w-[136px] text-xs" : undefined}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {TERM_CHOICES.map((t) => (
-          <SelectItem key={t.value} value={t.value}>
-            {t.months == null ? emptyLabel : t.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-/**
- * A date that saves itself. Commits on blur rather than on change: typing a
- * year digit by digit passes through valid dates like 0002-01-15, and each
- * would otherwise be saved.
- */
-export function InlineDate({
-  value,
-  onSave,
-  min,
-  max,
-  label,
-}: {
-  value: string | null;
-  onSave: (v: string | null) => Promise<void>;
-  min?: string;
-  max?: string;
-  label: string;
-}) {
-  const [draft, setDraft] = useState(value ?? "");
-  useEffect(() => setDraft(value ?? ""), [value]);
-
-  function commit() {
-    const next = draft || null;
-    if (next === value) return;
-    void onSave(next);
-  }
-
-  return (
-    <Input
-      type="date"
-      aria-label={label}
-      value={draft}
-      min={min}
-      max={max}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-      }}
-      className={`h-8 w-[150px] text-xs ${draft ? "" : "border-amber-300"}`}
-    />
-  );
 }
 
 // ─── One-off invoices ────────────────────────────────────────────────────
@@ -2702,7 +2327,6 @@ function PlanningGroup({
   );
 }
 
-
 function OneTimeDialog({
   mode,
   expense,
@@ -3048,65 +2672,6 @@ function CatPill({ cat }: { cat: ExpenseCategory }) {
     >
       {cat.name}
     </span>
-  );
-}
-
-/**
- * One-click retire. A client who has left still owns their content history, so
- * they cannot be deleted; inactive is the real answer and it was buried in the
- * edit dialog. Flipping this drops them out of MRR, the cash-flow calendar,
- * content seeding, planner targets and task placeholders, all of which already
- * key off isActive.
- */
-export function ActiveToggle({
-  client,
-  onChanged,
-}: {
-  client: RecurringClient;
-  onChanged: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-
-  async function flip() {
-    setBusy(true);
-    try {
-      // Retiring dates the end of the client's lifetime (today, unless one
-      // was already set); reactivating clears it.
-      await finance.updateClient(client.id, {
-        isActive: !client.isActive,
-        endedDate: client.isActive ? client.endedDate ?? todayYmd() : null,
-      });
-      toast.success(
-        client.isActive
-          ? `${client.name} moved to inactive. Adjust the date they left under Client lifetime.`
-          : `${client.name} reactivated`,
-      );
-      onChanged();
-    } catch (e) {
-      toast.error(`Couldn't update: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={flip}
-      disabled={busy}
-      title={
-        client.isActive
-          ? "Click to retire this client. Keeps their history, drops them from MRR."
-          : "Click to make this client active again."
-      }
-      className={`px-2 py-0.5 rounded text-xs font-medium transition ${
-        client.isActive
-          ? "bg-green-100 text-green-800 hover:bg-green-200"
-          : "bg-muted text-muted-foreground hover:bg-muted/70"
-      } disabled:opacity-50`}
-    >
-      {busy ? "…" : client.isActive ? "Active" : "Inactive"}
-    </button>
   );
 }
 
