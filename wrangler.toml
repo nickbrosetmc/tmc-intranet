@@ -14,6 +14,11 @@ pages_build_output_dir = "./dist"
 #   GOOGLE_CLIENT_SECRET = <from Google Cloud Console OAuth client>
 #   SESSION_SECRET       = <random 32+ byte string, used to sign JWT cookies>
 #
+# Optional secrets (Secret):
+#   FINANCE_FEED_TOKEN   = <random 32+ byte string, the same value as the TMC
+#                           Finance app's HUB_FEED_TOKEN; unset turns
+#                           /api/finance-feed off>
+#
 # Generate SESSION_SECRET locally with:
 #   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
