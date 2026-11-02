@@ -1,10 +1,13 @@
 // The TMC Finance app's access to the hub. Two secrets, each shared with
 // that app alone, and neither a person's session nor an agent API token:
 //   FINANCE_FEED_TOKEN  reads the Finance pages' data (/api/finance-feed)
-//   FINANCE_WRITE_TOKEN creates clients and rate changes when a pending deal
-//                       there is made real, and nothing else
+//   FINANCE_WRITE_TOKEN adds and edits clients and their rate changes, and
+//                       nothing else
 // Deleting a secret turns its routes off (404), so reading can stay on
 // while writing is off.
+//
+// Clients, what they pay and their contracts are edited in TMC Finance, which
+// writes them here; the hub's own client endpoints refuse those edits.
 
 import type { Env } from "./auth";
 
@@ -20,6 +23,17 @@ export async function financeAppDenied(request: Request, env: Env, access: Acces
     return Response.json({ error: "Invalid token" }, { status: 401 });
   }
   return null;
+}
+
+/** Where clients are edited now, for the hub's refusals and links. */
+export const FINANCE_APP_URL = "https://finance.tmctechhub.com";
+
+/** The hub's answer to an edit TMC Finance owns. */
+export function editedInFinance(what: string): Response {
+  return Response.json(
+    { error: `${what} in TMC Finance now (${FINANCE_APP_URL}/clients).`, code: "edited_in_finance" },
+    { status: 403 },
+  );
 }
 
 /**

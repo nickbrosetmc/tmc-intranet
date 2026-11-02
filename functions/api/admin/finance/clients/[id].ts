@@ -1,14 +1,9 @@
 import { isResponse, requireAdmin } from "../../../../lib/admin";
 import type { Env } from "../../../../lib/auth";
 import { getDb } from "../../../../db";
-import {
-  deleteRecurringClient,
-  getRecurringClient,
-  updateRecurringClient,
-} from "../../../../db/finance";
-import { datesInOrder, parseClientFields } from "../../../../lib/clientFields";
-import { recordRateChange } from "../../../../db/rateChanges";
-import { utcToday } from "../../../../lib/dates";
+import { getRecurringClient, updateRecurringClient } from "../../../../db/finance";
+import { financeOwnedIn, parseClientFields } from "../../../../lib/clientFields";
+import { editedInFinance } from "../../../../lib/financeApp";
 
 function parseId(p: Record<string, string | string[]>): number | null {
   const raw = p.id;
@@ -29,66 +24,22 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
   } catch {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
+  // Who the client is, what they pay and their contract are TMC Finance's;
+  // here it's the planner's fields and the client portal link.
+  if (financeOwnedIn(body).length) return editedInFinance("Client names, rates and contracts are edited");
   const parsed = parseClientFields(body);
   if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
 
   const db = getDb(env.DB);
   const existing = await getRecurringClient(db, id);
   if (!existing) return Response.json({ error: "Not found" }, { status: 404 });
-  // Editing one date alone mustn't leave the pair backwards.
-  const signed = parsed.fields.signedDate !== undefined ? parsed.fields.signedDate : existing.signedDate;
-  const ended = parsed.fields.endedDate !== undefined ? parsed.fields.endedDate : existing.endedDate;
-  if (!datesInOrder(signed, ended)) {
-    return Response.json({ error: "The end date can't be before the signed date" }, { status: 400 });
-  }
-
-  // A new monthly amount is a change in what the client pays, not a
-  // correction to the past: record it, effective today, so lifetime value
-  // keeps the old rate for the months already billed. (The client dialog
-  // records changes itself with a date and a note; this catches the rest.)
-  const { monthlyAmount, ...rest } = parsed.fields;
-  if (monthlyAmount !== undefined && monthlyAmount !== existing.monthlyAmount) {
-    await recordRateChange(
-      db,
-      {
-        clientId: id,
-        effectiveDate: utcToday(),
-        fromAmount: existing.monthlyAmount,
-        toAmount: monthlyAmount,
-        termMonths: null,
-        note: null,
-      },
-      utcToday(),
-    );
-    // Recording a change dated today already set the current rate; make
-    // sure, in case an earlier change is somehow dated later.
-    await updateRecurringClient(db, id, { ...rest, monthlyAmount });
-  } else {
-    await updateRecurringClient(db, id, rest);
-  }
+  await updateRecurringClient(db, id, parsed.fields);
   return Response.json({ ok: true });
 };
 
-export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params }) => {
+// Removing a client is done in TMC Finance (by marking them as left).
+export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
   const session = await requireAdmin(request, env);
   if (isResponse(session)) return session;
-  const id = parseId(params);
-  if (!id) return Response.json({ error: "Invalid id" }, { status: 400 });
-  const db = getDb(env.DB);
-  const result = await deleteRecurringClient(db, id);
-  if (!result.ok) {
-    // 409, not 500: the request is understood, the client just still has
-    // history hanging off it.
-    const what =
-      result.reason === "has_posts"
-        ? `${result.posts} content ${result.posts === 1 ? "post" : "posts"} in the planner`
-        : `${result.projects} ${result.projects === 1 ? "project" : "projects"} on their profile`;
-    return Response.json(
-      {
-        error: `This client has ${what}. Mark it inactive instead, or remove those first.`,
-      },
-      { status: 409 },
-    );
-  }
-  return Response.json({ ok: true });
+  return editedInFinance("Clients are removed");
 };

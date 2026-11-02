@@ -5,7 +5,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -22,8 +21,8 @@ import { projects as projectsApi, type ClientProject } from "@/lib/projects";
 import { daysBetween } from "@/lib/renewal";
 import { todayYmd } from "@/lib/tasks";
 import { AdminPageHeader } from "@/pages/admin/AdminPageHeader";
-import { ClientDialog } from "@/pages/admin/AdminFinance";
 import { fmtLongDay } from "@/pages/admin/ProjectParts";
+import { EditInFinance } from "@/components/EditInFinance";
 
 type Segment = "current" | "past" | "all";
 const SEGMENTS: { id: Segment; label: string }[] = [
@@ -88,20 +87,6 @@ export function AdminClientsRoster() {
     return accounts.filter((a) => a.isActive && !linked.has(a.id));
   }, [d, accounts]);
 
-  async function addFromPortal(a: AdminClient) {
-    try {
-      const { client } = await finance.createClient({
-        name: a.name,
-        monthlyAmount: 0,
-        portalClientId: a.id,
-      });
-      toast.success(`${a.name} added`);
-      navigate(`/admin/clients/${client.id}`);
-    } catch (e) {
-      toast.error(`Couldn't add: ${(e as Error).message}`);
-    }
-  }
-
   if (!d) return <div className="text-sm text-muted-foreground">Loading clients…</div>;
 
   return (
@@ -109,7 +94,7 @@ export function AdminClientsRoster() {
       <AdminPageHeader
         title="Clients"
         description="Every client, retainer or project, with their contract, projects and portal account."
-        actions={<ClientDialog mode="create" d={d} onSaved={load} />}
+        actions={<EditInFinance label="Add a client in TMC Finance" />}
       />
 
       <div className="inline-flex rounded-md border bg-card p-0.5" role="group" aria-label="Which clients">
@@ -214,8 +199,8 @@ export function AdminClientsRoster() {
           <CardHeader>
             <CardTitle className="text-base">In the portal, not in this list</CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              These portal accounts aren't tied to a client yet. Add one as a client, or link it
-              from an existing client's profile if it's the same business under another name.
+              These portal accounts aren't tied to a client yet. Add the client in TMC Finance, then
+              link the account from their profile here (or link an existing client).
             </p>
           </CardHeader>
           <CardContent>
@@ -223,9 +208,7 @@ export function AdminClientsRoster() {
               {unlinked.map((a) => (
                 <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
                   <span className="text-sm text-tmc-dark">{a.name}</span>
-                  <Button size="sm" variant="outline" onClick={() => void addFromPortal(a)}>
-                    Add as client
-                  </Button>
+                  <EditInFinance compact label="Add in TMC Finance" />
                 </li>
               ))}
             </ul>

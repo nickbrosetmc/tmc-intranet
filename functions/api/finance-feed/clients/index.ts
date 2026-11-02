@@ -1,20 +1,21 @@
-// POST /api/finance-feed/clients: a pending deal for a new client in TMC
-// Finance was made real. { name, monthlyAmount, signedDate, termMonths?,
-// invoiceDay?, paymentMethodId? }, checked by the same rules as the Finance
-// pages. Takes FINANCE_WRITE_TOKEN (see lib/financeApp.ts).
+// POST /api/finance-feed/clients: a client added in TMC Finance, where clients
+// are edited now (by hand, or a pending deal made real). { name,
+// monthlyAmount, signedDate, termMonths?, invoiceDay?, paymentMethodId?,
+// ltvAdjustment?, notes? }, checked by the same rules as everywhere else.
+// Takes FINANCE_WRITE_TOKEN (see lib/financeApp.ts).
 //
 // A client with the same name already here is a 409 carrying its id, so a
-// double-click, or a client someone added by hand first, never makes two.
+// double-click never makes two.
 
 import { sql } from "drizzle-orm";
-import type { Env } from "../../lib/auth";
-import { getDb } from "../../db";
-import { createRecurringClient } from "../../db/finance";
-import { recurringClients } from "../../db/schema";
-import { financeAppDenied, onBehalfOf } from "../../lib/financeApp";
-import { parseClientFields } from "../../lib/clientFields";
+import type { Env } from "../../../lib/auth";
+import { getDb } from "../../../db";
+import { createRecurringClient } from "../../../db/finance";
+import { recurringClients } from "../../../db/schema";
+import { financeAppDenied, onBehalfOf } from "../../../lib/financeApp";
+import { parseClientFields } from "../../../lib/clientFields";
 
-const ALLOWED = ["name", "monthlyAmount", "signedDate", "termMonths", "invoiceDay", "paymentMethodId"];
+const ALLOWED = ["name", "monthlyAmount", "signedDate", "termMonths", "invoiceDay", "paymentMethodId", "ltvAdjustment", "notes"];
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const denied = await financeAppDenied(request, env, "write");
@@ -32,13 +33,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const db = getDb(env.DB);
   const existing = await db
-    .select({ id: recurringClients.id })
+    .select({ id: recurringClients.id, name: recurringClients.name })
     .from(recurringClients)
     .where(sql`lower(trim(${recurringClients.name})) = ${f.name.toLowerCase()}`)
     .get();
   if (existing) {
     return Response.json(
-      { error: `A client named ${f.name} is already in the Tech Hub`, clientId: existing.id },
+      { error: `${existing.name} is already a client`, clientId: existing.id },
       { status: 409 },
     );
   }
@@ -51,8 +52,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     termMonths: f.termMonths ?? null,
     invoiceDay: f.invoiceDay ?? Number(f.signedDate.slice(8, 10)),
     paymentMethodId: f.paymentMethodId ?? null,
+    ltvAdjustment: f.ltvAdjustment ?? null,
     isActive: true,
-    notes: `Added from a TMC Finance pipeline deal by ${by}.`,
+    // A deal made real sends no notes; say where it came from.
+    notes: "notes" in body ? (f.notes ?? null) : `Added from a TMC Finance pipeline deal by ${by}.`,
   });
   console.log(JSON.stringify({ msg: "finance app created client", id: created.id, by }));
   return Response.json({ client: created }, { status: 201 });

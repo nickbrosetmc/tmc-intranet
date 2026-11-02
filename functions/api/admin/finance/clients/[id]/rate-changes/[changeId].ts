@@ -1,20 +1,12 @@
-// DELETE /api/admin/finance/clients/:id/rate-changes/:changeId. Corrects
-// history (how past months are valued); the current rate stays as it is.
+// DELETE /api/admin/finance/clients/:id/rate-changes/:changeId: rate history
+// is corrected in TMC Finance now, which writes it here.
 
 import { isResponse, requireAdmin } from "../../../../../../lib/admin";
 import type { Env } from "../../../../../../lib/auth";
-import { getDb } from "../../../../../../db";
-import { deleteRateChange } from "../../../../../../db/rateChanges";
+import { editedInFinance } from "../../../../../../lib/financeApp";
 
-export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params }) => {
+export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
   const session = await requireAdmin(request, env);
   if (isResponse(session)) return session;
-  const clientId = Number(params.id);
-  const changeId = Number(params.changeId);
-  if (!Number.isInteger(clientId) || !Number.isInteger(changeId)) {
-    return Response.json({ error: "Invalid id" }, { status: 400 });
-  }
-  const ok = await deleteRateChange(getDb(env.DB), clientId, changeId);
-  if (!ok) return Response.json({ error: "Not found" }, { status: 404 });
-  return Response.json({ ok: true });
+  return editedInFinance("Rate history is corrected");
 };
