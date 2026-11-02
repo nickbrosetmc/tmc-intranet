@@ -9,9 +9,10 @@ export interface Env {
   RESEND_API_KEY?: string;
   RESEND_FROM?: string;
   SITE_ASSETS: R2Bucket;
-  // Shared with the TMC Finance app for /api/finance-feed; the feed is off
-  // when unset.
+  // Shared with the TMC Finance app (see lib/financeApp.ts): reading its
+  // feed, and writing clients and rate changes. Each is off when unset.
   FINANCE_FEED_TOKEN?: string;
+  FINANCE_WRITE_TOKEN?: string;
 }
 
 export type Role = "user" | "admin";

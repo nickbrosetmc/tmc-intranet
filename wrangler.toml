@@ -18,6 +18,10 @@ pages_build_output_dir = "./dist"
 #   FINANCE_FEED_TOKEN   = <random 32+ byte string, the same value as the TMC
 #                           Finance app's HUB_FEED_TOKEN; unset turns
 #                           /api/finance-feed off>
+#   FINANCE_WRITE_TOKEN  = <a different random value, the same as TMC Finance's
+#                           HUB_WRITE_TOKEN; lets it create clients and rate
+#                           changes when a pending deal is made real; unset
+#                           turns that off>
 #
 # Generate SESSION_SECRET locally with:
 #   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
