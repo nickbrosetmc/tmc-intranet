@@ -2,7 +2,7 @@
 // renewal, so there's time to send a rate change, an updated agreement or
 // the current Terms before the 30-day notice date. Run once a day by the
 // tmc-renewal-reminders Worker (workers/renewal-reminders) through
-// /api/cron/renewal-reminders.
+// /api/cron/daily.
 //
 // Each sent reminder is logged; a reminder already in the log is never sent
 // again, and a send that fails isn't logged, so the next day retries it.
@@ -11,7 +11,13 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import type { DB } from "../db";
 import { getCalculatorSettings } from "../db";
 import { listContentSettings } from "../db/content";
-import { recurringClients, renewalReminders, type RecurringClientRow } from "../db/schema";
+import {
+  clientRateChanges,
+  recurringClients,
+  renewalReminders,
+  type RecurringClientRow,
+} from "../db/schema";
+import { termStart } from "../../src/lib/rates";
 import { esc, sendEmail, type EmailEnv } from "./email";
 import { formatLongDate } from "../../src/lib/agreement";
 import {
@@ -28,6 +34,8 @@ const PORTAL_URL = "https://portal.tmctechhub.com/admin/finance/clients";
 
 export interface DueReminder {
   client: RecurringClientRow;
+  /** Where renewals count from: the signed date, or a later new term. */
+  termStart: string | null;
   renewal: string;
   daysOut: number;
   kind: ReminderKind;
@@ -59,13 +67,28 @@ export async function findDueReminders(db: DB, today: string): Promise<DueRemind
     )
     .all();
 
+  const changes = clients.length
+    ? await db
+        .select()
+        .from(clientRateChanges)
+        .where(inArray(clientRateChanges.clientId, clients.map((c) => c.id)))
+        .all()
+    : [];
+
   const candidates: DueReminder[] = [];
   for (const client of clients) {
-    const renewal = nextRenewal(client.signedDate, client.termMonths, today);
+    // Renewals count from the current term's start: the signed date, or a
+    // later change that began a new term.
+    const start = termStart(
+      client.signedDate,
+      changes.filter((c) => c.clientId === client.id),
+      today,
+    );
+    const renewal = nextRenewal(start, client.termMonths, today);
     if (!renewal) continue;
     const daysOut = daysBetween(today, renewal);
     const kind = reminderDue(daysOut);
-    if (kind) candidates.push({ client, renewal, daysOut, kind });
+    if (kind) candidates.push({ client, termStart: start, renewal, daysOut, kind });
   }
   if (candidates.length === 0) return [];
 
@@ -180,6 +203,9 @@ export function renewalEmail(
     row("Monthly", `$${c.monthlyAmount.toLocaleString("en-US")}`),
     row("Term", term ? `${term}, renews automatically` : "Not recorded"),
     row("Signed", formatLongDate(c.signedDate)),
+    ...(r.termStart && r.termStart !== c.signedDate
+      ? [row("Term started", formatLongDate(r.termStart))]
+      : []),
     row("Renews", renews),
     row("Notice by", noticeBy),
   ].join("");
@@ -199,9 +225,4 @@ export function renewalEmail(
     </div>`;
 
   return { subject, html };
-}
-
-/** UTC calendar date. The job runs at 13:00 UTC, the same date across the US. */
-export function utcToday(): string {
-  return new Date().toISOString().slice(0, 10);
 }

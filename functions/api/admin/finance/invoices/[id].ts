@@ -7,6 +7,7 @@ import {
   updateOneOffInvoice,
 } from "../../../../db/finance";
 import type { NewOneOffInvoiceRow } from "../../../../db/schema";
+import { getProject } from "../../../../db/projects";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -46,6 +47,12 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
   if (body.paymentMethodId !== undefined) patch.paymentMethodId = body.paymentMethodId;
   if (body.instantPayout !== undefined) patch.instantPayout = Boolean(body.instantPayout);
   if (body.notes !== undefined) patch.notes = body.notes;
+  if (body.projectId !== undefined) {
+    if (body.projectId !== null && !Number.isInteger(body.projectId)) {
+      return Response.json({ error: "Invalid project" }, { status: 400 });
+    }
+    patch.projectId = body.projectId;
+  }
   for (const key of ["invoiceDate", "payoutDate"] as const) {
     if (body[key] === undefined) continue;
     if (!DATE_RE.test(body[key] ?? "")) {
@@ -55,6 +62,9 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
   }
 
   const db = getDb(env.DB);
+  if (patch.projectId != null && !(await getProject(db, patch.projectId))) {
+    return Response.json({ error: "No such project" }, { status: 400 });
+  }
   const existing = await getOneOffInvoice(db, id);
   if (!existing) return Response.json({ error: "Not found" }, { status: 404 });
 

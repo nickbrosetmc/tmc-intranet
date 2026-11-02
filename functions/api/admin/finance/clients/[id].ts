@@ -7,6 +7,8 @@ import {
   updateRecurringClient,
 } from "../../../../db/finance";
 import { datesInOrder, parseClientFields } from "../../../../lib/clientFields";
+import { recordRateChange } from "../../../../db/rateChanges";
+import { utcToday } from "../../../../lib/dates";
 
 function parseId(p: Record<string, string | string[]>): number | null {
   const raw = p.id;
@@ -40,7 +42,30 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
     return Response.json({ error: "The end date can't be before the signed date" }, { status: 400 });
   }
 
-  await updateRecurringClient(db, id, parsed.fields);
+  // A new monthly amount is a change in what the client pays, not a
+  // correction to the past: record it, effective today, so lifetime value
+  // keeps the old rate for the months already billed. (The client dialog
+  // records changes itself with a date and a note; this catches the rest.)
+  const { monthlyAmount, ...rest } = parsed.fields;
+  if (monthlyAmount !== undefined && monthlyAmount !== existing.monthlyAmount) {
+    await recordRateChange(
+      db,
+      {
+        clientId: id,
+        effectiveDate: utcToday(),
+        fromAmount: existing.monthlyAmount,
+        toAmount: monthlyAmount,
+        termMonths: null,
+        note: null,
+      },
+      utcToday(),
+    );
+    // Recording a change dated today already set the current rate; make
+    // sure, in case an earlier change is somehow dated later.
+    await updateRecurringClient(db, id, { ...rest, monthlyAmount });
+  } else {
+    await updateRecurringClient(db, id, rest);
+  }
   return Response.json({ ok: true });
 };
 
@@ -53,13 +78,14 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params
   const result = await deleteRecurringClient(db, id);
   if (!result.ok) {
     // 409, not 500: the request is understood, the client just still has
-    // content hanging off it.
+    // history hanging off it.
+    const what =
+      result.reason === "has_posts"
+        ? `${result.posts} content ${result.posts === 1 ? "post" : "posts"} in the planner`
+        : `${result.projects} ${result.projects === 1 ? "project" : "projects"} on their profile`;
     return Response.json(
       {
-        error:
-          `This client has ${result.posts} content ${
-            result.posts === 1 ? "post" : "posts"
-          } in the planner. Mark it inactive instead, or remove its posts first.`,
+        error: `This client has ${what}. Mark it inactive instead, or remove those first.`,
       },
       { status: 409 },
     );

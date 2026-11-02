@@ -1,5 +1,8 @@
 // Finance dashboard — types, API wrapper, and pure cashflow projection.
 
+import type { ClientProject } from "./projects";
+import type { RateChange } from "./rates";
+
 export interface PaymentMethod {
   id: number;
   name: string;
@@ -41,6 +44,8 @@ export interface RecurringClient {
   endedDate: string | null;
   /** Whole dollars added to the estimated lifetime value; negative takes off. */
   ltvAdjustment: number | null;
+  /** The client's portal account, if they have one. */
+  portalClientId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +81,8 @@ export interface OneOffInvoice {
   payoutDate: string;
   instantPayout: boolean;
   notes: string | null;
+  /** The project this pays for, so lifetime value counts it once. */
+  projectId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -99,6 +106,8 @@ export interface FinanceSettings {
   balanceUpdatedAt: string;
   notes: string | null;
   updatedBy: number | null;
+  /** Renewals projected lifetime value assumes (0-5). */
+  projectedRenewals: number;
 }
 
 export interface FinanceDashboard {
@@ -109,6 +118,10 @@ export interface FinanceDashboard {
   recurringExpenses: RecurringExpense[];
   oneTimeExpenses: OneTimeExpense[];
   oneOffInvoices: OneOffInvoice[];
+  /** Every client's rate history; see rates.ts. */
+  rateChanges: RateChange[];
+  /** Every client project, for project prices in lifetime value. */
+  projects: ClientProject[];
 }
 
 // ─── Calculations ────────────────────────────────────────────────────────
@@ -288,6 +301,58 @@ export interface DashboardSummary {
   projectedNet: number;             // mrrNet + one-off net - expenses
 }
 
+export interface PlanningTotals {
+  /** Planned, dated in the month and not yet past, plus anything overdue. */
+  thisMonth: number;
+  thisMonthCount: number;
+  overdueCount: number;
+  /** Planned for a later month. */
+  future: number;
+  futureCount: number;
+  /** Planned with no date yet. */
+  wishlist: number;
+  wishlistCount: number;
+  /** Everything planned and not yet paid. */
+  totalPlanned: number;
+  /** Paid in the last 90 days. */
+  paidRecently: number;
+}
+
+/**
+ * One-time purchases by horizon, as the Planning page groups them. `today`
+ * is a local YYYY-MM-DD; "this month" is the month it falls in.
+ */
+export function planningTotals(d: FinanceDashboard, today: string): PlanningTotals {
+  const monthIso = today.slice(0, 7);
+  const planned = d.oneTimeExpenses.filter((e) => e.status === "planned");
+  const sum = (xs: OneTimeExpense[]) => xs.reduce((s, e) => s + e.amount, 0);
+  const wishlist = planned.filter((e) => !e.plannedDate);
+  const overdue = planned.filter((e) => e.plannedDate && e.plannedDate < today);
+  const thisMonth = planned.filter(
+    (e) => e.plannedDate && e.plannedDate.startsWith(monthIso) && e.plannedDate >= today,
+  );
+  const future = planned.filter(
+    (e) => e.plannedDate && !e.plannedDate.startsWith(monthIso) && e.plannedDate >= today,
+  );
+  const [y, m, dd] = today.split("-").map(Number);
+  const cutoff = new Date(y, m - 1, dd - 90);
+  const cutoffYmd = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;
+  const paidRecently = d.oneTimeExpenses.filter(
+    (e) => e.status === "paid" && e.paidDate && e.paidDate >= cutoffYmd,
+  );
+  return {
+    thisMonth: sum(thisMonth) + sum(overdue),
+    thisMonthCount: thisMonth.length + overdue.length,
+    overdueCount: overdue.length,
+    future: sum(future),
+    futureCount: future.length,
+    wishlist: sum(wishlist),
+    wishlistCount: wishlist.length,
+    totalPlanned: sum(planned),
+    paidRecently: sum(paidRecently),
+  };
+}
+
 /** Find the Payroll category id by canonical name. Case-insensitive. */
 export function payrollCategoryId(d: FinanceDashboard): number | null {
   return (
@@ -407,6 +472,11 @@ async function jsonReq<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const finance = {
   dashboard: () => jsonReq<FinanceDashboard>("/api/admin/finance/dashboard"),
+  setProjectedRenewals: (projectedRenewals: number) =>
+    jsonReq<{ ok: true; projectedRenewals: number }>("/api/admin/finance/projection", {
+      method: "PATCH",
+      body: JSON.stringify({ projectedRenewals }),
+    }),
   setBalance: (currentBalance: number) =>
     jsonReq<FinanceSettings>("/api/admin/finance/balance", {
       method: "PATCH",
@@ -426,6 +496,26 @@ export const finance = {
     }),
   deleteClient: (id: number) =>
     jsonReq<{ ok: true }>(`/api/admin/finance/clients/${id}`, { method: "DELETE" }),
+
+  recordRateChange: (
+    clientId: number,
+    data: {
+      effectiveDate: string;
+      toAmount: number;
+      fromAmount?: number | null;
+      /** 0, 6 or 12 starts a new term on effectiveDate; omit to leave it. */
+      termMonths?: number | null;
+      note?: string | null;
+    },
+  ) =>
+    jsonReq<{ change: RateChange }>(`/api/admin/finance/clients/${clientId}/rate-changes`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteRateChange: (clientId: number, changeId: number) =>
+    jsonReq<{ ok: true }>(`/api/admin/finance/clients/${clientId}/rate-changes/${changeId}`, {
+      method: "DELETE",
+    }),
 
   renewalReminders: () =>
     jsonReq<{ recipients: string; recent: SentReminder[] }>(

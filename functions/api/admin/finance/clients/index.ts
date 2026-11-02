@@ -54,6 +54,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     termMonths: f.termMonths ?? null,
     endedDate: f.endedDate ?? null,
     ltvAdjustment: f.ltvAdjustment ?? null,
+    portalClientId: f.portalClientId ?? null,
   });
   return Response.json({ client: created }, { status: 201 });
 };

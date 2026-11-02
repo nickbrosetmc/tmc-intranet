@@ -57,9 +57,14 @@ export function AdminClients() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight text-tmc-dark">
-          Clients
-        </h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-tmc-dark">
+            Portal accounts
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Client logins for the portal. Link one to a client from that client's profile.
+          </p>
+        </div>
         <ClientDialog mode="create" onSaved={refresh} />
       </div>
 

@@ -20,6 +20,8 @@ import { clientLifetime, formatTenure, lifetimeAverages } from "@/lib/clientLife
 import { daysBetween } from "@/lib/renewal";
 import { todayYmd } from "@/lib/tasks";
 import { usePollingRefresh } from "@/lib/usePollingRefresh";
+import { projects as projectsApi, type ClientProject } from "@/lib/projects";
+import { LaunchLabel } from "@/pages/admin/ProjectParts";
 import { AdminPageHeader } from "@/pages/admin/AdminPageHeader";
 import { StatCard } from "@/pages/admin/AdminFinance";
 
@@ -32,22 +34,27 @@ interface TeamToday {
 
 /** Renewals this close show on the overview. */
 const RENEWAL_WINDOW_DAYS = 60;
+/** Launches this many days either side of today show on the overview. */
+const LAUNCH_WINDOW_DAYS = 30;
 
 export function AdminOverview() {
   const [d, setD] = useState<FinanceDashboard | null>(null);
   const [team, setTeam] = useState<TeamToday | null>(null);
   const [newRequests, setNewRequests] = useState(0);
+  const [projectList, setProjectList] = useState<ClientProject[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
     try {
-      const [fin, dash] = await Promise.all([
+      const [fin, dash, proj] = await Promise.all([
         finance.dashboard(),
         fetch("/api/dashboard", { credentials: "same-origin" }).then((r) => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.json() as Promise<{ team: TeamToday | null; newSubmissionCount: number }>;
         }),
+        projectsApi.list(),
       ]);
+      setProjectList(proj.projects);
       setD(fin);
       setTeam(dash.team);
       setNewRequests(dash.newSubmissionCount);
@@ -78,23 +85,29 @@ export function AdminOverview() {
     const endBalance = projection.length
       ? projection[projection.length - 1].balance
       : d.settings.currentBalance;
-    const lifetimes = d.recurringClients.map((c) => clientLifetime(c, d.oneOffInvoices, today));
+    const lifetimes = d.recurringClients.map((c) => clientLifetime(c, d.oneOffInvoices, today, d.rateChanges, d.projects));
     const renewals = lifetimes
       .filter((l) => l.nextRenewal && daysBetween(today, l.nextRenewal) <= RENEWAL_WINDOW_DAYS)
       .sort((a, b) => a.nextRenewal!.localeCompare(b.nextRenewal!));
     const overBudget = categoryBudgetStatus(d, monthIso).filter(
       (s) => s.percentUsed != null && s.percentUsed > 100,
     );
+    const launches = projectList
+      .filter(
+        (p) => p.launchDate && Math.abs(daysBetween(today, p.launchDate)) <= LAUNCH_WINDOW_DAYS,
+      )
+      .sort((a, b) => b.launchDate!.localeCompare(a.launchDate!));
     return {
       summary,
       endBalance,
+      launches,
       renewals,
       all: lifetimeAverages(lifetimes, "all"),
       current: lifetimeAverages(lifetimes, "current"),
       past: lifetimeAverages(lifetimes, "past"),
       overBudget,
     };
-  }, [d, monthIso, today]);
+  }, [d, monthIso, today, projectList]);
 
   if (error && !d) {
     return (
@@ -129,7 +142,7 @@ export function AdminOverview() {
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <TileLink href="/admin/finance">
+        <TileLink href="/admin/finance/cash-flow">
           <StatCard
             label="Cash on hand"
             value={fmtMoney(d.settings.currentBalance)}
@@ -143,7 +156,7 @@ export function AdminOverview() {
             subtitle={`gross ${fmtMoney(view.summary.mrrGross)}`}
           />
         </TileLink>
-        <TileLink href="/admin/finance">
+        <TileLink href="/admin/finance/cash-flow">
           <StatCard
             label="Month-end balance"
             value={fmtMoney(view.endBalance)}
@@ -202,6 +215,29 @@ export function AdminOverview() {
               </ul>
             )}
           </Panel>
+
+          {view.launches.length > 0 && (
+            <Panel title="Launches" href="/admin/projects" linkLabel="All projects">
+              <ul className="divide-y">
+                {view.launches.map((p) => (
+                  <li key={p.id} className="flex items-center justify-between gap-3 py-2.5">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-tmc-dark truncate">{p.name}</div>
+                      <Link
+                        href={`/admin/clients/${p.clientId}`}
+                        className="text-xs text-muted-foreground hover:text-tmc-gold-dark"
+                      >
+                        {p.clientName}
+                      </Link>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <LaunchLabel launchDate={p.launchDate} today={today} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
 
           <Panel title="Client lifetime" href="/admin/finance/clients" linkLabel="Details">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
