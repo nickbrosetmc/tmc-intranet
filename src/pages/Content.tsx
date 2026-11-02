@@ -59,6 +59,7 @@ import {
   toIsoDate,
   weekDates,
   weekLabel,
+  type ContentClient,
   type ContentDashboard,
   type ContentPost,
   type FunnelStage,
@@ -393,7 +394,7 @@ function ClientRow({
   focusPostId,
   onFocusConsumed,
 }: {
-  client: RecurringClient;
+  client: ContentClient;
   dates: string[];
   posts: ContentPost[];
   d: ContentDashboard;
@@ -1889,7 +1890,7 @@ function ClientTargetsCard({
   clients,
   onChanged,
 }: {
-  clients: RecurringClient[];
+  clients: ContentClient[];
   onChanged: () => void;
 }) {
   const active = clients.filter((c) => c.isActive);

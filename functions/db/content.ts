@@ -5,6 +5,7 @@ import {
   contentSettings,
   funnelStages,
   pillars,
+  recurringClients,
   type ContentPostRow,
   type FunnelStageRow,
   type NewContentPostRow,
@@ -73,6 +74,28 @@ export async function deleteFunnelStage(db: DB, id: number): Promise<void> {
     .where(eq(contentPosts.funnelStageId, id))
     .run();
   await db.delete(funnelStages).where(eq(funnelStages.id, id)).run();
+}
+
+// ─── Planner clients ─────────────────────────────────────────────────────
+
+/**
+ * The client list as the content planner sees it. recurring_clients also
+ * holds billing (amounts, terms, LTV), and the planner is team-wide, so
+ * only the scheduling columns are selected here. Money stays behind the
+ * admin finance endpoints.
+ */
+export async function listPlannerClients(db: DB) {
+  return db
+    .select({
+      id: recurringClients.id,
+      name: recurringClients.name,
+      isActive: recurringClients.isActive,
+      weeklyPostTarget: recurringClients.weeklyPostTarget,
+      postingDays: recurringClients.postingDays,
+    })
+    .from(recurringClients)
+    .orderBy(asc(recurringClients.sortOrder), asc(recurringClients.name))
+    .all();
 }
 
 // ─── Content posts ───────────────────────────────────────────────────────

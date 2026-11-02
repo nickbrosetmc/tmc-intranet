@@ -94,10 +94,19 @@ export interface ContentSettings {
   [key: string]: string | null | undefined;
 }
 
+/**
+ * A client as the content planner sees it: scheduling fields only. The
+ * dashboard is team-wide, so billing stays on the admin finance endpoints.
+ */
+export type ContentClient = Pick<
+  RecurringClient,
+  "id" | "name" | "isActive" | "weeklyPostTarget" | "postingDays"
+>;
+
 export interface ContentDashboard {
   pillars: Pillar[];
   funnelStages: FunnelStage[];
-  clients: RecurringClient[];
+  clients: ContentClient[];
   posts: ContentPost[];
   settings: ContentSettings;
   userOptions: ContentUserOption[];
