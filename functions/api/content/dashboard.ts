@@ -1,6 +1,7 @@
-// Team-accessible content dashboard payload. Same shape as the admin
-// endpoint (/api/admin/content) but gated to any signed-in team user
-// so the whole team can use the tracker. Settings mutations stay
+// Team-accessible content dashboard payload. Like the admin endpoint
+// (/api/admin/content) but gated to any signed-in team user so the whole
+// team can use the tracker. Because of that, `clients` carries only the
+// planner's scheduling fields, never billing. Settings mutations stay
 // admin-only at /api/admin/content/*.
 
 import type { Env } from "../../lib/auth";
@@ -10,10 +11,10 @@ import {
   listContentSettings,
   listFunnelStages,
   listPillars,
+  listPlannerClients,
   listPostsInRange,
   seedBlankPostsForCurrentWeek,
 } from "../../db/content";
-import { listRecurringClients } from "../../db/finance";
 import { listAllUsers } from "../../db/admin";
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
@@ -64,7 +65,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     await Promise.all([
       listPillars(db),
       listFunnelStages(db),
-      listRecurringClients(db),
+      listPlannerClients(db),
       listPostsInRange(db, start, end),
       listContentSettings(db),
       listAllUsers(db),
